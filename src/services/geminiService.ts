@@ -78,9 +78,9 @@ const entitySchema = {
     subcategory: { type: 'string' },
     likely_domain: { type: 'string' },
     short_definition: { type: 'string' },
-    key_specs: { type: 'array', items: { type: 'string' } }
+    key_attributes: { type: 'array', items: { type: 'string' } }
   },
-  required: ["name", "normalized_name", "category", "subcategory", "likely_domain", "short_definition", "key_specs"]
+  required: ["name", "normalized_name", "category", "subcategory", "likely_domain", "short_definition", "key_attributes"]
 };
 
 // Phase 2 Schema
@@ -170,10 +170,11 @@ async function runResearcherAgent(itemName: string) {
         {
           role: 'user',
           content: `Search the web for comprehensive information about "${itemName}":
-- Official specifications and features
-- Release date and pricing information
-- Expert reviews and comparisons
-- Latest updates or versions
+- Key characteristics and defining attributes
+- Historical background and timeline
+- Expert analysis and comparisons
+- Recent developments or changes
+- Relevant facts and data points
 
 Provide detailed, factual information with sources.`
         }
@@ -186,10 +187,10 @@ Provide detailed, factual information with sources.`
         {
           role: 'user',
           content: `Search X (Twitter) for recent discussions about "${itemName}":
-- User experiences and opinions
-- Common complaints or praise
+- Public opinions and perspectives
+- Common criticisms or praise
 - Trending topics and discussions
-- Real-world usage feedback
+- Real-world observations and insights
 
 Focus on posts from the last 3 months.`
         }
@@ -215,11 +216,11 @@ X (TWITTER) DISCUSSIONS:
 ${xResults}
 
 Extract and synthesize:
-1. Normalized name and category
-2. Key specifications from official sources
+1. Normalized name and category classification
+2. Key characteristics and defining attributes from authoritative sources
 3. Domain and subcategory classification
-4. Concise definition incorporating both official specs and user sentiment
-5. Key specs list combining technical details and user-highlighted features`
+4. Concise definition incorporating both factual information and public perception
+5. Key attributes list combining objective facts and notable observations`
       }
     ],
     response_format: {
@@ -237,11 +238,12 @@ Extract and synthesize:
 }
 
 async function runArchitectAgent(profileA: any, profileB: any) {
-  const prompt = `You are an Architect Agent. Based on the following profiles, determine their relationship and generate 4 to 6 key dimensions to compare them on.
-Profile A: ${JSON.stringify(profileA)}
-Profile B: ${JSON.stringify(profileB)}
+  const prompt = `You are an Architect Agent. Based on the following entity profiles, determine their relationship and generate 4 to 6 key dimensions to compare them on.
 
-Do not use generic templates. Tailor the dimensions to these specific items.`;
+Entity A: ${JSON.stringify(profileA)}
+Entity B: ${JSON.stringify(profileB)}
+
+These entities can be anything: products, countries, people, animals, concepts, events, or any other comparable subjects. Analyze their nature and generate dimensions that are specifically tailored to these particular entities. Do not use generic templates.`;
 
   const response = await openai.chat.completions.create({
     model: 'grok-4-1-fast-reasoning',
@@ -260,13 +262,14 @@ Do not use generic templates. Tailor the dimensions to these specific items.`;
 }
 
 async function runAnalystAgent(profileA: any, profileB: any, dimension: any) {
-  const prompt = `You are an Analyst Agent. Compare the following two items strictly on the dimension: "${dimension.label}".
-Item A: ${profileA.name} (${profileA.short_definition})
-Item B: ${profileB.name} (${profileB.short_definition})
+  const prompt = `You are an Analyst Agent. Compare the following two entities strictly on the dimension: "${dimension.label}".
+
+Entity A: ${profileA.name} (${profileA.short_definition})
+Entity B: ${profileB.name} (${profileB.short_definition})
 Dimension Context: ${dimension.why_it_matters}
 Comparison Angle: ${dimension.comparison_angle}
 
-Analyze their differences, summarize each, and provide a score out of 10 for both.`;
+Analyze their differences, summarize each entity's characteristics on this dimension, and provide a score out of 10 for both.`;
 
   const response = await openai.chat.completions.create({
     model: 'grok-4-1-fast-reasoning',
@@ -285,9 +288,10 @@ Analyze their differences, summarize each, and provide a score out of 10 for bot
 }
 
 async function runProsConsAgent(profileA: any, profileB: any, dimensions: any[]) {
-  const prompt = `You are a Judge Agent. Based on the profiles and the multidimensional analysis below, extract the key pros and cons for both items.
-Item A: ${profileA.name}
-Item B: ${profileB.name}
+  const prompt = `You are a Judge Agent. Based on the entity profiles and the multidimensional analysis below, extract the key strengths and weaknesses for both entities.
+
+Entity A: ${profileA.name}
+Entity B: ${profileB.name}
 Analysis: ${JSON.stringify(dimensions)}`;
 
   const response = await openai.chat.completions.create({
@@ -307,11 +311,12 @@ Analysis: ${JSON.stringify(dimensions)}`;
 }
 
 async function runRecommendationAgent(profileA: any, profileB: any, dimensions: any[], prosCons: any) {
-  const prompt = `You are a Judge Agent. Based on all the gathered data, provide a final verdict and recommendation on who should choose which item.
-Item A: ${profileA.name}
-Item B: ${profileB.name}
+  const prompt = `You are a Judge Agent. Based on all the gathered data, provide a final verdict and recommendation on when to prefer each entity.
+
+Entity A: ${profileA.name}
+Entity B: ${profileB.name}
 Analysis: ${JSON.stringify(dimensions)}
-Pros & Cons: ${JSON.stringify(prosCons)}`;
+Strengths & Weaknesses: ${JSON.stringify(prosCons)}`;
 
   const response = await openai.chat.completions.create({
     model: 'grok-4-1-fast-reasoning',
