@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Universal Compare is a React + Vite + TypeScript web application that uses Grok AI to compare any two entities (products, concepts, etc.) through a multi-agent AI pipeline.
+CompareAI is a React + Vite + TypeScript web application that uses Grok AI to compare any two entities (products, concepts, etc.) through a multi-agent AI pipeline.
 
 ## Development Commands
 

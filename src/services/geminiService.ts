@@ -165,7 +165,7 @@ const recommendationSchema = {
 async function runResearcherAgent(itemName: string) {
   const [webSearchResponse, xSearchResponse] = await Promise.all([
     (openai as any).responses.create({
-      model: 'grok-4-1-fast',
+      model: 'grok-4-1-fast-non-reasoning',
       input: [
         {
           role: 'user',
@@ -182,7 +182,7 @@ Provide detailed, factual information with sources.`
       tools: [{ type: 'web_search' }] as ResponsesAPITool[]
     }),
     (openai as any).responses.create({
-      model: 'grok-4-1-fast',
+      model: 'grok-4-1-fast-non-reasoning',
       input: [
         {
           role: 'user',
@@ -240,10 +240,12 @@ Extract and synthesize:
 async function runArchitectAgent(profileA: any, profileB: any) {
   const prompt = `You are an Architect Agent. Based on the following entity profiles, determine their relationship and generate 4 to 6 key dimensions to compare them on.
 
-Entity A: ${JSON.stringify(profileA)}
-Entity B: ${JSON.stringify(profileB)}
+First entity: ${JSON.stringify(profileA)}
+Second entity: ${JSON.stringify(profileB)}
 
-These entities can be anything: products, countries, people, animals, concepts, events, or any other comparable subjects. Analyze their nature and generate dimensions that are specifically tailored to these particular entities. Do not use generic templates.`;
+These entities can be anything: products, countries, people, animals, concepts, events, or any other comparable subjects. Analyze their nature and generate dimensions that are specifically tailored to these particular entities. Do not use generic templates.
+
+IMPORTANT: In all your outputs, always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use generic labels like "Entity A", "Entity B", "A", "B", "Item A", "Item B", or similar placeholders.`;
 
   const response = await openai.chat.completions.create({
     model: 'grok-4-1-fast-reasoning',
@@ -264,12 +266,14 @@ These entities can be anything: products, countries, people, animals, concepts, 
 async function runAnalystAgent(profileA: any, profileB: any, dimension: any) {
   const prompt = `You are an Analyst Agent. Compare the following two entities strictly on the dimension: "${dimension.label}".
 
-Entity A: ${profileA.name} (${profileA.short_definition})
-Entity B: ${profileB.name} (${profileB.short_definition})
+${profileA.name}: ${profileA.short_definition}
+${profileB.name}: ${profileB.short_definition}
 Dimension Context: ${dimension.why_it_matters}
 Comparison Angle: ${dimension.comparison_angle}
 
-Analyze their differences, summarize each entity's characteristics on this dimension, and provide a score out of 10 for both.`;
+Analyze their differences, summarize each entity's characteristics on this dimension, and provide a score out of 10 for both.
+
+IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders in your analysis text.`;
 
   const response = await openai.chat.completions.create({
     model: 'grok-4-1-fast-reasoning',
@@ -290,9 +294,11 @@ Analyze their differences, summarize each entity's characteristics on this dimen
 async function runProsConsAgent(profileA: any, profileB: any, dimensions: any[]) {
   const prompt = `You are a Judge Agent. Based on the entity profiles and the multidimensional analysis below, extract the key strengths and weaknesses for both entities.
 
-Entity A: ${profileA.name}
-Entity B: ${profileB.name}
-Analysis: ${JSON.stringify(dimensions)}`;
+${profileA.name}: ${profileA.short_definition}
+${profileB.name}: ${profileB.short_definition}
+Analysis: ${JSON.stringify(dimensions)}
+
+IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders.`;
 
   const response = await openai.chat.completions.create({
     model: 'grok-4-1-fast-reasoning',
@@ -313,10 +319,12 @@ Analysis: ${JSON.stringify(dimensions)}`;
 async function runRecommendationAgent(profileA: any, profileB: any, dimensions: any[], prosCons: any) {
   const prompt = `You are a Judge Agent. Based on all the gathered data, provide a final verdict and recommendation on when to prefer each entity.
 
-Entity A: ${profileA.name}
-Entity B: ${profileB.name}
+${profileA.name}: ${profileA.short_definition}
+${profileB.name}: ${profileB.short_definition}
 Analysis: ${JSON.stringify(dimensions)}
-Strengths & Weaknesses: ${JSON.stringify(prosCons)}`;
+Strengths & Weaknesses: ${JSON.stringify(prosCons)}
+
+IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders in your verdict and recommendations.`;
 
   const response = await openai.chat.completions.create({
     model: 'grok-4-1-fast-reasoning',
@@ -367,8 +375,8 @@ export async function generateComparison(
 
   // Phase 3: Multi-Dimensional Analysis (Concurrent)
   onProgress?.(`Phase 3: Analyzing ${framework.dimensions.length} dimensions concurrently...`);
-  // Limit concurrency to 3 to avoid rate limits on standard tiers
-  const analyzedDimensions = await mapConcurrent(framework.dimensions, 3, async (dim) => {
+  // Limit concurrency to 6 for faster processing
+  const analyzedDimensions = await mapConcurrent(framework.dimensions, 6, async (dim) => {
     const result = await runAnalystAgent(profileA, profileB, dim);
     onPhaseComplete?.('dimension', result);
     return result;

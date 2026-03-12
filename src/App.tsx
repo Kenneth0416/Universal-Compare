@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { generateComparison, ComparisonResult } from './services/geminiService';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, ArrowRightLeft, Loader2, CheckCircle2, XCircle, AlertCircle, ChevronRight, Info } from 'lucide-react';
@@ -6,6 +6,27 @@ import { ComparisonGrid } from './components/ComparisonGrid';
 import { ComparisonCard } from './components/ComparisonCard';
 import { AILoadingState } from './components/AILoadingState';
 import { DimensionChart } from './components/DimensionChart';
+import MinimalGrid from './components/react-bits/MinimalGrid';
+import Counter from './components/react-bits/Counter';
+import BlurText from './components/react-bits/BlurText';
+
+const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && isFinite(value);
+
+const useReducedMotion = () => {
+  const [shouldReduce, setShouldReduce] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const isLowEnd = navigator.hardwareConcurrency ? navigator.hardwareConcurrency <= 4 : false;
+    setShouldReduce(mediaQuery.matches || isLowEnd);
+
+    const handleChange = () => setShouldReduce(mediaQuery.matches || isLowEnd);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  return shouldReduce;
+};
 
 export default function App() {
   const [itemA, setItemA] = useState('');
@@ -58,7 +79,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen font-sans selection:bg-indigo-500/30 selection:text-indigo-200 relative">
-      <div className="atmosphere-bg" />
+      <MinimalGrid />
       {/* Header / Hero */}
       <header className="pt-20 pb-16 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto text-center relative z-10">
         <motion.div
@@ -66,11 +87,17 @@ export default function App() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <div className="inline-flex items-center justify-center p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl mb-6 text-indigo-400">
-            <ArrowRightLeft size={32} strokeWidth={2.5} />
-          </div>
-          <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight text-white mb-6">
-            Universal Compare
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight mb-6">
+            <BlurText
+              duration={1.6}
+              initialBlur={14}
+              staggerDelay={0.08}
+              className="font-display"
+              gradientColors={['#667eea', '#764ba2', '#f093fb']}
+              gradientAnimationSpeed={8}
+            >
+              CompareAI
+            </BlurText>
           </h1>
           <p className="text-lg sm:text-xl text-neutral-400 max-w-2xl mx-auto mb-10">
             Compare anything. From gadgets to fruits, concepts to software. 
@@ -85,27 +112,33 @@ export default function App() {
                   value={itemA}
                   onChange={(e) => setItemA(e.target.value)}
                   placeholder="e.g., MacBook Air M3"
-                  className="w-full px-6 py-4 bg-transparent outline-none text-lg font-medium text-white placeholder:text-neutral-500"
+                  inputMode="text"
+                  autoComplete="off"
+                  autoCapitalize="words"
+                  className="w-full px-6 py-4 bg-transparent outline-none text-base sm:text-lg font-medium text-white placeholder:text-neutral-500"
                   required
                 />
               </div>
               <div className="hidden sm:flex items-center justify-center w-10 h-10 rounded-full bg-white/10 text-neutral-400 shrink-0 border border-white/5">
                 <span className="text-sm font-bold font-mono">VS</span>
               </div>
-              <div className="flex-1 w-full relative border-t sm:border-t-0 sm:border-l border-white/10">
+              <div className="flex-1 w-full relative border-t-2 sm:border-t-0 sm:border-l-2 border-white/20">
                 <input
                   type="text"
                   value={itemB}
                   onChange={(e) => setItemB(e.target.value)}
                   placeholder="e.g., iPad Pro"
-                  className="w-full px-6 py-4 bg-transparent outline-none text-lg font-medium text-white placeholder:text-neutral-500"
+                  inputMode="text"
+                  autoComplete="off"
+                  autoCapitalize="words"
+                  className="w-full px-6 py-4 bg-transparent outline-none text-base sm:text-lg font-medium text-white placeholder:text-neutral-500"
                   required
                 />
               </div>
               <button
                 type="submit"
                 disabled={loading || !itemA.trim() || !itemB.trim()}
-                className="w-full sm:w-auto px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/25"
+                className="w-full sm:w-auto px-8 py-4 min-h-[44px] bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/25"
               >
                 {loading ? (
                   <Loader2 className="animate-spin" size={20} />
@@ -123,7 +156,7 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto pb-24 relative z-10">
-        <AnimatePresence mode="wait">
+        <AnimatePresence>
           {error && (
             <motion.div
               key="error"
@@ -224,54 +257,64 @@ export default function App() {
                   )}
 
                 <ComparisonGrid>
-                  {(result || partialResult).dimensions?.map((dim, idx) => (
-                    <motion.div
-                      key={dim.key || idx}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.4 }}
-                    >
-                      <ComparisonCard title={dim.label} className="h-full flex flex-col">
-                        {dim.why_it_matters && (
-                          <p className="text-neutral-400 text-xs mb-4 flex-grow">{dim.why_it_matters}</p>
-                        )}
-                        
-                        <div className="grid grid-cols-2 gap-4 mb-4">
-                          <div className="bg-white/5 p-3 rounded-xl border border-white/5">
-                            <div className="flex justify-between items-center mb-2">
-                              {(result || partialResult).entityA?.name && (
-                                <p className="font-semibold text-white text-sm truncate pr-2">
-                                  {(result || partialResult).entityA?.name}
-                                </p>
-                              )}
-                              {dim.analysis?.optional_score_a != null && (
-                                <span className="font-mono text-xs font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">
-                                  {dim.analysis.optional_score_a}/10
-                                </span>
-                              )}
-                            </div>
-                            {dim.analysis?.item_a_summary && (
-                              <p className="text-neutral-300 text-xs mt-1">{dim.analysis.item_a_summary}</p>
-                            )}
-                          </div>
-                          <div className="bg-white/5 p-3 rounded-xl border border-white/5">
-                            <div className="flex justify-between items-center mb-2">
-                              {(result || partialResult).entityB?.name && (
-                                <p className="font-semibold text-white text-sm truncate pr-2">
-                                  {(result || partialResult).entityB?.name}
-                                </p>
-                              )}
-                              {dim.analysis?.optional_score_b != null && (
-                                <span className="font-mono text-xs font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">
-                                  {dim.analysis.optional_score_b}/10
-                                </span>
+                  {(result || partialResult).dimensions?.map((dim, idx) => {
+                    const scoreA = dim.analysis?.optional_score_a;
+                    const scoreB = dim.analysis?.optional_score_b;
+                    const safeScoreA = isFiniteNumber(scoreA) ? scoreA : 0;
+                    const safeScoreB = isFiniteNumber(scoreB) ? scoreB : 0;
+
+                    return (
+                      <motion.div
+                        key={dim.key || idx}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        whileHover={{ y: -4, scale: 1.01 }}
+                        transition={{ duration: 0.4, ease: 'easeOut' }}
+                        style={{ willChange: 'transform' }}
+                      >
+                        <ComparisonCard title={dim.label} className="h-full flex flex-col">
+                          {dim.why_it_matters && (
+                            <p className="text-neutral-400 text-xs mb-4 flex-grow">{dim.why_it_matters}</p>
+                          )}
+                          
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                            <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                              <div className="flex justify-between items-center mb-2">
+                                {(result || partialResult).entityA?.name && (
+                                  <p className="font-semibold text-white text-sm pr-2">
+                                    {(result || partialResult).entityA?.name}
+                                  </p>
+                                )}
+                                {scoreA != null && (
+                                  <span className="font-mono text-xs font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">
+                                    <Counter from={0} to={safeScoreA} duration={0.8} fontSize={12} />
+                                    /10
+                                  </span>
+                                )}
+                              </div>
+                              {dim.analysis?.item_a_summary && (
+                                <p className="text-neutral-300 text-sm sm:text-xs mt-1">{dim.analysis.item_a_summary}</p>
                               )}
                             </div>
-                            {dim.analysis?.item_b_summary && (
-                              <p className="text-neutral-300 text-xs mt-1">{dim.analysis.item_b_summary}</p>
-                            )}
+                            <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                              <div className="flex justify-between items-center mb-2">
+                                {(result || partialResult).entityB?.name && (
+                                  <p className="font-semibold text-white text-sm pr-2">
+                                    {(result || partialResult).entityB?.name}
+                                  </p>
+                                )}
+                                {scoreB != null && (
+                                  <span className="font-mono text-xs font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">
+                                    <Counter from={0} to={safeScoreB} duration={0.8} fontSize={12} />
+                                    /10
+                                  </span>
+                                )}
+                              </div>
+                              {dim.analysis?.item_b_summary && (
+                                <p className="text-neutral-300 text-sm sm:text-xs mt-1">{dim.analysis.item_b_summary}</p>
+                              )}
+                            </div>
                           </div>
-                        </div>
                         <div className="text-xs text-neutral-300 border-t border-white/10 pt-3 flex flex-col sm:flex-row justify-between gap-3">
                           {dim.analysis?.key_difference && (
                             <div>
@@ -292,14 +335,20 @@ export default function App() {
                             </div>
                           )}
                         </div>
-                      </ComparisonCard>
-                    </motion.div>
-                  ))}
+                        </ComparisonCard>
+                      </motion.div>
+                    );
+                  })}
                 </ComparisonGrid>
               </section>
 
               {/* 3. Pros & Cons */}
-              <section className="grid md:grid-cols-2 gap-6">
+              <motion.section
+                className="grid md:grid-cols-2 gap-6"
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.15 }}
+              >
                 {/* Entity A */}
                 <div className="bg-white/5 backdrop-blur-xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/10">
                   {(result || partialResult).entityA?.name && (
@@ -313,11 +362,18 @@ export default function App() {
                         <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-3 flex items-center gap-2 font-mono">
                           <CheckCircle2 size={16} /> Pros
                         </h4>
-                        <ul className="space-y-2">
+                        <ul className="space-y-2 sm:space-y-1.5">
                           {(result || partialResult).prosCons?.item_a_pros?.map((pro, i) => (
-                            <li key={i} className="flex items-start gap-2 text-sm text-neutral-300">
-                              <span className="text-emerald-500 mt-0.5">•</span>
-                              <span>{pro}</span>
+                            <li key={i}>
+                              <motion.div
+                                className="flex items-start gap-2 text-sm text-neutral-300 rounded-xl px-2 py-1 active:bg-emerald-500/20 sm:hover:bg-emerald-500/20 transition-colors"
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.35, delay: i * 0.1 }}
+                              >
+                                <span className="text-emerald-500 mt-0.5">•</span>
+                                <span>{pro}</span>
+                              </motion.div>
                             </li>
                           ))}
                         </ul>
@@ -328,11 +384,18 @@ export default function App() {
                         <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider mb-3 flex items-center gap-2 font-mono">
                           <XCircle size={16} /> Cons
                         </h4>
-                        <ul className="space-y-2">
+                        <ul className="space-y-2 sm:space-y-1.5">
                           {(result || partialResult).prosCons?.item_a_cons?.map((con, i) => (
-                            <li key={i} className="flex items-start gap-2 text-sm text-neutral-300">
-                              <span className="text-rose-500 mt-0.5">•</span>
-                              <span>{con}</span>
+                            <li key={i}>
+                              <motion.div
+                                className="flex items-start gap-2 text-sm text-neutral-300 rounded-xl px-2 py-1 active:bg-rose-500/20 sm:hover:bg-rose-500/20 transition-colors"
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.35, delay: i * 0.1 }}
+                              >
+                                <span className="text-rose-500 mt-0.5">•</span>
+                                <span>{con}</span>
+                              </motion.div>
                             </li>
                           ))}
                         </ul>
@@ -354,11 +417,18 @@ export default function App() {
                         <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-3 flex items-center gap-2 font-mono">
                           <CheckCircle2 size={16} /> Pros
                         </h4>
-                        <ul className="space-y-2">
+                        <ul className="space-y-2 sm:space-y-1.5">
                           {(result || partialResult).prosCons?.item_b_pros?.map((pro, i) => (
-                            <li key={i} className="flex items-start gap-2 text-sm text-neutral-300">
-                              <span className="text-emerald-500 mt-0.5">•</span>
-                              <span>{pro}</span>
+                            <li key={i}>
+                              <motion.div
+                                className="flex items-start gap-2 text-sm text-neutral-300 rounded-xl px-2 py-1 active:bg-emerald-500/20 sm:hover:bg-emerald-500/20 transition-colors"
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.35, delay: i * 0.1 }}
+                              >
+                                <span className="text-emerald-500 mt-0.5">•</span>
+                                <span>{pro}</span>
+                              </motion.div>
                             </li>
                           ))}
                         </ul>
@@ -369,11 +439,18 @@ export default function App() {
                         <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider mb-3 flex items-center gap-2 font-mono">
                           <XCircle size={16} /> Cons
                         </h4>
-                        <ul className="space-y-2">
+                        <ul className="space-y-2 sm:space-y-1.5">
                           {(result || partialResult).prosCons?.item_b_cons?.map((con, i) => (
-                            <li key={i} className="flex items-start gap-2 text-sm text-neutral-300">
-                              <span className="text-rose-500 mt-0.5">•</span>
-                              <span>{con}</span>
+                            <li key={i}>
+                              <motion.div
+                                className="flex items-start gap-2 text-sm text-neutral-300 rounded-xl px-2 py-1 active:bg-rose-500/20 sm:hover:bg-rose-500/20 transition-colors"
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.35, delay: i * 0.1 }}
+                              >
+                                <span className="text-rose-500 mt-0.5">•</span>
+                                <span>{con}</span>
+                              </motion.div>
                             </li>
                           ))}
                         </ul>
@@ -381,7 +458,7 @@ export default function App() {
                     )}
                   </div>
                 </div>
-              </section>
+              </motion.section>
 
               {/* 4. Who is it for? */}
               <section className="bg-indigo-950/40 backdrop-blur-xl text-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-indigo-500/20">

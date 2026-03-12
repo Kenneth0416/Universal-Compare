@@ -1,15 +1,86 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@100..800&family=Space+Grotesk:wght@300..700&family=JetBrains+Mono:wght@100..800&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-body);
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --text-display-1: clamp(2.75rem, 6vw, 4.75rem);
+  --text-display-2: clamp(2.25rem, 4.5vw, 3.75rem);
+  --text-heading-1: clamp(1.75rem, 3.25vw, 2.75rem);
+  --text-heading-2: clamp(1.5rem, 2.75vw, 2.25rem);
+  --text-body-1: 1rem;
+  --text-body-2: 0.9375rem;
+  --leading-display: 1.05;
+  --leading-heading: 1.2;
+  --leading-body: 1.6;
 }
 
 body {
   background-color: #050505;
   color: #f5f5f5;
   overflow-x: hidden;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
+  font-feature-settings: "liga" 1, "calt" 1, "ss01" 1, "ss02" 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-heading {
+  font-family: var(--font-heading);
+}
+
+.font-body {
+  font-family: var(--font-body);
+}
+
+.text-display-1 {
+  font-size: var(--text-display-1);
+  line-height: var(--leading-display);
+  letter-spacing: -0.03em;
+}
+
+.text-display-2 {
+  font-size: var(--text-display-2);
+  line-height: var(--leading-display);
+  letter-spacing: -0.025em;
+}
+
+.text-heading-1 {
+  font-size: var(--text-heading-1);
+  line-height: var(--leading-heading);
+  letter-spacing: -0.02em;
+}
+
+.text-heading-2 {
+  font-size: var(--text-heading-2);
+  line-height: var(--leading-heading);
+  letter-spacing: -0.015em;
+}
+
+.text-body-1 {
+  font-size: var(--text-body-1);
+  line-height: var(--leading-body);
+}
+
+.text-body-2 {
+  font-size: var(--text-body-2);
+  line-height: var(--leading-body);
+}
+
+.text-gradient {
+  background-image: linear-gradient(90deg, #667eea, #764ba2, #f093fb);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .atmosphere-bg {

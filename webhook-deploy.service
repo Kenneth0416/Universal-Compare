@@ -1,0 +1,25 @@
+[Unit]
+Description=GitHub Webhook Deployment Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/compare-ai
+ExecStart=/usr/bin/node /var/www/compare-ai/webhook-server.js
+Restart=always
+RestartSec=10
+
+# 環境變量
+Environment=NODE_ENV=production
+Environment=WEBHOOK_PORT=9000
+Environment=WEBHOOK_SECRET=your-webhook-secret-here
+Environment=DEPLOY_SCRIPT=/var/www/compare-ai/deploy.sh
+Environment=LOG_FILE=/var/log/webhook-deploy.log
+
+# 安全設置
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

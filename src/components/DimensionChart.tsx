@@ -18,26 +18,53 @@ interface DimensionChartProps {
 }
 
 export const DimensionChart: React.FC<DimensionChartProps> = ({ dimensions, entityA, entityB }) => {
-  const data = dimensions.map(dim => ({
-    subject: dim.label,
-    [entityA]: dim.analysis.optional_score_a || 0,
-    [entityB]: dim.analysis.optional_score_b || 0,
-    fullMark: 10,
-  }));
+  const safeDimensions = Array.isArray(dimensions) ? dimensions : [];
+  const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && isFinite(value);
+
+  const angleTick = (props: any) => {
+    const { payload, x, y, textAnchor } = props;
+    return (
+      <text
+        x={x}
+        y={y}
+        textAnchor={textAnchor}
+        dominantBaseline="central"
+        className="fill-white/70 text-[10px] sm:text-[12px] font-mono"
+      >
+        {payload.value}
+      </text>
+    );
+  };
+
+  if (safeDimensions.length === 0 || !entityA || !entityB) {
+    return null;
+  }
+
+  const data = safeDimensions.map((dim) => {
+    const scoreA = dim.analysis?.optional_score_a;
+    const scoreB = dim.analysis?.optional_score_b;
+
+    return {
+      subject: dim.label,
+      [entityA]: isFiniteNumber(scoreA) ? scoreA : 0,
+      [entityB]: isFiniteNumber(scoreB) ? scoreB : 0,
+      fullMark: 10,
+    };
+  });
 
   return (
     <div className="w-full bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-black/50">
       <h3 className="text-xl font-bold text-white mb-8">Multidimensional Analysis</h3>
       
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
         {/* Radar Chart */}
-        <div className="h-[350px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <RadarChart cx="50%" cy="50%" outerRadius="70%" data={data}>
+        <div className="h-[280px] sm:h-[350px] lg:h-[400px] w-full">
+          <ResponsiveContainer width="100%" height="100%" minWidth={240} minHeight={240}>
+            <RadarChart cx="50%" cy="50%" outerRadius="65%" data={data}>
               <PolarGrid stroke="rgba(255,255,255,0.1)" />
               <PolarAngleAxis 
                 dataKey="subject" 
-                tick={{ fill: 'rgba(255,255,255,0.7)', fontSize: 12, fontFamily: 'JetBrains Mono' }} 
+                tick={angleTick}
               />
               <PolarRadiusAxis 
                 angle={30} 
@@ -79,8 +106,8 @@ export const DimensionChart: React.FC<DimensionChartProps> = ({ dimensions, enti
         </div>
 
         {/* Score Table */}
-        <div className="w-full overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+        <div className="w-full overflow-x-auto relative after:pointer-events-none after:content-[''] after:absolute after:top-0 after:right-0 after:h-full after:w-8 after:bg-gradient-to-l after:from-black/40 after:to-transparent">
+          <table className="w-full min-w-[500px] text-left border-collapse">
             <thead>
               <tr className="border-b border-white/10">
                 <th className="py-3 px-4 text-xs font-medium text-neutral-400 uppercase tracking-wider font-mono">Dimension</th>
@@ -89,9 +116,11 @@ export const DimensionChart: React.FC<DimensionChartProps> = ({ dimensions, enti
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {dimensions.map((dim, idx) => {
-                const scoreA = dim.analysis.optional_score_a || 0;
-                const scoreB = dim.analysis.optional_score_b || 0;
+              {safeDimensions.map((dim, idx) => {
+                const rawScoreA = dim.analysis?.optional_score_a;
+                const rawScoreB = dim.analysis?.optional_score_b;
+                const scoreA = isFiniteNumber(rawScoreA) ? rawScoreA : 0;
+                const scoreB = isFiniteNumber(rawScoreB) ? rawScoreB : 0;
                 const isAWinner = scoreA > scoreB;
                 const isBWinner = scoreB > scoreA;
                 const isTie = scoreA === scoreB;
