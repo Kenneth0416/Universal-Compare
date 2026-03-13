@@ -162,7 +162,7 @@ const recommendationSchema = {
 
 // --- Agent Functions ---
 
-async function runResearcherAgent(itemName: string) {
+async function runResearcherAgent(itemName: string, language?: string) {
   const [webSearchResponse, xSearchResponse] = await Promise.all([
     (openai as any).responses.create({
       model: 'grok-4-1-fast-non-reasoning',
@@ -220,7 +220,9 @@ Extract and synthesize:
 2. Key characteristics and defining attributes from authoritative sources
 3. Domain and subcategory classification
 4. Concise definition incorporating both factual information and public perception
-5. Key attributes list combining objective facts and notable observations`
+5. Key attributes list combining objective facts and notable observations
+
+IMPORTANT: Respond in ${language === 'zh' ? 'Traditional Chinese (繁體中文)' : 'English'}.`
       }
     ],
     response_format: {
@@ -237,7 +239,7 @@ Extract and synthesize:
   return JSON.parse(structuredResponse.choices[0].message.content || '{}');
 }
 
-async function runArchitectAgent(profileA: any, profileB: any) {
+async function runArchitectAgent(profileA: any, profileB: any, language?: string) {
   const prompt = `You are an Architect Agent. Based on the following entity profiles, determine their relationship and generate 4 to 6 key dimensions to compare them on.
 
 First entity: ${JSON.stringify(profileA)}
@@ -247,9 +249,12 @@ These entities can be anything: products, countries, people, animals, concepts, 
 
 IMPORTANT: In all your outputs, always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use generic labels like "Entity A", "Entity B", "A", "B", "Item A", "Item B", or similar placeholders.`;
 
+  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
+  const fullPrompt = `${prompt}${languagePrompt}`;
+
   const response = await openai.chat.completions.create({
     model: 'grok-4-1-fast-reasoning',
-    messages: [{ role: 'user', content: prompt }],
+    messages: [{ role: 'user', content: fullPrompt }],
     temperature: 0.2,
     response_format: {
       type: 'json_schema',
@@ -263,7 +268,7 @@ IMPORTANT: In all your outputs, always refer to entities by their actual names (
   return JSON.parse(response.choices[0].message.content || '{}');
 }
 
-async function runAnalystAgent(profileA: any, profileB: any, dimension: any) {
+async function runAnalystAgent(profileA: any, profileB: any, dimension: any, language?: string) {
   const prompt = `You are an Analyst Agent. Compare the following two entities strictly on the dimension: "${dimension.label}".
 
 ${profileA.name}: ${profileA.short_definition}
@@ -275,9 +280,12 @@ Analyze their differences, summarize each entity's characteristics on this dimen
 
 IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders in your analysis text.`;
 
+  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
+  const fullPrompt = `${prompt}${languagePrompt}`;
+
   const response = await openai.chat.completions.create({
     model: 'grok-4-1-fast-reasoning',
-    messages: [{ role: 'user', content: prompt }],
+    messages: [{ role: 'user', content: fullPrompt }],
     temperature: 0.2,
     response_format: {
       type: 'json_schema',
@@ -291,7 +299,7 @@ IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" an
   return { ...dimension, analysis: JSON.parse(response.choices[0].message.content || '{}') };
 }
 
-async function runProsConsAgent(profileA: any, profileB: any, dimensions: any[]) {
+async function runProsConsAgent(profileA: any, profileB: any, dimensions: any[], language?: string) {
   const prompt = `You are a Judge Agent. Based on the entity profiles and the multidimensional analysis below, extract the key strengths and weaknesses for both entities.
 
 ${profileA.name}: ${profileA.short_definition}
@@ -300,9 +308,12 @@ Analysis: ${JSON.stringify(dimensions)}
 
 IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders.`;
 
+  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
+  const fullPrompt = `${prompt}${languagePrompt}`;
+
   const response = await openai.chat.completions.create({
     model: 'grok-4-1-fast-reasoning',
-    messages: [{ role: 'user', content: prompt }],
+    messages: [{ role: 'user', content: fullPrompt }],
     temperature: 0.2,
     response_format: {
       type: 'json_schema',
@@ -316,7 +327,7 @@ IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" an
   return JSON.parse(response.choices[0].message.content || '{}');
 }
 
-async function runRecommendationAgent(profileA: any, profileB: any, dimensions: any[], prosCons: any) {
+async function runRecommendationAgent(profileA: any, profileB: any, dimensions: any[], prosCons: any, language?: string) {
   const prompt = `You are a Judge Agent. Based on all the gathered data, provide a final verdict and recommendation on when to prefer each entity.
 
 ${profileA.name}: ${profileA.short_definition}
@@ -326,9 +337,12 @@ Strengths & Weaknesses: ${JSON.stringify(prosCons)}
 
 IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders in your verdict and recommendations.`;
 
+  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
+  const fullPrompt = `${prompt}${languagePrompt}`;
+
   const response = await openai.chat.completions.create({
     model: 'grok-4-1-fast-reasoning',
-    messages: [{ role: 'user', content: prompt }],
+    messages: [{ role: 'user', content: fullPrompt }],
     temperature: 0.2,
     response_format: {
       type: 'json_schema',
@@ -357,27 +371,28 @@ export async function generateComparison(
   itemA: string, 
   itemB: string, 
   onProgress?: (step: string) => void,
-  onPhaseComplete?: (phase: string, data: any) => void
+  onPhaseComplete?: (phase: string, data: any) => void,
+  language?: string
 ): Promise<ComparisonResult> {
   
   // Phase 1: Dual-Track Research
   onProgress?.("Phase 1: Researching entities concurrently...");
   const [profileA, profileB] = await Promise.all([
-    runResearcherAgent(itemA),
-    runResearcherAgent(itemB)
+    runResearcherAgent(itemA, language),
+    runResearcherAgent(itemB, language)
   ]);
   onPhaseComplete?.('entities', { entityA: profileA, entityB: profileB });
 
   // Phase 2: Framework Architecture
   onProgress?.("Phase 2: Architecting comparison framework...");
-  const framework = await runArchitectAgent(profileA, profileB);
+  const framework = await runArchitectAgent(profileA, profileB, language);
   onPhaseComplete?.('framework', { relationship: framework.relationship, dimensionCount: framework.dimensions.length });
 
   // Phase 3: Multi-Dimensional Analysis (Concurrent)
   onProgress?.(`Phase 3: Analyzing ${framework.dimensions.length} dimensions concurrently...`);
   // Limit concurrency to 6 for faster processing
   const analyzedDimensions = await mapConcurrent(framework.dimensions, 6, async (dim) => {
-    const result = await runAnalystAgent(profileA, profileB, dim);
+    const result = await runAnalystAgent(profileA, profileB, dim, language);
     onPhaseComplete?.('dimension', result);
     return result;
   });
@@ -385,8 +400,8 @@ export async function generateComparison(
   // Phase 4: Synthesis & Verdict (Concurrent)
   onProgress?.("Phase 4: Synthesizing final verdict and pros/cons...");
   const [prosCons, recommendation] = await Promise.all([
-    runProsConsAgent(profileA, profileB, analyzedDimensions),
-    runRecommendationAgent(profileA, profileB, analyzedDimensions, null)
+    runProsConsAgent(profileA, profileB, analyzedDimensions, language),
+    runRecommendationAgent(profileA, profileB, analyzedDimensions, null, language)
   ]);
   onPhaseComplete?.('verdict', { prosCons, recommendation });
 

@@ -9,6 +9,8 @@ import { DimensionChart } from './components/DimensionChart';
 import MinimalGrid from './components/react-bits/MinimalGrid';
 import Counter from './components/react-bits/Counter';
 import BlurText from './components/react-bits/BlurText';
+import { useTranslation } from 'react-i18next';
+import i18n from './i18n';
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && isFinite(value);
 
@@ -29,6 +31,7 @@ const useReducedMotion = () => {
 };
 
 export default function App() {
+  const { t, i18n: i18nInstance } = useTranslation();
   const [itemA, setItemA] = useState('');
   const [itemB, setItemB] = useState('');
   const [loading, setLoading] = useState(false);
@@ -42,12 +45,14 @@ export default function App() {
     e.preventDefault();
     if (!itemA.trim() || !itemB.trim()) return;
 
+    const currentLanguage = i18nInstance.language || i18n.language || 'en';
+
     setLoading(true);
     setShowPartial(false);
     setPartialResult({});
     setError('');
     setResult(null);
-    setLoadingStep('Initializing AI Pipeline...');
+    setLoadingStep(t('loading.initializing'));
 
     try {
       const res = await generateComparison(
@@ -67,11 +72,12 @@ export default function App() {
             }
             return { ...prev, ...data };
           });
-        }
+        },
+        currentLanguage
       );
       setResult(res);
     } catch (err: any) {
-      setError(err.message || 'An error occurred during comparison.');
+      setError(err.message || t('error.generic'));
     } finally {
       setLoading(false);
     }
@@ -79,6 +85,20 @@ export default function App() {
 
   return (
     <div className="min-h-screen font-sans selection:bg-indigo-500/30 selection:text-indigo-200 relative">
+      <div className="fixed top-4 right-4 z-50 flex gap-1 bg-white/5 backdrop-blur-md rounded-full p-1 border border-white/10">
+        <button
+          onClick={() => i18nInstance.changeLanguage('en')}
+          className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${i18nInstance.language === 'en' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'}`}
+        >
+          EN
+        </button>
+        <button
+          onClick={() => i18nInstance.changeLanguage('zh')}
+          className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${i18nInstance.language === 'zh' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'}`}
+        >
+          中文
+        </button>
+      </div>
       <MinimalGrid />
       {/* Header / Hero */}
       <header className="pt-20 pb-16 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto text-center relative z-10">
@@ -100,8 +120,7 @@ export default function App() {
             </BlurText>
           </h1>
           <p className="text-lg sm:text-xl text-neutral-400 max-w-2xl mx-auto mb-10">
-            Compare anything. From gadgets to fruits, concepts to software. 
-            Discover the relationship, key differences, and which one is right for you.
+            {t('hero.subtitle')}
           </p>
 
           <form onSubmit={handleCompare} className="max-w-3xl mx-auto relative">
@@ -111,7 +130,7 @@ export default function App() {
                   type="text"
                   value={itemA}
                   onChange={(e) => setItemA(e.target.value)}
-                  placeholder="e.g., MacBook Air M3"
+                  placeholder={t('hero.placeholderA')}
                   inputMode="text"
                   autoComplete="off"
                   autoCapitalize="words"
@@ -127,7 +146,7 @@ export default function App() {
                   type="text"
                   value={itemB}
                   onChange={(e) => setItemB(e.target.value)}
-                  placeholder="e.g., iPad Pro"
+                  placeholder={t('hero.placeholderB')}
                   inputMode="text"
                   autoComplete="off"
                   autoCapitalize="words"
@@ -144,7 +163,7 @@ export default function App() {
                   <Loader2 className="animate-spin" size={20} />
                 ) : (
                   <>
-                    <span>Compare</span>
+                    <span>{t('hero.compareBtn')}</span>
                     <Search size={18} />
                   </>
                 )}
@@ -208,7 +227,7 @@ export default function App() {
                   <div className="bg-white/5 rounded-2xl p-6 border border-white/5">
                     <div className="flex items-center gap-2 text-xs font-bold text-neutral-500 uppercase tracking-wider mb-3 font-mono">
                       <Info size={16} />
-                      <span>Relationship</span>
+                      <span>{t('result.relationship')}</span>
                     </div>
                     {(result || partialResult).relationship?.relationship_type && (
                       <p className="text-white font-medium mb-2 capitalize">
@@ -224,7 +243,7 @@ export default function App() {
                   <div className="bg-white/5 rounded-2xl p-6 border border-white/5">
                     <div className="flex items-center gap-2 text-xs font-bold text-neutral-500 uppercase tracking-wider mb-3 font-mono">
                       <Search size={16} />
-                      <span>Comparison Goal</span>
+                      <span>{t('result.comparisonGoal')}</span>
                     </div>
                     {(result || partialResult).relationship?.comparison_goal && (
                       <p className="text-white font-medium mb-2">
@@ -244,8 +263,8 @@ export default function App() {
 
               {/* 2. Dimensions Comparison */}
               <section className="space-y-8">
-                <h3 className="text-2xl font-bold text-white mb-6 px-2">Key Dimensions</h3>
-                
+                <h3 className="text-2xl font-bold text-white mb-6 px-2">{t('result.keyDimensions')}</h3>
+
                 {((result || partialResult).dimensions?.length ?? 0) > 0 &&
                   (result || partialResult).entityA?.name &&
                   (result || partialResult).entityB?.name && (
@@ -318,14 +337,14 @@ export default function App() {
                         <div className="text-xs text-neutral-300 border-t border-white/10 pt-3 flex flex-col sm:flex-row justify-between gap-3">
                           {dim.analysis?.key_difference && (
                             <div>
-                              <span className="font-semibold text-white">Key Difference: </span>
+                              <span className="font-semibold text-white">{t('result.keyDifference')} </span>
                               {dim.analysis.key_difference}
                             </div>
                           )}
                           {dim.analysis?.better_for && (
                             <div className="shrink-0">
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/10 text-white text-[10px] font-bold uppercase tracking-wide border border-white/10">
-                                Winner:{' '}
+                                {t('result.winner')}{' '}
                                 {dim.analysis.better_for === 'A'
                                   ? (result || partialResult).entityA?.name || 'A'
                                   : dim.analysis.better_for === 'B'
@@ -360,7 +379,7 @@ export default function App() {
                     {((result || partialResult).prosCons?.item_a_pros?.length ?? 0) > 0 && (
                       <div>
                         <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-3 flex items-center gap-2 font-mono">
-                          <CheckCircle2 size={16} /> Pros
+                          <CheckCircle2 size={16} /> {t('result.pros')}
                         </h4>
                         <ul className="space-y-2 sm:space-y-1.5">
                           {(result || partialResult).prosCons?.item_a_pros?.map((pro, i) => (
@@ -382,7 +401,7 @@ export default function App() {
                     {((result || partialResult).prosCons?.item_a_cons?.length ?? 0) > 0 && (
                       <div>
                         <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider mb-3 flex items-center gap-2 font-mono">
-                          <XCircle size={16} /> Cons
+                          <XCircle size={16} /> {t('result.cons')}
                         </h4>
                         <ul className="space-y-2 sm:space-y-1.5">
                           {(result || partialResult).prosCons?.item_a_cons?.map((con, i) => (
@@ -415,7 +434,7 @@ export default function App() {
                     {((result || partialResult).prosCons?.item_b_pros?.length ?? 0) > 0 && (
                       <div>
                         <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-3 flex items-center gap-2 font-mono">
-                          <CheckCircle2 size={16} /> Pros
+                          <CheckCircle2 size={16} /> {t('result.pros')}
                         </h4>
                         <ul className="space-y-2 sm:space-y-1.5">
                           {(result || partialResult).prosCons?.item_b_pros?.map((pro, i) => (
@@ -437,7 +456,7 @@ export default function App() {
                     {((result || partialResult).prosCons?.item_b_cons?.length ?? 0) > 0 && (
                       <div>
                         <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider mb-3 flex items-center gap-2 font-mono">
-                          <XCircle size={16} /> Cons
+                          <XCircle size={16} /> {t('result.cons')}
                         </h4>
                         <ul className="space-y-2 sm:space-y-1.5">
                           {(result || partialResult).prosCons?.item_b_cons?.map((con, i) => (
@@ -462,7 +481,7 @@ export default function App() {
 
               {/* 4. Who is it for? */}
               <section className="bg-indigo-950/40 backdrop-blur-xl text-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-indigo-500/20">
-                <h3 className="text-2xl font-bold mb-8 text-center">Who should choose what?</h3>
+                <h3 className="text-2xl font-bold mb-8 text-center">{t('result.whoShouldChoose')}</h3>
                 <div className="grid md:grid-cols-2 gap-8 relative">
                   <div className="hidden md:block absolute top-0 bottom-0 left-1/2 w-px bg-indigo-500/20 -translate-x-1/2" />
                   
@@ -505,7 +524,7 @@ export default function App() {
                 
                 {(result || partialResult).recommendation?.which_to_choose_first && (
                   <div className="mt-10 pt-8 border-t border-indigo-500/20 text-center">
-                    <p className="text-indigo-300/60 text-xs uppercase tracking-widest font-bold mb-2 font-mono">Default Choice</p>
+                    <p className="text-indigo-300/60 text-xs uppercase tracking-widest font-bold mb-2 font-mono">{t('result.defaultChoice')}</p>
                     <p className="text-xl font-medium text-white">
                       {(result || partialResult).recommendation?.which_to_choose_first}
                     </p>

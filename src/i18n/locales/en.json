@@ -1,0 +1,29 @@
+{
+  "hero": {
+    "subtitle": "Compare anything. From gadgets to fruits, concepts to software. Discover the relationship, key differences, and which one is right for you.",
+    "placeholderA": "e.g., MacBook Air M3",
+    "placeholderB": "e.g., iPad Pro",
+    "compareBtn": "Compare",
+    "comparing": "Comparing..."
+  },
+  "result": {
+    "relationship": "Relationship",
+    "comparisonGoal": "Comparison Goal",
+    "keyDimensions": "Key Dimensions",
+    "pros": "Pros",
+    "cons": "Cons",
+    "whoShouldChoose": "Who should choose what?",
+    "defaultChoice": "Default Choice",
+    "keyDifference": "Key Difference:",
+    "winner": "Winner:"
+  },
+  "loading": {
+    "parsingInputs": "Parsing inputs",
+    "mappingConcepts": "Mapping concepts",
+    "synthesizingResults": "Synthesizing results",
+    "initializing": "Initializing AI Engine..."
+  },
+  "error": {
+    "generic": "An error occurred during comparison."
+  }
+}

@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Database, Zap, Network } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface AILoadingStateProps {
   itemA: string;
@@ -40,10 +41,11 @@ const usePrefersReducedMotion = () => {
 };
 
 export const AILoadingState: React.FC<AILoadingStateProps> = ({ itemA, itemB, stepDescription }) => {
+  const { t } = useTranslation();
   const steps = [
-    { label: 'Parsing inputs', icon: Database },
-    { label: 'Mapping concepts', icon: Network },
-    { label: 'Synthesizing results', icon: Zap }
+    { label: t('loading.parsingInputs'), icon: Database },
+    { label: t('loading.mappingConcepts'), icon: Network },
+    { label: t('loading.synthesizingResults'), icon: Zap }
   ];
   const [activeStep, setActiveStep] = React.useState(0);
   const prefersReducedMotion = usePrefersReducedMotion();
@@ -146,7 +148,7 @@ export const AILoadingState: React.FC<AILoadingStateProps> = ({ itemA, itemB, st
                 animate={prefersReducedMotion ? { opacity: 1 } : { opacity: [0.75, 1, 0.75] }}
                 transition={prefersReducedMotion ? { duration: 0 } : { duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
               >
-                {stepDescription || "Initializing AI Engine..."}
+                {stepDescription || t('loading.initializing')}
               </motion.span>
             </motion.div>
           </AnimatePresence>

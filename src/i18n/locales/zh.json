@@ -1,0 +1,29 @@
+{
+  "hero": {
+    "subtitle": "比較任何事物。從電子產品到水果，概念到軟件。發現它們的關係、主要差異，以及哪個更適合你。",
+    "placeholderA": "例如：MacBook Air M3",
+    "placeholderB": "例如：iPad Pro",
+    "compareBtn": "比較",
+    "comparing": "比較中..."
+  },
+  "result": {
+    "relationship": "關係類型",
+    "comparisonGoal": "比較目標",
+    "keyDimensions": "關鍵維度",
+    "pros": "優點",
+    "cons": "缺點",
+    "whoShouldChoose": "誰應該選擇哪個？",
+    "defaultChoice": "默認選擇",
+    "keyDifference": "主要差異：",
+    "winner": "勝出："
+  },
+  "loading": {
+    "parsingInputs": "解析輸入",
+    "mappingConcepts": "映射概念",
+    "synthesizingResults": "綜合結果",
+    "initializing": "初始化 AI 引擎..."
+  },
+  "error": {
+    "generic": "比較過程中發生錯誤。"
+  }
+}
