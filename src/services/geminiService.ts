@@ -278,6 +278,8 @@ Comparison Angle: ${dimension.comparison_angle}
 
 Analyze their differences, summarize each entity's characteristics on this dimension, and provide a score out of 10 for both.
 
+SCORING RULE: Scores must always represent desirability or advantage (10 = best possible outcome for that entity on this dimension). For negative dimensions such as risk, cost, complexity, or danger, a lower value is better — so an entity with lower risk/cost/complexity should receive a HIGHER score. Never score "how much" of a negative trait exists; always score "how favorable" the entity's position is.
+
 IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders in your analysis text.`;
 
   const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
