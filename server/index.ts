@@ -3,7 +3,8 @@
  * Proxies AI calls from frontend to Grok API, keeping API key server-side
  */
 
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
 import express from 'express';
 import OpenAI from 'openai';
 
