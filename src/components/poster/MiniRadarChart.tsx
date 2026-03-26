@@ -9,7 +9,6 @@ import {
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
-  ResponsiveContainer,
 } from 'recharts';
 
 interface MiniRadarChartProps {
@@ -29,8 +28,7 @@ export const MiniRadarChart: React.FC<MiniRadarChartProps> = ({
   size = 200,
 }) => {
   return (
-    <ResponsiveContainer width={size} height={size}>
-      <RechartsRadarChart cx="50%" cy="50%" outerRadius="70%">
+    <RechartsRadarChart cx="50%" cy="50%" outerRadius="70%" width={size} height={size}>
         <PolarGrid
           stroke="rgba(255,255,255,0.15)"
           strokeDasharray="3 3"
@@ -66,7 +64,6 @@ export const MiniRadarChart: React.FC<MiniRadarChartProps> = ({
           strokeWidth={2}
         />
       </RechartsRadarChart>
-    </ResponsiveContainer>
   );
 };
 
