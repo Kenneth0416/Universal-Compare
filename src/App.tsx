@@ -6,6 +6,7 @@ import { ComparisonGrid } from './components/ComparisonGrid';
 import { ComparisonCard } from './components/ComparisonCard';
 import { AILoadingState } from './components/AILoadingState';
 import { DimensionChart } from './components/DimensionChart';
+import { ShareButton } from './components/ShareButton';
 import MinimalGrid from './components/react-bits/MinimalGrid';
 import Counter from './components/react-bits/Counter';
 import BlurText from './components/react-bits/BlurText';
@@ -13,6 +14,16 @@ import { useTranslation } from 'react-i18next';
 import i18n from './i18n';
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && isFinite(value);
+
+const buildDimensionSummary = (dimension: ComparisonResult['dimensions'][number]) =>
+  [
+    dimension.why_it_matters,
+    dimension.analysis?.item_a_summary,
+    dimension.analysis?.item_b_summary,
+    dimension.analysis?.key_difference
+  ]
+    .filter((part): part is string => Boolean(part && part.trim()))
+    .join(' ');
 
 const useReducedMotion = () => {
   const [shouldReduce, setShouldReduce] = useState(false);
@@ -281,59 +292,60 @@ export default function App() {
                     const scoreB = dim.analysis?.optional_score_b;
                     const safeScoreA = isFiniteNumber(scoreA) ? scoreA : 0;
                     const safeScoreB = isFiniteNumber(scoreB) ? scoreB : 0;
+                    const summary = buildDimensionSummary(dim as ComparisonResult['dimensions'][number]);
 
                     return (
-                      <motion.div
+                      <ComparisonCard
                         key={dim.key || idx}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        whileHover={{ y: -4, scale: 1.01 }}
-                        transition={{ duration: 0.4, ease: 'easeOut' }}
-                        style={{ willChange: 'transform' }}
+                        title={dim.label}
+                        summary={summary}
+                        categoryLabel={dim.key}
+                        scoreA={scoreA}
+                        scoreB={scoreB}
+                        className="h-full"
                       >
-                        <ComparisonCard title={dim.label} className="h-full flex flex-col">
-                          {dim.why_it_matters && (
-                            <p className="text-neutral-400 text-xs mb-4 flex-grow">{dim.why_it_matters}</p>
-                          )}
-                          
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                            <div className="bg-white/5 p-3 rounded-xl border border-white/5">
-                              <div className="flex justify-between items-center mb-2">
-                                {(result || partialResult).entityA?.name && (
-                                  <p className="font-semibold text-white text-sm pr-2">
-                                    {(result || partialResult).entityA?.name}
-                                  </p>
-                                )}
-                                {scoreA != null && (
-                                  <span className="font-mono text-xs font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">
-                                    <Counter from={0} to={safeScoreA} duration={0.8} fontSize={12} />
-                                    /10
-                                  </span>
-                                )}
-                              </div>
-                              {dim.analysis?.item_a_summary && (
-                                <p className="text-neutral-300 text-sm sm:text-xs mt-1">{dim.analysis.item_a_summary}</p>
+                        {dim.why_it_matters && (
+                          <p className="text-neutral-400 text-xs mb-4 flex-grow">{dim.why_it_matters}</p>
+                        )}
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                          <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                            <div className="flex justify-between items-center mb-2">
+                              {(result || partialResult).entityA?.name && (
+                                <p className="font-semibold text-white text-sm pr-2">
+                                  {(result || partialResult).entityA?.name}
+                                </p>
+                              )}
+                              {scoreA != null && (
+                                <span className="font-mono text-xs font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">
+                                  <Counter from={0} to={safeScoreA} duration={0.8} fontSize={12} />
+                                  /10
+                                </span>
                               )}
                             </div>
-                            <div className="bg-white/5 p-3 rounded-xl border border-white/5">
-                              <div className="flex justify-between items-center mb-2">
-                                {(result || partialResult).entityB?.name && (
-                                  <p className="font-semibold text-white text-sm pr-2">
-                                    {(result || partialResult).entityB?.name}
-                                  </p>
-                                )}
-                                {scoreB != null && (
-                                  <span className="font-mono text-xs font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">
-                                    <Counter from={0} to={safeScoreB} duration={0.8} fontSize={12} />
-                                    /10
-                                  </span>
-                                )}
-                              </div>
-                              {dim.analysis?.item_b_summary && (
-                                <p className="text-neutral-300 text-sm sm:text-xs mt-1">{dim.analysis.item_b_summary}</p>
-                              )}
-                            </div>
+                            {dim.analysis?.item_a_summary && (
+                              <p className="text-neutral-300 text-sm sm:text-xs mt-1">{dim.analysis.item_a_summary}</p>
+                            )}
                           </div>
+                          <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                            <div className="flex justify-between items-center mb-2">
+                              {(result || partialResult).entityB?.name && (
+                                <p className="font-semibold text-white text-sm pr-2">
+                                  {(result || partialResult).entityB?.name}
+                                </p>
+                              )}
+                              {scoreB != null && (
+                                <span className="font-mono text-xs font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">
+                                  <Counter from={0} to={safeScoreB} duration={0.8} fontSize={12} />
+                                  /10
+                                </span>
+                              )}
+                            </div>
+                            {dim.analysis?.item_b_summary && (
+                              <p className="text-neutral-300 text-sm sm:text-xs mt-1">{dim.analysis.item_b_summary}</p>
+                            )}
+                          </div>
+                        </div>
                         <div className="text-xs text-neutral-300 border-t border-white/10 pt-3 flex flex-col sm:flex-row justify-between gap-3">
                           {dim.analysis?.key_difference && (
                             <div>
@@ -354,8 +366,7 @@ export default function App() {
                             </div>
                           )}
                         </div>
-                        </ComparisonCard>
-                      </motion.div>
+                      </ComparisonCard>
                     );
                   })}
                 </ComparisonGrid>
@@ -530,6 +541,15 @@ export default function App() {
                     </p>
                   </div>
                 )}
+              </section>
+
+              {/* 5. Share Section */}
+              <section className="flex flex-col items-center gap-4 py-8">
+                <div className="text-center mb-2">
+                  <h3 className="text-xl font-bold text-white mb-2">分享你的对比结果</h3>
+                  <p className="text-sm text-neutral-400">生成精美海报，分享到小红书</p>
+                </div>
+                <ShareButton result={(result || partialResult) as ComparisonResult} />
               </section>
 
             </motion.div>
