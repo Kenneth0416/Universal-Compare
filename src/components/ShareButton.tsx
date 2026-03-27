@@ -249,54 +249,53 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, className = ''
         )}
       </AnimatePresence>
 
-      {/* 主按鈕 -> 展開容器 */}
-      <AnimatePresence mode="wait">
-        {!isExpanded ? (
-          // 初始狀態：圓角矩形按鈕
-          <motion.button
-            key="trigger"
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-            whileHover={{ scale: 1.03, y: -2 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => setIsExpanded(true)}
-            className="relative overflow-hidden bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 shadow-xl shadow-purple-500/40 flex items-center gap-2 px-5 py-3 rounded-2xl z-50"
-          >
-            {/* 漸變動畫底層 */}
-            <motion.div
-              className="absolute inset-0 opacity-90"
-              animate={{
-                backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
-              }}
-              transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
-              style={{
-                background: 'linear-gradient(135deg, #4f46e5, #9333ea, #ec4899, #4f46e5)',
-                backgroundSize: '300% 300%',
-              }}
-            />
+      {/* 主按鈕 */}
+      <motion.button
+        key="trigger"
+        initial={{ opacity: 0, y: 20, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
+        transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+        whileHover={{ scale: 1.03, y: -2 }}
+        whileTap={{ scale: 0.97 }}
+        onClick={() => setIsExpanded(true)}
+        className="relative overflow-hidden bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 shadow-xl shadow-purple-500/40 flex items-center gap-2 px-5 py-3 rounded-2xl z-50"
+      >
+        {/* 漸變動畫底層 */}
+        <motion.div
+          className="absolute inset-0 opacity-90"
+          animate={{
+            backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
+          }}
+          transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
+          style={{
+            background: 'linear-gradient(135deg, #4f46e5, #9333ea, #ec4899, #4f46e5)',
+            backgroundSize: '300% 300%',
+          }}
+        />
 
-            {/* 按鈕內容 */}
-            <div className="relative flex items-center gap-2">
-              <motion.div
-                animate={{ rotate: [0, 15, -15, 0] }}
-                transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 2 }}
-              >
-                <Sparkles size={18} className="text-white" />
-              </motion.div>
-              <span className="text-white font-semibold text-sm">分享海報</span>
-            </div>
-          </motion.button>
-        ) : (
-          // 展開後：大容器 + 選項
+        {/* 按鈕內容 */}
+        <div className="relative flex items-center gap-2">
+          <motion.div
+            animate={{ rotate: [0, 15, -15, 0] }}
+            transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 2 }}
+          >
+            <Sparkles size={18} className="text-white" />
+          </motion.div>
+          <span className="text-white font-semibold text-sm">分享海報</span>
+        </div>
+      </motion.button>
+
+      {/* 展開的底部彈窗 */}
+      <AnimatePresence>
+        {isExpanded && (
           <motion.div
             key="expanded"
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-            className="relative z-50"
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 35 }}
+            className="fixed left-1/2 -translate-x-1/2 bottom-6 z-50 w-[calc(100%-48px)] max-w-sm"
           >
             {/* 外層發光邊框 */}
             <motion.div
