@@ -209,11 +209,11 @@ const recommendationSchema = {
 
 // --- Helper: Call proxy API ---
 
-async function callAI<T>(callType: 'responses' | 'chat', params: any): Promise<T> {
+async function callAI<T>(callType: 'responses' | 'chat', params: any, runId?: string): Promise<T> {
   const response = await fetch(`${API_BASE}/ai`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ callType, params }),
+    body: JSON.stringify({ callType, params, runId }),
   });
 
   if (!response.ok) {
@@ -226,7 +226,7 @@ async function callAI<T>(callType: 'responses' | 'chat', params: any): Promise<T
 
 // --- Agent Functions ---
 
-export async function runResearcherAgent(itemName: string, language?: string): Promise<EntityProfile> {
+export async function runResearcherAgent(itemName: string, language?: string, runId?: string): Promise<EntityProfile> {
   // Dual-Track Research: web search + x search in parallel
   const [webSearchResponse, xSearchResponse] = await Promise.all([
     callAI<{ output_text: string }>('responses', {
@@ -245,7 +245,7 @@ Provide detailed, factual information with sources.`
         }
       ] as ResponsesAPIInput[],
       tools: [{ type: 'web_search' }] as ResponsesAPITool[]
-    }),
+    }, runId),
     callAI<{ output_text: string }>('responses', {
       model: 'grok-4-1-fast-non-reasoning',
       input: [
@@ -261,7 +261,7 @@ Focus on posts from the last 3 months.`
         }
       ] as ResponsesAPIInput[],
       tools: [{ type: 'x_search' }] as ResponsesAPITool[]
-    })
+    }, runId)
   ]);
 
   const webResults = webSearchResponse.output_text || '';
@@ -300,12 +300,12 @@ IMPORTANT: Respond in ${language === 'zh' ? 'Traditional Chinese (繁體中文)'
       }
     },
     temperature: 0.1
-  });
+  }, runId);
 
   return JSON.parse(structuredResponse.choices[0].message.content || '{}');
 }
 
-export async function runArchitectAgent(profileA: any, profileB: any, language?: string): Promise<FrameworkResult> {
+export async function runArchitectAgent(profileA: any, profileB: any, language?: string, runId?: string): Promise<FrameworkResult> {
   const prompt = `You are an Architect Agent. Based on the following entity profiles, determine their relationship and generate 4 to 6 key dimensions to compare them on.
 
 First entity: ${JSON.stringify(profileA)}
@@ -330,11 +330,11 @@ IMPORTANT: In all your outputs, always refer to entities by their actual names (
         schema: frameworkSchema
       }
     }
-  });
+  }, runId);
   return JSON.parse(response.choices[0].message.content || '{}');
 }
 
-export async function runAnalystAgent(profileA: any, profileB: any, dimension: any, language?: string): Promise<any> {
+export async function runAnalystAgent(profileA: any, profileB: any, dimension: any, language?: string, runId?: string): Promise<any> {
   const prompt = `You are an Analyst Agent. Compare the following two entities strictly on the dimension: "${dimension.label}".
 
 ${profileA.name}: ${profileA.short_definition}
@@ -363,11 +363,11 @@ IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" an
         schema: analysisSchema
       }
     }
-  });
+  }, runId);
   return { ...dimension, analysis: JSON.parse(response.choices[0].message.content || '{}') };
 }
 
-export async function runProsConsAgent(profileA: any, profileB: any, dimensions: any[], language?: string): Promise<ProsConsResult> {
+export async function runProsConsAgent(profileA: any, profileB: any, dimensions: any[], language?: string, runId?: string): Promise<ProsConsResult> {
   const prompt = `You are a Judge Agent. Based on the entity profiles and the multidimensional analysis below, extract the key strengths and weaknesses for both entities.
 
 ${profileA.name}: ${profileA.short_definition}
@@ -391,11 +391,11 @@ IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" an
         schema: prosConsSchema
       }
     }
-  });
+  }, runId);
   return JSON.parse(response.choices[0].message.content || '{}');
 }
 
-export async function runRecommendationAgent(profileA: any, profileB: any, dimensions: any[], prosCons: any, language?: string): Promise<RecommendationResult> {
+export async function runRecommendationAgent(profileA: any, profileB: any, dimensions: any[], prosCons: any, language?: string, runId?: string): Promise<RecommendationResult> {
   const prompt = `You are a Judge Agent. Based on all the gathered data, provide a final verdict and recommendation on when to prefer each entity.
 
 ${profileA.name}: ${profileA.short_definition}
@@ -420,7 +420,7 @@ IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" an
         schema: recommendationSchema
       }
     }
-  });
+  }, runId);
   return JSON.parse(response.choices[0].message.content || '{}');
 }
 
