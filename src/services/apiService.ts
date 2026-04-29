@@ -288,7 +288,7 @@ Extract and synthesize:
 4. Concise definition incorporating both factual information and public perception
 5. Key attributes list combining objective facts and notable observations
 
-IMPORTANT: Respond in ${language === 'zh' ? 'Traditional Chinese (繁體中文)' : 'English'}.`
+IMPORTANT: Respond in ${language === 'zh-CN' ? 'Simplified Chinese (简体中文)' : language === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English'}.`
       }
     ],
     response_format: {
@@ -315,7 +315,7 @@ These entities can be anything: products, countries, people, animals, concepts, 
 
 IMPORTANT: In all your outputs, always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use generic labels like "Entity A", "Entity B", "A", "B", "Item A", "Item B", or similar placeholders.`;
 
-  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
+  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh-CN' ? 'Simplified Chinese (简体中文)' : language === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
   const fullPrompt = `${prompt}${languagePrompt}`;
 
   const response = await callAI<{ choices: Array<{ message: { content: string } }> }>('chat', {
@@ -348,7 +348,7 @@ SCORING RULE: Scores must always represent desirability or advantage (10 = best 
 
 IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders in your analysis text.`;
 
-  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
+  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh-CN' ? 'Simplified Chinese (简体中文)' : language === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
   const fullPrompt = `${prompt}${languagePrompt}`;
 
   const response = await callAI<{ choices: Array<{ message: { content: string } }> }>('chat', {
@@ -376,7 +376,7 @@ Analysis: ${JSON.stringify(dimensions)}
 
 IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders.`;
 
-  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
+  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh-CN' ? 'Simplified Chinese (简体中文)' : language === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
   const fullPrompt = `${prompt}${languagePrompt}`;
 
   const response = await callAI<{ choices: Array<{ message: { content: string } }> }>('chat', {
@@ -405,7 +405,7 @@ Strengths & Weaknesses: ${JSON.stringify(prosCons)}
 
 IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders in your verdict and recommendations.`;
 
-  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
+  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh-CN' ? 'Simplified Chinese (简体中文)' : language === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
   const fullPrompt = `${prompt}${languagePrompt}`;
 
   const response = await callAI<{ choices: Array<{ message: { content: string } }> }>('chat', {

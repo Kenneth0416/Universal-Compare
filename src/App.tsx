@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { generateComparison, ComparisonResult } from './services/geminiService';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, ArrowRightLeft, Loader2, CheckCircle2, XCircle, AlertCircle, ChevronRight, Info } from 'lucide-react';
+import { Search, Loader2, CheckCircle2, XCircle, AlertCircle, ChevronRight, Info } from 'lucide-react';
 import { ComparisonGrid } from './components/ComparisonGrid';
 import { ComparisonCard } from './components/ComparisonCard';
 import { AILoadingState } from './components/AILoadingState';
@@ -12,7 +12,7 @@ import MinimalGrid from './components/react-bits/MinimalGrid';
 import Counter from './components/react-bits/Counter';
 import BlurText from './components/react-bits/BlurText';
 import { useTranslation } from 'react-i18next';
-import i18n from './i18n';
+import { switchLanguage } from './i18n';
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && isFinite(value);
 
@@ -25,22 +25,6 @@ const buildDimensionSummary = (dimension: ComparisonResult['dimensions'][number]
   ]
     .filter((part): part is string => Boolean(part && part.trim()))
     .join(' ');
-
-const useReducedMotion = () => {
-  const [shouldReduce, setShouldReduce] = useState(false);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const isLowEnd = navigator.hardwareConcurrency ? navigator.hardwareConcurrency <= 4 : false;
-    setShouldReduce(mediaQuery.matches || isLowEnd);
-
-    const handleChange = () => setShouldReduce(mediaQuery.matches || isLowEnd);
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
-
-  return shouldReduce;
-};
 
 const warnTrackingFailure = (error: unknown) => {
   console.warn('Comparison tracking failed:', error);
@@ -61,7 +45,7 @@ export default function App() {
     e.preventDefault();
     if (!itemA.trim() || !itemB.trim()) return;
 
-    const currentLanguage = i18nInstance.language || i18n.language || 'en';
+    const currentLanguage = i18nInstance.language || 'en';
 
     setLoading(true);
     setShowPartial(false);
@@ -126,16 +110,22 @@ export default function App() {
     <div className="min-h-screen font-sans selection:bg-indigo-500/30 selection:text-indigo-200 relative">
       <div className="fixed top-4 right-4 z-50 flex gap-1 bg-white/5 backdrop-blur-md rounded-full p-1 border border-white/10">
         <button
-          onClick={() => i18nInstance.changeLanguage('en')}
+          onClick={() => switchLanguage('en')}
           className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${i18nInstance.language === 'en' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'}`}
         >
           EN
         </button>
         <button
-          onClick={() => i18nInstance.changeLanguage('zh')}
-          className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${i18nInstance.language === 'zh' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'}`}
+          onClick={() => switchLanguage('zh-CN')}
+          className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${i18nInstance.language === 'zh-CN' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'}`}
         >
-          中文
+          简体
+        </button>
+        <button
+          onClick={() => switchLanguage('zh-TW')}
+          className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${i18nInstance.language === 'zh-TW' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'}`}
+        >
+          繁体
         </button>
       </div>
       <MinimalGrid />
