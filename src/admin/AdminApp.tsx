@@ -294,6 +294,8 @@ export default function AdminApp() {
   const [featured, setFeatured] = useState<FeaturedComparison[]>([]);
   const [newItemA, setNewItemA] = useState('');
   const [newItemB, setNewItemB] = useState('');
+  const [newLang, setNewLang] = useState('en');
+  const [newDesc, setNewDesc] = useState('');
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -374,10 +376,11 @@ export default function AdminApp() {
     event.preventDefault();
     if (!newItemA.trim() || !newItemB.trim()) return;
     try {
-      const created = await addAdminFeatured(newItemA.trim(), newItemB.trim());
+      const created = await addAdminFeatured(newItemA.trim(), newItemB.trim(), newLang, newDesc.trim());
       setFeatured((prev) => [...prev, created]);
       setNewItemA('');
       setNewItemB('');
+      setNewDesc('');
     } catch (addError: any) {
       setError(addError.message || 'Failed to add featured comparison');
     }
@@ -560,38 +563,66 @@ export default function AdminApp() {
                 <Sparkles size={16} />
                 Featured Comparisons
               </div>
-              <form onSubmit={handleAddFeatured} className="mb-3 flex items-center gap-2">
-                <input
-                  type="text"
-                  value={newItemA}
-                  onChange={(e) => setNewItemA(e.target.value)}
-                  placeholder="Item A"
-                  className="h-9 flex-1 rounded-lg border border-white/10 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-indigo-400"
-                  required
-                />
-                <span className="text-xs text-neutral-500 font-mono">vs</span>
-                <input
-                  type="text"
-                  value={newItemB}
-                  onChange={(e) => setNewItemB(e.target.value)}
-                  placeholder="Item B"
-                  className="h-9 flex-1 rounded-lg border border-white/10 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-indigo-400"
-                  required
-                />
-                <button
-                  type="submit"
-                  className="flex h-9 items-center gap-1 rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white transition hover:bg-indigo-500"
-                >
-                  <Plus size={14} />
-                  Add
-                </button>
+              <form onSubmit={handleAddFeatured} className="mb-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newItemA}
+                    onChange={(e) => setNewItemA(e.target.value)}
+                    placeholder="Item A"
+                    className="h-9 flex-1 rounded-lg border border-white/10 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-indigo-400"
+                    required
+                  />
+                  <span className="text-xs text-neutral-500 font-mono">vs</span>
+                  <input
+                    type="text"
+                    value={newItemB}
+                    onChange={(e) => setNewItemB(e.target.value)}
+                    placeholder="Item B"
+                    className="h-9 flex-1 rounded-lg border border-white/10 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-indigo-400"
+                    required
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={newLang}
+                    onChange={(e) => setNewLang(e.target.value)}
+                    className="h-9 rounded-lg border border-white/10 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-indigo-400"
+                  >
+                    <option value="en">EN</option>
+                    <option value="zh-CN">简体</option>
+                    <option value="zh-TW">繁体</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={newDesc}
+                    onChange={(e) => setNewDesc(e.target.value)}
+                    placeholder="Short description (optional)"
+                    className="h-9 flex-1 rounded-lg border border-white/10 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-indigo-400"
+                  />
+                  <button
+                    type="submit"
+                    className="flex h-9 items-center gap-1 rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white transition hover:bg-indigo-500"
+                  >
+                    <Plus size={14} />
+                    Add
+                  </button>
+                </div>
               </form>
               {featured.length > 0 ? (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {featured.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] p-4">
-                      <div className="font-medium text-white">
-                        {item.itemA} <span className="text-neutral-500">vs</span> {item.itemB}
+                    <div key={item.id} className="flex items-start justify-between rounded-lg border border-white/10 bg-white/[0.04] p-4">
+                      <div className="min-w-0">
+                        <div className="font-medium text-white">
+                          {item.itemA} <span className="text-neutral-500">vs</span> {item.itemB}
+                        </div>
+                        {item.description && (
+                          <div className="mt-1 truncate text-xs text-neutral-500">{item.description}</div>
+                        )}
+                        <div className="mt-1.5">
+                          <span className="rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-neutral-400">{item.language}</span>
+                        </div>
                       </div>
                       <button
                         type="button"

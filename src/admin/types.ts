@@ -61,6 +61,8 @@ export type FeaturedComparison = {
   id: number;
   itemA: string;
   itemB: string;
+  language: string;
+  description: string;
   sortOrder: number;
   createdAt: string;
 };

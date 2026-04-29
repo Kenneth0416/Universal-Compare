@@ -133,9 +133,10 @@ export function createApp({ analyticsStore, reportStore, featuredStore, openai, 
     res.json({ ok: true });
   });
 
-  app.get('/api/suggestions', (_req, res) => {
+  app.get('/api/suggestions', (req, res) => {
     try {
-      const featured = featuredStore.listFeatured();
+      const lang = typeof req.query.lang === 'string' ? req.query.lang : undefined;
+      const featured = featuredStore.listFeatured(lang);
       const recent = analyticsStore.getRecentComparisons();
       res.json({ featured, recent });
     } catch {
@@ -281,14 +282,17 @@ export function createApp({ analyticsStore, reportStore, featuredStore, openai, 
   });
 
   app.post('/api/admin/featured', (req, res) => {
-    const { itemA, itemB } = req.body || {};
+    const { itemA, itemB, language, description } = req.body || {};
 
     if (typeof itemA !== 'string' || typeof itemB !== 'string' || !itemA.trim() || !itemB.trim()) {
       res.status(400).json({ error: 'Missing itemA or itemB' });
       return;
     }
 
-    const created = featuredStore.addFeatured(itemA.trim(), itemB.trim());
+    const created = featuredStore.addFeatured(itemA.trim(), itemB.trim(), {
+      language: typeof language === 'string' ? language : 'en',
+      description: typeof description === 'string' ? description : '',
+    });
     res.status(201).json(created);
   });
 

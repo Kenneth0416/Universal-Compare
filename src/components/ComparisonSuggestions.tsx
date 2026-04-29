@@ -40,7 +40,7 @@ export function saveRecentComparison(itemA: string, itemB: string) {
 }
 
 export default function ComparisonSuggestions({ onSelect, visible }: ComparisonSuggestionsProps) {
-  const { t } = useTranslation();
+  const { t, i18n: i18nInstance } = useTranslation();
   const [featured, setFeatured] = useState<ComparisonSuggestion[]>([]);
   const [communityRecent, setCommunityRecent] = useState<ComparisonSuggestion[]>([]);
   const [recent, setRecent] = useState<ComparisonSuggestion[]>([]);
@@ -48,14 +48,15 @@ export default function ComparisonSuggestions({ onSelect, visible }: ComparisonS
   useEffect(() => {
     setRecent(getRecentComparisons());
 
-    fetch('/api/suggestions')
+    const lang = i18nInstance.language || 'en';
+    fetch(`/api/suggestions?lang=${encodeURIComponent(lang)}`)
       .then((res) => res.json())
       .then((data) => {
         setFeatured(data.featured || []);
         setCommunityRecent(data.recent || []);
       })
       .catch(() => {});
-  }, []);
+  }, [i18nInstance.language]);
 
   if (!visible) return null;
   if (featured.length === 0 && recent.length === 0 && communityRecent.length === 0) return null;

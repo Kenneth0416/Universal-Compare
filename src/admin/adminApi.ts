@@ -67,10 +67,10 @@ export function getAdminFeatured() {
   return request<{ items: FeaturedComparison[] }>('/featured');
 }
 
-export function addAdminFeatured(itemA: string, itemB: string) {
+export function addAdminFeatured(itemA: string, itemB: string, language: string, description: string) {
   return request<FeaturedComparison>('/featured', {
     method: 'POST',
-    body: JSON.stringify({ itemA, itemB }),
+    body: JSON.stringify({ itemA, itemB, language, description }),
   });
 }
 

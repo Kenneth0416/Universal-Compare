@@ -5,6 +5,7 @@ import { Search, Loader2, AlertCircle } from 'lucide-react';
 import { AILoadingState } from './components/AILoadingState';
 import ComparisonResultView from './components/ComparisonResultView';
 import ComparisonSuggestions, { saveRecentComparison } from './components/ComparisonSuggestions';
+import FeaturedShowcase from './components/FeaturedShowcase';
 import { finishComparisonRun, startComparisonRun } from './services/trackingService';
 import { saveReport } from './services/reportService';
 import MinimalGrid from './components/react-bits/MinimalGrid';
@@ -45,6 +46,13 @@ export default function App() {
     setItemA(a);
     setItemB(b);
     setShowSuggestions(false);
+  };
+
+  const handleShowcaseSelect = (a: string, b: string) => {
+    setItemA(a);
+    setItemB(b);
+    // Auto-trigger comparison after state update
+    setTimeout(() => formRef.current?.requestSubmit(), 0);
   };
 
   const handleCompare = async (e: React.FormEvent) => {
@@ -267,6 +275,10 @@ export default function App() {
                 showShare={!!result}
               />
             </motion.div>
+          )}
+
+          {!loading && !displayResult && !error && (
+            <FeaturedShowcase onSelect={handleShowcaseSelect} />
           )}
         </AnimatePresence>
       </main>
