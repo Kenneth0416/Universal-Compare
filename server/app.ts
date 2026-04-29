@@ -8,11 +8,13 @@ import {
   verifyAdminSessionToken,
 } from './adminAuth';
 import type { createAnalyticsStore } from './analytics';
+import type { createReportStore } from './reports';
 
 const VISITOR_COOKIE = 'compareai_visitor_id';
 const VISITOR_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
 
 type AnalyticsStore = ReturnType<typeof createAnalyticsStore>;
+type ReportStore = ReturnType<typeof createReportStore>;
 
 type AiClient = {
   responses: {
@@ -31,6 +33,7 @@ type RequestWithVisitor = Request & {
 
 type CreateAppOptions = {
   analyticsStore: AnalyticsStore;
+  reportStore: ReportStore;
   openai: AiClient;
   adminPassword?: string;
   adminSessionSecret: string;
@@ -59,7 +62,7 @@ function isAdminPasswordValid(input: unknown, adminPassword: string) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
-export function createApp({ analyticsStore, openai, adminPassword, adminSessionSecret }: CreateAppOptions) {
+export function createApp({ analyticsStore, reportStore, openai, adminPassword, adminSessionSecret }: CreateAppOptions) {
   const app = express();
 
   app.use(express.json({ limit: '1mb' }));
@@ -256,6 +259,77 @@ export function createApp({ analyticsStore, openai, adminPassword, adminSessionS
         offset: getQueryNumber(req.query.offset, 0),
       }),
     );
+  });
+
+  // --- Report endpoints ---
+
+  app.post('/api/reports', (req: RequestWithVisitor, res) => {
+    const { runId, itemA, itemB, language, result } = req.body || {};
+
+    if (typeof itemA !== 'string' || typeof itemB !== 'string' || !itemA.trim() || !itemB.trim()) {
+      res.status(400).json({ error: 'Missing itemA or itemB' });
+      return;
+    }
+
+    if (!result) {
+      res.status(400).json({ error: 'Missing result data' });
+      return;
+    }
+
+    try {
+      const saved = reportStore.saveReport({
+        runId: typeof runId === 'string' ? runId : undefined,
+        itemA,
+        itemB,
+        language: typeof language === 'string' ? language : 'en',
+        result,
+        visitorId: req.visitorId,
+      });
+
+      if (!saved) {
+        res.status(400).json({ error: 'Invalid result structure' });
+        return;
+      }
+
+      res.status(201).json(saved);
+    } catch (err) {
+      console.error('Failed to save report:', err);
+      res.status(500).json({ error: 'Failed to save report' });
+    }
+  });
+
+  app.get('/api/reports/:reportId', (req, res) => {
+    const report = reportStore.getReport(req.params.reportId);
+
+    if (!report) {
+      res.status(404).json({ error: 'Report not found' });
+      return;
+    }
+
+    // Increment view count (fire-and-forget)
+    reportStore.incrementViewCount(req.params.reportId);
+
+    res.json(report);
+  });
+
+  app.get('/api/admin/reports', (req, res) => {
+    res.json(
+      reportStore.listReports({
+        limit: getQueryNumber(req.query.limit, 50),
+        offset: getQueryNumber(req.query.offset, 0),
+      }),
+    );
+  });
+
+  app.delete('/api/admin/reports/:reportId', (req, res) => {
+    const deleted = reportStore.deleteReport(req.params.reportId);
+
+    if (!deleted) {
+      res.status(404).json({ error: 'Report not found' });
+      return;
+    }
+
+    res.json({ ok: true });
   });
 
   return app;

@@ -496,6 +496,7 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
   };
 
   return {
+    getDb: () => db,
     ensureVisitor,
     startComparisonRun,
     finishComparisonRun,

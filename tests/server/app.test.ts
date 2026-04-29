@@ -8,12 +8,15 @@ import { ADMIN_SESSION_COOKIE } from '../../server/adminAuth';
 import { createAddressInfo } from './helpers';
 import { createApp } from '../../server/app';
 import { createAnalyticsStore } from '../../server/analytics';
+import { createReportStore } from '../../server/reports';
 
 function createTestApp() {
   const dbPath = path.join(mkdtempSync(path.join(tmpdir(), 'compareai-app-')), 'analytics.db');
   const analyticsStore = createAnalyticsStore(dbPath, 'test-secret');
+  const reportStore = createReportStore(analyticsStore.getDb());
   const app = createApp({
     analyticsStore,
+    reportStore,
     adminPassword: 'admin-password',
     adminSessionSecret: 'session-secret',
     openai: {

@@ -12,6 +12,7 @@ import { DimensionCard } from './poster/DimensionCard';
 
 interface ShareButtonProps {
   result: ComparisonResult;
+  reportUrl?: string | null;
   className?: string;
 }
 
@@ -51,7 +52,7 @@ const shareOptions = [
   },
 ];
 
-export const ShareButton: React.FC<ShareButtonProps> = ({ result, className = '' }) => {
+export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, className = '' }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -226,7 +227,10 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, className = ''
 
   const handleCopyLink = async () => {
     try {
-      await navigator.clipboard.writeText(window.location.href);
+      const shareUrl = reportUrl
+        ? `${window.location.origin}${reportUrl}`
+        : window.location.href;
+      await navigator.clipboard.writeText(shareUrl);
       setSuccess('連結已複製');
       setTimeout(() => setSuccess(null), 3000);
     } catch {
