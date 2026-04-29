@@ -39,10 +39,9 @@ function initializeSchema(db: DatabaseConnection) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_featured_sort ON featured_comparisons(sort_order);
-    CREATE INDEX IF NOT EXISTS idx_featured_lang ON featured_comparisons(language);
   `);
 
-  // Migrate: add language and description columns if missing
+  // Migrate: add language and description columns if missing (for existing tables)
   try {
     db.prepare("SELECT language FROM featured_comparisons LIMIT 1").get();
   } catch {
@@ -53,6 +52,9 @@ function initializeSchema(db: DatabaseConnection) {
   } catch {
     db.exec("ALTER TABLE featured_comparisons ADD COLUMN description TEXT NOT NULL DEFAULT ''");
   }
+
+  // Create index after migration ensures column exists
+  db.exec("CREATE INDEX IF NOT EXISTS idx_featured_lang ON featured_comparisons(language)");
 }
 
 export function createFeaturedStore(db: DatabaseConnection) {
