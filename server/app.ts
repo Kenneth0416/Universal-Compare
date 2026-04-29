@@ -130,6 +130,15 @@ export function createApp({ analyticsStore, reportStore, openai, adminPassword, 
     res.json({ ok: true });
   });
 
+  app.get('/api/popular-comparisons', (_req, res) => {
+    try {
+      const summary = analyticsStore.getSummary();
+      res.json({ items: summary.popularComparisons || [] });
+    } catch {
+      res.json({ items: [] });
+    }
+  });
+
   app.post('/api/ai', async (req: RequestWithVisitor, res) => {
     const { callType, params, runId } = req.body || {};
 

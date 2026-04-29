@@ -5,10 +5,12 @@ import {
   BarChart3,
   Clock3,
   Database,
+  FileText,
   GitCompareArrows,
   LogOut,
   RefreshCw,
   ShieldCheck,
+  Trash2,
   Users,
 } from 'lucide-react';
 import {
@@ -24,16 +26,18 @@ import {
 } from 'recharts';
 import {
   getAdminCalls,
+  getAdminReports,
   getAdminRuns,
   getAdminSession,
   getAdminSummary,
   getAdminUsers,
   loginAdmin,
   logoutAdmin,
+  deleteAdminReport,
 } from './adminApi';
-import type { AdminSummary, CallListItem, RunListItem, UserListItem } from './types';
+import type { AdminSummary, CallListItem, ReportListItem, RunListItem, UserListItem } from './types';
 
-type AdminTab = 'overview' | 'runs' | 'calls' | 'users';
+type AdminTab = 'overview' | 'runs' | 'calls' | 'users' | 'reports';
 
 const dateTime = new Intl.DateTimeFormat(undefined, {
   month: 'short',
@@ -193,6 +197,58 @@ function UsersTable({ items }: { items: UserListItem[] }) {
   );
 }
 
+function ReportsTable({ items, onDelete }: { items: ReportListItem[]; onDelete: (reportId: string) => void }) {
+  if (items.length === 0) return <EmptyState label="No reports saved yet." />;
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-white/10">
+      <table className="w-full min-w-[860px] text-left text-sm">
+        <thead className="bg-white/[0.04] text-xs uppercase text-neutral-500">
+          <tr>
+            <th className="px-4 py-3">Report</th>
+            <th className="px-4 py-3">Language</th>
+            <th className="px-4 py-3">Views</th>
+            <th className="px-4 py-3">Created</th>
+            <th className="px-4 py-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/10">
+          {items.map((item) => (
+            <tr key={item.reportId} className="bg-neutral-950/40">
+              <td className="px-4 py-3 font-medium text-neutral-100">
+                {item.itemA} <span className="text-neutral-500">vs</span> {item.itemB}
+                <div className="mt-1 max-w-[320px] truncate text-xs font-normal text-neutral-500">{item.reportId}</div>
+              </td>
+              <td className="px-4 py-3 text-neutral-300">{item.language}</td>
+              <td className="px-4 py-3 text-neutral-300">{item.viewCount}</td>
+              <td className="px-4 py-3 text-neutral-400">{formatDate(item.createdAt)}</td>
+              <td className="px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <a
+                    href={`/r/${item.reportId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg border border-white/10 px-2 py-1 text-xs text-neutral-300 transition hover:bg-white/10"
+                  >
+                    <FileText size={14} />
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(item.reportId)}
+                    className="rounded-lg border border-red-500/20 px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function AdminApp() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [password, setPassword] = useState('');
@@ -200,6 +256,7 @@ export default function AdminApp() {
   const [runs, setRuns] = useState<RunListItem[]>([]);
   const [calls, setCalls] = useState<CallListItem[]>([]);
   const [users, setUsers] = useState<UserListItem[]>([]);
+  const [reports, setReports] = useState<ReportListItem[]>([]);
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -208,16 +265,18 @@ export default function AdminApp() {
     setLoading(true);
     setError('');
     try {
-      const [summaryData, runsData, callsData, usersData] = await Promise.all([
+      const [summaryData, runsData, callsData, usersData, reportsData] = await Promise.all([
         getAdminSummary(),
         getAdminRuns(),
         getAdminCalls(),
         getAdminUsers(),
+        getAdminReports(),
       ]);
       setSummary(summaryData);
       setRuns(runsData.items);
       setCalls(callsData.items);
       setUsers(usersData.items);
+      setReports(reportsData.items);
     } catch (loadError: any) {
       setError(loadError.message || 'Failed to load admin data');
     } finally {
@@ -258,6 +317,17 @@ export default function AdminApp() {
     setRuns([]);
     setCalls([]);
     setUsers([]);
+    setReports([]);
+  };
+
+  const handleDeleteReport = async (reportId: string) => {
+    if (!confirm(`Delete report ${reportId}?`)) return;
+    try {
+      await deleteAdminReport(reportId);
+      setReports((prev) => prev.filter((r) => r.reportId !== reportId));
+    } catch (deleteError: any) {
+      setError(deleteError.message || 'Failed to delete report');
+    }
   };
 
   if (authenticated === null) {
@@ -307,6 +377,7 @@ export default function AdminApp() {
   const tabs: Array<{ key: AdminTab; label: string }> = [
     { key: 'overview', label: 'Overview' },
     { key: 'runs', label: 'Runs' },
+    { key: 'reports', label: 'Reports' },
     { key: 'calls', label: 'Calls' },
     { key: 'users', label: 'Users' },
   ];
@@ -443,6 +514,7 @@ export default function AdminApp() {
         )}
 
         {activeTab === 'runs' && <RunsTable items={runs} />}
+        {activeTab === 'reports' && <ReportsTable items={reports} onDelete={handleDeleteReport} />}
         {activeTab === 'calls' && <CallsTable items={calls} />}
         {activeTab === 'users' && <UsersTable items={users} />}
       </div>

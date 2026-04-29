@@ -1,4 +1,4 @@
-import type { AdminSummary, CallListItem, ListResponse, RunListItem, UserListItem } from './types';
+import type { AdminSummary, CallListItem, ListResponse, ReportListItem, RunListItem, UserListItem } from './types';
 
 const API_BASE = '/api/admin';
 
@@ -53,4 +53,12 @@ export function getAdminCalls() {
 
 export function getAdminUsers() {
   return request<ListResponse<UserListItem>>('/users?limit=50');
+}
+
+export function getAdminReports() {
+  return request<ListResponse<ReportListItem>>('/reports?limit=50');
+}
+
+export function deleteAdminReport(reportId: string) {
+  return request<{ ok: true }>(`/reports/${encodeURIComponent(reportId)}`, { method: 'DELETE' });
 }

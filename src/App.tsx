@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { generateComparison, ComparisonResult } from './services/geminiService';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Loader2, AlertCircle } from 'lucide-react';
 import { AILoadingState } from './components/AILoadingState';
 import ComparisonResultView from './components/ComparisonResultView';
+import ComparisonSuggestions, { saveRecentComparison } from './components/ComparisonSuggestions';
 import { finishComparisonRun, startComparisonRun } from './services/trackingService';
 import { saveReport } from './services/reportService';
 import MinimalGrid from './components/react-bits/MinimalGrid';
@@ -26,6 +27,25 @@ export default function App() {
   const [showPartial, setShowPartial] = useState(false);
   const [error, setError] = useState('');
   const [reportUrl, setReportUrl] = useState<string | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (formRef.current && !formRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSuggestionSelect = (a: string, b: string) => {
+    setItemA(a);
+    setItemB(b);
+    setShowSuggestions(false);
+  };
 
   const handleCompare = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,6 +96,7 @@ export default function App() {
         runId
       );
       setResult(res);
+      saveRecentComparison(itemA, itemB);
 
       // Fire-and-forget: track completion + save report in parallel
       if (runId) {
@@ -150,13 +171,14 @@ export default function App() {
             {t('hero.subtitle')}
           </p>
 
-          <form onSubmit={handleCompare} className="max-w-3xl mx-auto relative">
+          <form ref={formRef} onSubmit={handleCompare} className="max-w-3xl mx-auto relative">
             <div className="flex flex-col sm:flex-row items-center gap-4 bg-white/5 backdrop-blur-xl p-2 rounded-3xl shadow-2xl border border-white/10">
               <div className="flex-1 w-full relative">
                 <input
                   type="text"
                   value={itemA}
                   onChange={(e) => setItemA(e.target.value)}
+                  onFocus={() => setShowSuggestions(true)}
                   placeholder={t('hero.placeholderA')}
                   inputMode="text"
                   autoComplete="off"
@@ -173,6 +195,7 @@ export default function App() {
                   type="text"
                   value={itemB}
                   onChange={(e) => setItemB(e.target.value)}
+                  onFocus={() => setShowSuggestions(true)}
                   placeholder={t('hero.placeholderB')}
                   inputMode="text"
                   autoComplete="off"
@@ -196,6 +219,10 @@ export default function App() {
                 )}
               </button>
             </div>
+            <ComparisonSuggestions
+              onSelect={handleSuggestionSelect}
+              visible={showSuggestions && !loading && !result}
+            />
           </form>
         </motion.div>
       </header>

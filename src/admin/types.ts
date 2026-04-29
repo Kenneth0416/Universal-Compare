@@ -64,6 +64,16 @@ export type AdminSummary = {
   popularComparisons: PopularComparison[];
 };
 
+export type ReportListItem = {
+  reportId: string;
+  itemA: string;
+  itemB: string;
+  language: string;
+  visitorId: string;
+  createdAt: string;
+  viewCount: number;
+};
+
 export type ListResponse<T> = {
   items: T[];
   total: number;
