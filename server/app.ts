@@ -8,6 +8,7 @@ import {
   verifyAdminSessionToken,
 } from './adminAuth';
 import type { createAnalyticsStore } from './analytics';
+import type { createFeaturedStore } from './featured';
 import type { createReportStore } from './reports';
 
 const VISITOR_COOKIE = 'compareai_visitor_id';
@@ -15,6 +16,7 @@ const VISITOR_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
 
 type AnalyticsStore = ReturnType<typeof createAnalyticsStore>;
 type ReportStore = ReturnType<typeof createReportStore>;
+type FeaturedStore = ReturnType<typeof createFeaturedStore>;
 
 type AiClient = {
   responses: {
@@ -34,6 +36,7 @@ type RequestWithVisitor = Request & {
 type CreateAppOptions = {
   analyticsStore: AnalyticsStore;
   reportStore: ReportStore;
+  featuredStore: FeaturedStore;
   openai: AiClient;
   adminPassword?: string;
   adminSessionSecret: string;
@@ -62,7 +65,7 @@ function isAdminPasswordValid(input: unknown, adminPassword: string) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
-export function createApp({ analyticsStore, reportStore, openai, adminPassword, adminSessionSecret }: CreateAppOptions) {
+export function createApp({ analyticsStore, reportStore, featuredStore, openai, adminPassword, adminSessionSecret }: CreateAppOptions) {
   const app = express();
 
   app.use(express.json({ limit: '1mb' }));
@@ -130,12 +133,13 @@ export function createApp({ analyticsStore, reportStore, openai, adminPassword, 
     res.json({ ok: true });
   });
 
-  app.get('/api/popular-comparisons', (_req, res) => {
+  app.get('/api/suggestions', (_req, res) => {
     try {
-      const summary = analyticsStore.getSummary();
-      res.json({ items: summary.popularComparisons || [] });
+      const featured = featuredStore.listFeatured();
+      const recent = analyticsStore.getRecentComparisons();
+      res.json({ featured, recent });
     } catch {
-      res.json({ items: [] });
+      res.json({ featured: [], recent: [] });
     }
   });
 
@@ -268,6 +272,35 @@ export function createApp({ analyticsStore, reportStore, openai, adminPassword, 
         offset: getQueryNumber(req.query.offset, 0),
       }),
     );
+  });
+
+  // --- Featured comparisons (admin) ---
+
+  app.get('/api/admin/featured', (_req, res) => {
+    res.json({ items: featuredStore.listFeatured() });
+  });
+
+  app.post('/api/admin/featured', (req, res) => {
+    const { itemA, itemB } = req.body || {};
+
+    if (typeof itemA !== 'string' || typeof itemB !== 'string' || !itemA.trim() || !itemB.trim()) {
+      res.status(400).json({ error: 'Missing itemA or itemB' });
+      return;
+    }
+
+    const created = featuredStore.addFeatured(itemA.trim(), itemB.trim());
+    res.status(201).json(created);
+  });
+
+  app.delete('/api/admin/featured/:id', (req, res) => {
+    const deleted = featuredStore.removeFeatured(Number(req.params.id));
+
+    if (!deleted) {
+      res.status(404).json({ error: 'Featured comparison not found' });
+      return;
+    }
+
+    res.json({ ok: true });
   });
 
   // --- Report endpoints ---

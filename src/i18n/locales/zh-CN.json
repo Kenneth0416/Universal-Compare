@@ -4,7 +4,10 @@
     "placeholderA": "例如：MacBook Air M3",
     "placeholderB": "例如：iPad Pro",
     "compareBtn": "比较",
-    "comparing": "比较中..."
+    "comparing": "比较中...",
+    "recommendedComparisons": "推荐",
+    "recentComparisons": "最近记录",
+    "communityComparisons": "社区对比"
   },
   "result": {
     "relationship": "关系类型",

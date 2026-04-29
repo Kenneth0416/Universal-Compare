@@ -8,6 +8,7 @@ dotenv.config({ path: '.env.local' });
 import path from 'node:path';
 import OpenAI from 'openai';
 import { createAnalyticsStore } from './analytics';
+import { createFeaturedStore } from './featured';
 import { createReportStore } from './reports';
 import { createApp } from './app';
 
@@ -25,9 +26,11 @@ const adminSessionSecret =
 
 const analyticsStore = createAnalyticsStore(analyticsDbPath, adminSessionSecret);
 const reportStore = createReportStore(analyticsStore.getDb());
+const featuredStore = createFeaturedStore(analyticsStore.getDb());
 const app = createApp({
   analyticsStore,
   reportStore,
+  featuredStore,
   openai: openai as any,
   adminPassword: process.env.ADMIN_PASSWORD,
   adminSessionSecret,

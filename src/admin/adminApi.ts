@@ -1,4 +1,4 @@
-import type { AdminSummary, CallListItem, ListResponse, ReportListItem, RunListItem, UserListItem } from './types';
+import type { AdminSummary, CallListItem, FeaturedComparison, ListResponse, ReportListItem, RunListItem, UserListItem } from './types';
 
 const API_BASE = '/api/admin';
 
@@ -61,4 +61,19 @@ export function getAdminReports() {
 
 export function deleteAdminReport(reportId: string) {
   return request<{ ok: true }>(`/reports/${encodeURIComponent(reportId)}`, { method: 'DELETE' });
+}
+
+export function getAdminFeatured() {
+  return request<{ items: FeaturedComparison[] }>('/featured');
+}
+
+export function addAdminFeatured(itemA: string, itemB: string) {
+  return request<FeaturedComparison>('/featured', {
+    method: 'POST',
+    body: JSON.stringify({ itemA, itemB }),
+  });
+}
+
+export function deleteAdminFeatured(id: number) {
+  return request<{ ok: true }>(`/featured/${id}`, { method: 'DELETE' });
 }

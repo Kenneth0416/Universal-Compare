@@ -48,12 +48,21 @@ export type UserListItem = {
   userAgent: string;
   comparisonCount: number;
   aiCallCount: number;
+  userType: 'user' | 'bot';
 };
 
-export type PopularComparison = {
+export type RecentComparison = {
   itemA: string;
   itemB: string;
-  count: number;
+  finishedAt: string;
+};
+
+export type FeaturedComparison = {
+  id: number;
+  itemA: string;
+  itemB: string;
+  sortOrder: number;
+  createdAt: string;
 };
 
 export type AdminSummary = {
@@ -61,7 +70,6 @@ export type AdminSummary = {
   trend: TrendPoint[];
   recentRuns: RunListItem[];
   recentFailedCalls: CallListItem[];
-  popularComparisons: PopularComparison[];
 };
 
 export type ReportListItem = {

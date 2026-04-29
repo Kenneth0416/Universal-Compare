@@ -93,16 +93,32 @@ test('aggregates failed calls and popular comparisons', () => {
     errorMessage: 'Comparison failed',
   });
 
+  // Add a completed run for recent comparisons test
+  store.startComparisonRun({
+    runId: 'run_completed',
+    visitorId: visitor.visitorId,
+    itemA: 'React',
+    itemB: 'Vue',
+    language: 'en',
+  });
+  store.finishComparisonRun({
+    runId: 'run_completed',
+    visitorId: visitor.visitorId,
+    status: 'completed',
+  });
+
   const summary = store.getSummary();
   assert.equal(summary.today.failedCalls, 1);
   assert.equal(summary.today.successRate, 0);
   assert.equal(summary.recentFailedCalls.length, 1);
   assert.equal(summary.recentFailedCalls[0].errorMessage, 'Upstream failed');
-  assert.equal(summary.popularComparisons[0].itemA, 'React');
-  assert.equal(summary.popularComparisons[0].itemB, 'Vue');
+
+  const recentComparisons = store.getRecentComparisons();
+  assert.equal(recentComparisons[0].itemA, 'React');
+  assert.equal(recentComparisons[0].itemB, 'Vue');
 
   const users = store.listUsers({ limit: 10 });
   assert.equal(users.items.length, 1);
-  assert.equal(users.items[0].comparisonCount, 1);
+  assert.equal(users.items[0].comparisonCount, 2);
   assert.equal(users.items[0].aiCallCount, 1);
 });

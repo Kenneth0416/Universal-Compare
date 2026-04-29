@@ -8,8 +8,10 @@ import {
   FileText,
   GitCompareArrows,
   LogOut,
+  Plus,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   Trash2,
   Users,
 } from 'lucide-react';
@@ -26,6 +28,7 @@ import {
 } from 'recharts';
 import {
   getAdminCalls,
+  getAdminFeatured,
   getAdminReports,
   getAdminRuns,
   getAdminSession,
@@ -34,8 +37,10 @@ import {
   loginAdmin,
   logoutAdmin,
   deleteAdminReport,
+  addAdminFeatured,
+  deleteAdminFeatured,
 } from './adminApi';
-import type { AdminSummary, CallListItem, ReportListItem, RunListItem, UserListItem } from './types';
+import type { AdminSummary, CallListItem, FeaturedComparison, ReportListItem, RunListItem, UserListItem } from './types';
 
 type AdminTab = 'overview' | 'runs' | 'calls' | 'users' | 'reports';
 
@@ -165,34 +170,63 @@ function CallsTable({ items }: { items: CallListItem[] }) {
 }
 
 function UsersTable({ items }: { items: UserListItem[] }) {
+  const [hideBot, setHideBot] = useState(false);
+  const filtered = hideBot ? items.filter((item) => item.userType !== 'bot') : items;
+
   if (items.length === 0) return <EmptyState label="No anonymous users recorded yet." />;
 
+  const botCount = items.filter((item) => item.userType === 'bot').length;
+
   return (
-    <div className="overflow-x-auto rounded-lg border border-white/10">
-      <table className="w-full min-w-[820px] text-left text-sm">
-        <thead className="bg-white/[0.04] text-xs uppercase text-neutral-500">
-          <tr>
-            <th className="px-4 py-3">Visitor</th>
-            <th className="px-4 py-3">Comparisons</th>
-            <th className="px-4 py-3">AI Calls</th>
-            <th className="px-4 py-3">First Seen</th>
-            <th className="px-4 py-3">Last Seen</th>
-            <th className="px-4 py-3">User Agent</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-white/10">
-          {items.map((item) => (
-            <tr key={item.visitorId} className="bg-neutral-950/40">
-              <td className="px-4 py-3 font-medium text-neutral-100">{item.visitorId}</td>
-              <td className="px-4 py-3 text-neutral-300">{item.comparisonCount}</td>
-              <td className="px-4 py-3 text-neutral-300">{item.aiCallCount}</td>
-              <td className="px-4 py-3 text-neutral-400">{formatDate(item.firstSeenAt)}</td>
-              <td className="px-4 py-3 text-neutral-400">{formatDate(item.lastSeenAt)}</td>
-              <td className="max-w-[280px] truncate px-4 py-3 text-neutral-500">{item.userAgent || '-'}</td>
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-400">
+          <input
+            type="checkbox"
+            checked={hideBot}
+            onChange={(e) => setHideBot(e.target.checked)}
+            className="accent-indigo-500"
+          />
+          Hide bots ({botCount})
+        </label>
+        <span className="text-xs text-neutral-600">
+          {filtered.length} of {items.length} shown
+        </span>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-white/10">
+        <table className="w-full min-w-[820px] text-left text-sm">
+          <thead className="bg-white/[0.04] text-xs uppercase text-neutral-500">
+            <tr>
+              <th className="px-4 py-3">Visitor</th>
+              <th className="px-4 py-3">Type</th>
+              <th className="px-4 py-3">Comparisons</th>
+              <th className="px-4 py-3">AI Calls</th>
+              <th className="px-4 py-3">First Seen</th>
+              <th className="px-4 py-3">Last Seen</th>
+              <th className="px-4 py-3">User Agent</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {filtered.map((item) => (
+              <tr key={item.visitorId} className="bg-neutral-950/40">
+                <td className="px-4 py-3 font-medium text-neutral-100">{item.visitorId}</td>
+                <td className="px-4 py-3">
+                  {item.userType === 'bot' ? (
+                    <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-300">Bot</span>
+                  ) : (
+                    <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-300">User</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-neutral-300">{item.comparisonCount}</td>
+                <td className="px-4 py-3 text-neutral-300">{item.aiCallCount}</td>
+                <td className="px-4 py-3 text-neutral-400">{formatDate(item.firstSeenAt)}</td>
+                <td className="px-4 py-3 text-neutral-400">{formatDate(item.lastSeenAt)}</td>
+                <td className="max-w-[280px] truncate px-4 py-3 text-neutral-500">{item.userAgent || '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -257,6 +291,9 @@ export default function AdminApp() {
   const [calls, setCalls] = useState<CallListItem[]>([]);
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [reports, setReports] = useState<ReportListItem[]>([]);
+  const [featured, setFeatured] = useState<FeaturedComparison[]>([]);
+  const [newItemA, setNewItemA] = useState('');
+  const [newItemB, setNewItemB] = useState('');
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -265,18 +302,20 @@ export default function AdminApp() {
     setLoading(true);
     setError('');
     try {
-      const [summaryData, runsData, callsData, usersData, reportsData] = await Promise.all([
+      const [summaryData, runsData, callsData, usersData, reportsData, featuredData] = await Promise.all([
         getAdminSummary(),
         getAdminRuns(),
         getAdminCalls(),
         getAdminUsers(),
         getAdminReports(),
+        getAdminFeatured(),
       ]);
       setSummary(summaryData);
       setRuns(runsData.items);
       setCalls(callsData.items);
       setUsers(usersData.items);
       setReports(reportsData.items);
+      setFeatured(featuredData.items);
     } catch (loadError: any) {
       setError(loadError.message || 'Failed to load admin data');
     } finally {
@@ -318,6 +357,7 @@ export default function AdminApp() {
     setCalls([]);
     setUsers([]);
     setReports([]);
+    setFeatured([]);
   };
 
   const handleDeleteReport = async (reportId: string) => {
@@ -327,6 +367,28 @@ export default function AdminApp() {
       setReports((prev) => prev.filter((r) => r.reportId !== reportId));
     } catch (deleteError: any) {
       setError(deleteError.message || 'Failed to delete report');
+    }
+  };
+
+  const handleAddFeatured = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!newItemA.trim() || !newItemB.trim()) return;
+    try {
+      const created = await addAdminFeatured(newItemA.trim(), newItemB.trim());
+      setFeatured((prev) => [...prev, created]);
+      setNewItemA('');
+      setNewItemB('');
+    } catch (addError: any) {
+      setError(addError.message || 'Failed to add featured comparison');
+    }
+  };
+
+  const handleDeleteFeatured = async (id: number) => {
+    try {
+      await deleteAdminFeatured(id);
+      setFeatured((prev) => prev.filter((f) => f.id !== id));
+    } catch (deleteError: any) {
+      setError(deleteError.message || 'Failed to delete featured comparison');
     }
   };
 
@@ -494,20 +556,55 @@ export default function AdminApp() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-sm font-medium text-neutral-200">Popular Comparisons</h2>
-              {summary?.popularComparisons.length ? (
+              <div className="mb-3 flex items-center gap-2 text-sm font-medium text-neutral-200">
+                <Sparkles size={16} />
+                Featured Comparisons
+              </div>
+              <form onSubmit={handleAddFeatured} className="mb-3 flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newItemA}
+                  onChange={(e) => setNewItemA(e.target.value)}
+                  placeholder="Item A"
+                  className="h-9 flex-1 rounded-lg border border-white/10 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-indigo-400"
+                  required
+                />
+                <span className="text-xs text-neutral-500 font-mono">vs</span>
+                <input
+                  type="text"
+                  value={newItemB}
+                  onChange={(e) => setNewItemB(e.target.value)}
+                  placeholder="Item B"
+                  className="h-9 flex-1 rounded-lg border border-white/10 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-indigo-400"
+                  required
+                />
+                <button
+                  type="submit"
+                  className="flex h-9 items-center gap-1 rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white transition hover:bg-indigo-500"
+                >
+                  <Plus size={14} />
+                  Add
+                </button>
+              </form>
+              {featured.length > 0 ? (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {summary.popularComparisons.map((item) => (
-                    <div key={`${item.itemA}-${item.itemB}`} className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
+                  {featured.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] p-4">
                       <div className="font-medium text-white">
                         {item.itemA} <span className="text-neutral-500">vs</span> {item.itemB}
                       </div>
-                      <div className="mt-2 text-sm text-neutral-500">{item.count} runs</div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteFeatured(item.id)}
+                        className="ml-2 shrink-0 rounded-lg border border-red-500/20 p-1.5 text-red-400 transition hover:bg-red-500/20"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   ))}
                 </div>
               ) : (
-                <EmptyState label="No popular comparisons yet." />
+                <EmptyState label="No featured comparisons yet. Add some above to show as recommendations." />
               )}
             </section>
           </div>

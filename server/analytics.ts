@@ -97,12 +97,13 @@ export type UserListItem = {
   userAgent: string;
   comparisonCount: number;
   aiCallCount: number;
+  userType: 'user' | 'bot';
 };
 
-export type PopularComparison = {
+export type RecentComparison = {
   itemA: string;
   itemB: string;
-  count: number;
+  finishedAt: string;
 };
 
 export type AdminSummary = {
@@ -110,7 +111,6 @@ export type AdminSummary = {
   trend: TrendPoint[];
   recentRuns: RunListItem[];
   recentFailedCalls: CallListItem[];
-  popularComparisons: PopularComparison[];
 };
 
 const MAX_TEXT_LENGTH = 500;
@@ -412,7 +412,23 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
         v.last_seen_at AS lastSeenAt,
         v.user_agent AS userAgent,
         COUNT(DISTINCT r.id) AS comparisonCount,
-        COUNT(DISTINCT c.id) AS aiCallCount
+        COUNT(DISTINCT c.id) AS aiCallCount,
+        CASE
+          WHEN v.user_agent GLOB '*curl*'
+            OR v.user_agent GLOB '*wget*'
+            OR v.user_agent GLOB '*python*'
+            OR v.user_agent GLOB '*bot*'
+            OR v.user_agent GLOB '*spider*'
+            OR v.user_agent GLOB '*crawler*'
+            OR v.user_agent GLOB '*monitor*'
+            OR v.user_agent GLOB '*healthcheck*'
+            OR v.user_agent GLOB '*Uptime*'
+            OR v.user_agent GLOB '*Go-http*'
+            OR v.user_agent GLOB '*node-fetch*'
+            OR v.user_agent GLOB '*axios*'
+          THEN 'bot'
+          ELSE 'user'
+        END AS userType
       FROM visitors v
       LEFT JOIN comparison_runs r ON r.visitor_id = v.visitor_id
       LEFT JOIN ai_call_logs c ON c.visitor_id = v.visitor_id
@@ -481,22 +497,23 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       if (point) point.aiCalls = Number(row.count || 0);
     }
 
-    const popularComparisons = db.prepare(`
-      SELECT item_a AS itemA, item_b AS itemB, COUNT(*) AS count
-      FROM comparison_runs
-      WHERE item_a != '' AND item_b != ''
-      GROUP BY lower(item_a), lower(item_b)
-      ORDER BY count DESC, MAX(started_at) DESC
-      LIMIT 10
-    `).all() as PopularComparison[];
-
     return {
       today,
       trend,
       recentRuns: listRuns({ limit: 8 }).items,
       recentFailedCalls: listCalls({ limit: 8, status: 'error' }).items,
-      popularComparisons,
     };
+  };
+
+  const getRecentComparisons = (limit = 8): RecentComparison[] => {
+    return db.prepare(`
+      SELECT item_a AS itemA, item_b AS itemB, MAX(finished_at) AS finishedAt
+      FROM comparison_runs
+      WHERE status = 'completed' AND item_a != '' AND item_b != ''
+      GROUP BY lower(item_a), lower(item_b)
+      ORDER BY MAX(finished_at) DESC
+      LIMIT ?
+    `).all(limit) as RecentComparison[];
   };
 
   return {
@@ -506,6 +523,7 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
     finishComparisonRun,
     logAiCall,
     getSummary,
+    getRecentComparisons,
     listRuns,
     listCalls,
     listUsers,

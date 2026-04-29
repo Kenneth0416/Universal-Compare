@@ -4,7 +4,10 @@
     "placeholderA": "e.g., MacBook Air M3",
     "placeholderB": "e.g., iPad Pro",
     "compareBtn": "Compare",
-    "comparing": "Comparing..."
+    "comparing": "Comparing...",
+    "recommendedComparisons": "Recommended",
+    "recentComparisons": "Recent",
+    "communityComparisons": "From the community"
   },
   "result": {
     "relationship": "Relationship",
