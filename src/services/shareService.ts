@@ -1,4 +1,4 @@
-import { toPng, toBlob } from 'html-to-image';
+import { toBlob, toPng } from 'html-to-image';
 
 export interface ShareOptions {
   /** 海报容器元素 */
@@ -15,19 +15,24 @@ export interface ShareOptions {
 
 /**
  * 生成海报 PNG 图片
- * 使用 html-to-image 库，对 SVG 渲染更友好
+ * 使用 html-to-image，对现代 CSS 颜色函数兼容性更好
  */
 export async function generatePosterBlob(options: ShareOptions): Promise<Blob> {
   const {
     containerElement,
+    width,
+    height,
     pixelRatio = 2,
-    quality = 1.0,
+    quality = 1,
   } = options;
 
   try {
     const blob = await toBlob(containerElement, {
-      quality,
+      cacheBust: true,
       pixelRatio,
+      quality,
+      width,
+      height,
     });
 
     if (!blob) {
@@ -47,16 +52,19 @@ export async function generatePosterBlob(options: ShareOptions): Promise<Blob> {
 export async function generatePosterDataURL(options: ShareOptions): Promise<string> {
   const {
     containerElement,
+    width,
+    height,
     pixelRatio = 2,
-    quality = 1.0,
+    quality = 1,
   } = options;
 
-  const dataUrl = await toPng(containerElement, {
-    quality,
+  return toPng(containerElement, {
+    cacheBust: true,
     pixelRatio,
+    quality,
+    width,
+    height,
   });
-
-  return dataUrl;
 }
 
 /**

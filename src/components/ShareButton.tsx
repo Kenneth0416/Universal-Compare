@@ -86,7 +86,8 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, className = ''
     }
     const container = document.createElement('div');
     container.id = 'temp-poster-container';
-    container.style.cssText = 'position: fixed; left: -9999px; top: 0; z-index: -1;';
+    // 初始隱藏但可見於視口內，讓 Recharts 能正確計算尺寸
+    container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 540px; height: 720px; z-index: -1;';
     document.body.appendChild(container);
     tempContainerRef.current = container;
     return container;
@@ -98,46 +99,75 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, className = ''
   // 生成海報的核心邏輯
   const generatePoster = async (type: 'cover' | 'card', index?: number) => {
     const container = createTempContainer();
-    const { createRoot } = await import('react-dom/client');
-    const root = createRoot(container);
+    let root: ReturnType<typeof import('react-dom/client').createRoot> | null = null;
 
-    if (type === 'cover') {
-      await new Promise<void>((resolve) => {
-        root.render(<PosterCover result={result} width={540} height={720} />);
-        setTimeout(resolve, 100);
-      });
-      await waitForRender(500);
-      const posterElement = document.getElementById('poster-cover');
-      if (!posterElement) throw new Error('海報容器未找到');
-      const blob = await generatePosterBlob({ containerElement: posterElement, pixelRatio: 2 });
-      const filename = `${result.entityA.name}-vs-${result.entityB.name}-對比報告.png`;
-      downloadPoster(blob, filename);
-    } else if (type === 'card' && index !== undefined) {
-      await new Promise<void>((resolve) => {
-        root.render(
-          <DimensionCard
-            dimension={result.dimensions[index]}
-            entityA={result.entityA.name}
-            entityB={result.entityB.name}
-            dimensionIndex={index}
-            totalDimensions={result.dimensions.length}
-            width={540}
-            height={720}
-          />
-        );
-        setTimeout(resolve, 100);
-      });
-      await waitForRender(500);
-      const cardElement = document.getElementById(`dimension-card-${index}`);
-      if (!cardElement) throw new Error(`卡片 ${index} 未找到`);
-      const blob = await generatePosterBlob({ containerElement: cardElement, pixelRatio: 2 });
-      const filename = `${result.entityA.name}-vs-${result.entityB.name}-${result.dimensions[index].label}.png`;
-      downloadPoster(blob, filename);
+    try {
+      const { createRoot } = await import('react-dom/client');
+      root = createRoot(container);
+
+      if (type === 'cover') {
+        await new Promise<void>((resolve) => {
+          root!.render(<PosterCover result={result} width={540} height={720} />);
+          setTimeout(resolve, 100);
+        });
+        await waitForRender(1000);
+        const posterElement = document.getElementById('poster-cover');
+        if (!posterElement) throw new Error('海報容器未找到');
+
+        // Method 1: 暫時顯示容器讓 Recharts 正確渲染，雷達圖需要真實尺寸才能計算
+        container.style.cssText = 'position: fixed; left: 0; top: 0; width: 540px; height: 720px; z-index: -1; visibility: visible;';
+        await waitForRender(1500); // 等待 Recharts + 图片导出前的最终渲染完成
+
+        const blob = await generatePosterBlob({ containerElement: posterElement, pixelRatio: 2 });
+
+        // 立即隱藏容器
+        container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 540px; height: 720px; z-index: -1;';
+
+        const filename = `${result.entityA.name}-vs-${result.entityB.name}-對比報告.png`;
+        downloadPoster(blob, filename);
+      } else if (type === 'card' && index !== undefined) {
+        await new Promise<void>((resolve) => {
+          root!.render(
+            <DimensionCard
+              dimension={result.dimensions[index]}
+              entityA={result.entityA.name}
+              entityB={result.entityB.name}
+              dimensionIndex={index}
+              totalDimensions={result.dimensions.length}
+              width={540}
+              height={720}
+            />
+          );
+          setTimeout(resolve, 100);
+        });
+        await waitForRender(1000);
+        const cardElement = document.getElementById(`dimension-card-${index}`);
+        if (!cardElement) throw new Error(`卡片 ${index} 未找到`);
+
+        // Method 1: 暫時顯示容器
+        container.style.cssText = 'position: fixed; left: 0; top: 0; width: 540px; height: 720px; z-index: -1; visibility: visible;';
+        await waitForRender(800); // 等待图片导出前的最终渲染完成
+
+        const blob = await generatePosterBlob({ containerElement: cardElement, pixelRatio: 2 });
+
+        // 立即隱藏容器
+        container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 540px; height: 720px; z-index: -1;';
+
+        const filename = `${result.entityA.name}-vs-${result.entityB.name}-${result.dimensions[index].label}.png`;
+        downloadPoster(blob, filename);
+      }
+    } finally {
+      // 確保無論成功或失敗都清理資源
+      if (root) {
+        root.unmount();
+      }
+      if (container.parentNode) {
+        document.body.removeChild(container);
+      }
+      if (tempContainerRef.current === container) {
+        tempContainerRef.current = null;
+      }
     }
-
-    root.unmount();
-    document.body.removeChild(container);
-    tempContainerRef.current = null;
   };
 
   // 處理下載全套
