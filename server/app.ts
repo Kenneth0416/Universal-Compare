@@ -282,7 +282,7 @@ export function createApp({ analyticsStore, reportStore, featuredStore, openai, 
   });
 
   app.post('/api/admin/featured', (req, res) => {
-    const { itemA, itemB, language, description } = req.body || {};
+    const { itemA, itemB, language, description, reportId } = req.body || {};
 
     if (typeof itemA !== 'string' || typeof itemB !== 'string' || !itemA.trim() || !itemB.trim()) {
       res.status(400).json({ error: 'Missing itemA or itemB' });
@@ -292,6 +292,7 @@ export function createApp({ analyticsStore, reportStore, featuredStore, openai, 
     const created = featuredStore.addFeatured(itemA.trim(), itemB.trim(), {
       language: typeof language === 'string' ? language : 'en',
       description: typeof description === 'string' ? description : '',
+      reportId: typeof reportId === 'string' ? reportId : undefined,
     });
     res.status(201).json(created);
   });

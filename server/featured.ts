@@ -84,17 +84,18 @@ export function createFeaturedStore(db: DatabaseConnection) {
   const addFeatured = (
     itemA: string,
     itemB: string,
-    options: { language?: string; description?: string; sortOrder?: number } = {},
+    options: { language?: string; description?: string; sortOrder?: number; reportId?: string } = {},
   ): FeaturedComparison => {
     const now = isoNow();
     const lang = options.language || 'en';
     const desc = truncate(options.description, 200);
     const order = options.sortOrder ?? 0;
+    const rId = options.reportId || null;
 
     const result = db.prepare(`
-      INSERT INTO featured_comparisons (item_a, item_b, language, description, sort_order, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(truncate(itemA), truncate(itemB), lang, desc, order, now);
+      INSERT INTO featured_comparisons (item_a, item_b, language, description, report_id, sort_order, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(truncate(itemA), truncate(itemB), lang, desc, rId, order, now);
 
     return {
       id: Number((result as any).lastInsertRowid),
@@ -102,7 +103,7 @@ export function createFeaturedStore(db: DatabaseConnection) {
       itemB: truncate(itemB),
       language: lang,
       description: desc,
-      reportId: null,
+      reportId: rId,
       sortOrder: order,
       createdAt: now,
     };

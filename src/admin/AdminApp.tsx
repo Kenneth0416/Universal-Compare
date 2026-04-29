@@ -236,7 +236,7 @@ function UsersTable({ items }: { items: UserListItem[] }) {
   );
 }
 
-function ReportsTable({ items, onDelete }: { items: ReportListItem[]; onDelete: (reportId: string) => void }) {
+function ReportsTable({ items, onDelete, onFeature }: { items: ReportListItem[]; onDelete: (reportId: string) => void; onFeature: (item: ReportListItem) => void }) {
   if (items.length === 0) return <EmptyState label="No reports saved yet." />;
 
   return (
@@ -271,6 +271,14 @@ function ReportsTable({ items, onDelete }: { items: ReportListItem[]; onDelete: 
                   >
                     <FileText size={14} />
                   </a>
+                  <button
+                    type="button"
+                    onClick={() => onFeature(item)}
+                    className="rounded-lg border border-indigo-500/20 px-2 py-1 text-xs text-indigo-400 transition hover:bg-indigo-500/20"
+                    title="Add to featured"
+                  >
+                    <Sparkles size={14} />
+                  </button>
                   <button
                     type="button"
                     onClick={() => onDelete(item.reportId)}
@@ -376,6 +384,22 @@ export default function AdminApp() {
       setReports((prev) => prev.filter((r) => r.reportId !== reportId));
     } catch (deleteError: any) {
       setError(deleteError.message || 'Failed to delete report');
+    }
+  };
+
+  const handleFeatureReport = async (item: ReportListItem) => {
+    if (featured.some((f) => f.reportId === item.reportId)) return;
+    try {
+      const created = await addAdminFeatured(
+        item.itemA,
+        item.itemB,
+        item.language,
+        '',
+        item.reportId,
+      );
+      setFeatured((prev) => [...prev, created]);
+    } catch (featureError: any) {
+      setError(featureError.message || 'Failed to feature report');
     }
   };
 
@@ -717,7 +741,7 @@ export default function AdminApp() {
         )}
 
         {activeTab === 'runs' && <RunsTable items={runs} />}
-        {activeTab === 'reports' && <ReportsTable items={reports} onDelete={handleDeleteReport} />}
+        {activeTab === 'reports' && <ReportsTable items={reports} onDelete={handleDeleteReport} onFeature={handleFeatureReport} />}
         {activeTab === 'calls' && <CallsTable items={calls} />}
         {activeTab === 'users' && <UsersTable items={users} />}
       </div>
