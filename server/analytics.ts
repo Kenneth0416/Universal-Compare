@@ -348,7 +348,11 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
         r.started_at AS startedAt,
         r.finished_at AS finishedAt,
         COUNT(c.id) AS callCount,
-        COALESCE(SUM(c.duration_ms), 0) AS totalDurationMs
+        CASE
+          WHEN r.finished_at IS NOT NULL
+          THEN CAST((julianday(r.finished_at) - julianday(r.started_at)) * 86400000 AS INTEGER)
+          ELSE 0
+        END AS totalDurationMs
       FROM comparison_runs r
       LEFT JOIN ai_call_logs c ON c.run_id = r.run_id
       GROUP BY r.id
