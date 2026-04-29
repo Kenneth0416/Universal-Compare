@@ -9,6 +9,7 @@ import {
 } from '../services/shareService';
 import { PosterCover } from './poster/PosterCover';
 import { DimensionCard } from './poster/DimensionCard';
+import { useTranslation } from 'react-i18next';
 
 interface ShareButtonProps {
   result: ComparisonResult;
@@ -16,43 +17,8 @@ interface ShareButtonProps {
   className?: string;
 }
 
-// 分享選項配置
-const shareOptions = [
-  {
-    id: 'all',
-    label: '下載全套',
-    sublabel: '封面 + 維度卡片',
-    icon: Layers,
-    gradient: 'from-indigo-500 via-purple-500 to-pink-500',
-    glowColor: '#8b5cf6',
-  },
-  {
-    id: 'cover',
-    label: '封面海報',
-    sublabel: '雷達圖總覽',
-    icon: Image,
-    gradient: 'from-purple-500 via-pink-500 to-rose-500',
-    glowColor: '#ec4899',
-  },
-  {
-    id: 'cards',
-    label: '維度卡片',
-    sublabel: '詳細對比圖',
-    icon: Layers,
-    gradient: 'from-pink-500 via-rose-500 to-red-500',
-    glowColor: '#f43f5e',
-  },
-  {
-    id: 'link',
-    label: '複製連結',
-    sublabel: '快速分享',
-    icon: Link2,
-    gradient: 'from-cyan-500 via-teal-500 to-emerald-500',
-    glowColor: '#14b8a6',
-  },
-];
-
 export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, className = '' }) => {
+  const { t, i18n: i18nInstance } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +26,43 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
   const tempContainerRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLDivElement>(null);
 
-  // 清理臨時容器
+  const shareOptions = [
+    {
+      id: 'all',
+      label: t('share.downloadAll'),
+      sublabel: t('share.downloadAllDesc'),
+      icon: Layers,
+      gradient: 'from-indigo-500 via-purple-500 to-pink-500',
+      glowColor: '#8b5cf6',
+    },
+    {
+      id: 'cover',
+      label: t('share.downloadCover'),
+      sublabel: t('share.downloadCoverDesc'),
+      icon: Image,
+      gradient: 'from-purple-500 via-pink-500 to-rose-500',
+      glowColor: '#ec4899',
+    },
+    {
+      id: 'cards',
+      label: t('share.downloadCards'),
+      sublabel: t('share.downloadCardsDesc'),
+      icon: Layers,
+      gradient: 'from-pink-500 via-rose-500 to-red-500',
+      glowColor: '#f43f5e',
+    },
+    {
+      id: 'link',
+      label: t('share.copyLink'),
+      sublabel: t('share.copyLinkDesc'),
+      icon: Link2,
+      gradient: 'from-cyan-500 via-teal-500 to-emerald-500',
+      glowColor: '#14b8a6',
+    },
+  ];
+
+  const currentLang = i18nInstance.language || 'en';
+
   useEffect(() => {
     return () => {
       if (tempContainerRef.current) {
@@ -69,7 +71,6 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
     };
   }, []);
 
-  // ESC 鍵關閉
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isExpanded) {
@@ -80,14 +81,12 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isExpanded]);
 
-  // 創建臨時渲染容器
   const createTempContainer = useCallback(() => {
     if (tempContainerRef.current) {
       document.body.removeChild(tempContainerRef.current);
     }
     const container = document.createElement('div');
     container.id = 'temp-poster-container';
-    // 初始隱藏但可見於視口內，讓 Recharts 能正確計算尺寸
     container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 540px; height: 720px; z-index: -1;';
     document.body.appendChild(container);
     tempContainerRef.current = container;
@@ -97,7 +96,6 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
   const waitForRender = useCallback((ms = 300) =>
     new Promise((resolve) => setTimeout(resolve, ms)), []);
 
-  // 生成海報的核心邏輯
   const generatePoster = async (type: 'cover' | 'card', index?: number) => {
     const container = createTempContainer();
     let root: ReturnType<typeof import('react-dom/client').createRoot> | null = null;
@@ -108,23 +106,20 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
 
       if (type === 'cover') {
         await new Promise<void>((resolve) => {
-          root!.render(<PosterCover result={result} width={540} height={720} />);
+          root!.render(<PosterCover result={result} width={540} height={720} language={currentLang} />);
           setTimeout(resolve, 100);
         });
         await waitForRender(1000);
         const posterElement = document.getElementById('poster-cover');
-        if (!posterElement) throw new Error('海報容器未找到');
+        if (!posterElement) throw new Error('Poster container not found');
 
-        // Method 1: 暫時顯示容器讓 Recharts 正確渲染，雷達圖需要真實尺寸才能計算
         container.style.cssText = 'position: fixed; left: 0; top: 0; width: 540px; height: 720px; z-index: -1; visibility: visible;';
-        await waitForRender(1500); // 等待 Recharts + 图片导出前的最终渲染完成
+        await waitForRender(1500);
 
         const blob = await generatePosterBlob({ containerElement: posterElement, pixelRatio: 2 });
-
-        // 立即隱藏容器
         container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 540px; height: 720px; z-index: -1;';
 
-        const filename = `${result.entityA.name}-vs-${result.entityB.name}-對比報告.png`;
+        const filename = `${result.entityA.name}-vs-${result.entityB.name}-${t('share.reportSuffix')}.png`;
         downloadPoster(blob, filename);
       } else if (type === 'card' && index !== undefined) {
         await new Promise<void>((resolve) => {
@@ -137,41 +132,31 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
               totalDimensions={result.dimensions.length}
               width={540}
               height={720}
+              language={currentLang}
             />
           );
           setTimeout(resolve, 100);
         });
         await waitForRender(1000);
         const cardElement = document.getElementById(`dimension-card-${index}`);
-        if (!cardElement) throw new Error(`卡片 ${index} 未找到`);
+        if (!cardElement) throw new Error(`Card ${index} not found`);
 
-        // Method 1: 暫時顯示容器
         container.style.cssText = 'position: fixed; left: 0; top: 0; width: 540px; height: 720px; z-index: -1; visibility: visible;';
-        await waitForRender(800); // 等待图片导出前的最终渲染完成
+        await waitForRender(800);
 
         const blob = await generatePosterBlob({ containerElement: cardElement, pixelRatio: 2 });
-
-        // 立即隱藏容器
         container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 540px; height: 720px; z-index: -1;';
 
         const filename = `${result.entityA.name}-vs-${result.entityB.name}-${result.dimensions[index].label}.png`;
         downloadPoster(blob, filename);
       }
     } finally {
-      // 確保無論成功或失敗都清理資源
-      if (root) {
-        root.unmount();
-      }
-      if (container.parentNode) {
-        document.body.removeChild(container);
-      }
-      if (tempContainerRef.current === container) {
-        tempContainerRef.current = null;
-      }
+      if (root) root.unmount();
+      if (container.parentNode) document.body.removeChild(container);
+      if (tempContainerRef.current === container) tempContainerRef.current = null;
     }
   };
 
-  // 處理下載全套
   const handleDownloadAll = async () => {
     setIsGenerating('all');
     setError(null);
@@ -181,11 +166,11 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
       for (let i = 0; i < result.dimensions.length; i++) {
         await generatePoster('card', i);
       }
-      setSuccess(`已下載 ${result.dimensions.length + 1} 張圖片`);
+      setSuccess(t('share.downloadedAll', { count: result.dimensions.length + 1 }));
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      console.error('生成失敗:', err);
-      setError('生成失敗，請重試');
+      console.error(err);
+      setError(t('share.generateFailed'));
     } finally {
       setIsGenerating(null);
     }
@@ -197,11 +182,11 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
     setSuccess(null);
     try {
       await generatePoster('cover');
-      setSuccess('封面海報已下載');
+      setSuccess(t('share.downloadedCover'));
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      console.error('生成失敗:', err);
-      setError('生成失敗，請重試');
+      console.error(err);
+      setError(t('share.generateFailed'));
     } finally {
       setIsGenerating(null);
     }
@@ -215,11 +200,11 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
       for (let i = 0; i < result.dimensions.length; i++) {
         await generatePoster('card', i);
       }
-      setSuccess(`已下載 ${result.dimensions.length} 張維度卡片`);
+      setSuccess(t('share.downloadedCards', { count: result.dimensions.length }));
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      console.error('生成失敗:', err);
-      setError('生成失敗，請重試');
+      console.error(err);
+      setError(t('share.generateFailed'));
     } finally {
       setIsGenerating(null);
     }
@@ -231,46 +216,34 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
         ? `${window.location.origin}${reportUrl}`
         : window.location.href;
       await navigator.clipboard.writeText(shareUrl);
-      setSuccess('連結已複製');
+      setSuccess(t('share.linkCopied'));
       setTimeout(() => setSuccess(null), 3000);
     } catch {
-      setError('複製失敗');
+      setError(t('share.copyFailed'));
     }
   };
 
   const handleNativeShare = async () => {
     const shareUrl = window.location.href;
-    const success = await nativeShare({
-      title: `${result.entityA.name} VS ${result.entityB.name} - AI 對比報告`,
-      text: result.recommendation?.short_verdict || `來看看 ${result.entityA.name} 和 ${result.entityB.name} 的對比分析！`,
+    const ok = await nativeShare({
+      title: `${result.entityA.name} VS ${result.entityB.name} - ${t('share.reportSuffix')}`,
+      text: result.recommendation?.short_verdict || `${result.entityA.name} vs ${result.entityB.name}`,
       url: shareUrl,
     });
-    if (success) {
-      setIsExpanded(false);
-    }
+    if (ok) setIsExpanded(false);
   };
 
-  // 點擊選項處理
   const handleOptionClick = (id: string) => {
     switch (id) {
-      case 'all':
-        handleDownloadAll();
-        break;
-      case 'cover':
-        handleDownloadCover();
-        break;
-      case 'cards':
-        handleDownloadCards();
-        break;
-      case 'link':
-        handleCopyLink();
-        break;
+      case 'all': handleDownloadAll(); break;
+      case 'cover': handleDownloadCover(); break;
+      case 'cards': handleDownloadCards(); break;
+      case 'link': handleCopyLink(); break;
     }
   };
 
   return (
     <div className={`relative ${className}`} ref={buttonRef}>
-      {/* 背景遮罩 */}
       <AnimatePresence>
         {isExpanded && (
           <motion.div
@@ -283,7 +256,6 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
         )}
       </AnimatePresence>
 
-      {/* 主按鈕 */}
       <motion.button
         key="trigger"
         initial={{ opacity: 0, y: 20, scale: 0.95 }}
@@ -295,32 +267,20 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
         onClick={() => setIsExpanded(true)}
         className="relative overflow-hidden bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 shadow-xl shadow-purple-500/40 flex items-center gap-2 px-5 py-3 rounded-2xl z-50"
       >
-        {/* 漸變動畫底層 */}
         <motion.div
           className="absolute inset-0 opacity-90"
-          animate={{
-            backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
-          }}
+          animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
           transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
-          style={{
-            background: 'linear-gradient(135deg, #4f46e5, #9333ea, #ec4899, #4f46e5)',
-            backgroundSize: '300% 300%',
-          }}
+          style={{ background: 'linear-gradient(135deg, #4f46e5, #9333ea, #ec4899, #4f46e5)', backgroundSize: '300% 300%' }}
         />
-
-        {/* 按鈕內容 */}
         <div className="relative flex items-center gap-2">
-          <motion.div
-            animate={{ rotate: [0, 15, -15, 0] }}
-            transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 2 }}
-          >
+          <motion.div animate={{ rotate: [0, 15, -15, 0] }} transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 2 }}>
             <Sparkles size={18} className="text-white" />
           </motion.div>
-          <span className="text-white font-semibold text-sm">分享海報</span>
+          <span className="text-white font-semibold text-sm">{t('share.sharePoster')}</span>
         </div>
       </motion.button>
 
-      {/* 展開的底部彈窗 */}
       <AnimatePresence>
         {isExpanded && (
           <motion.div
@@ -331,102 +291,63 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
             transition={{ type: 'spring', stiffness: 400, damping: 35 }}
             className="fixed left-1/2 -translate-x-1/2 bottom-6 z-50 w-[calc(100%-48px)] max-w-sm"
           >
-            {/* 外層發光邊框 */}
             <motion.div
               className="absolute -inset-1 rounded-3xl opacity-75"
-              style={{
-                background: 'linear-gradient(135deg, #8b5cf6, #ec4899, #f43f5e, #8b5cf6)',
-                backgroundSize: '300% 300%',
-                animation: 'gradient-rotate 3s ease infinite',
-              }}
-              animate={{
-                opacity: [0.5, 0.8, 0.5],
-              }}
+              style={{ background: 'linear-gradient(135deg, #8b5cf6, #ec4899, #f43f5e, #8b5cf6)', backgroundSize: '300% 300%', animation: 'gradient-rotate 3s ease infinite' }}
+              animate={{ opacity: [0.5, 0.8, 0.5] }}
               transition={{ duration: 2, repeat: Infinity }}
             />
 
-            {/* 主容器 */}
             <div className="relative bg-[#0f0a1e]/95 backdrop-blur-xl rounded-3xl p-1 overflow-hidden">
-              {/* 頂部標題欄 */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
                 <div className="flex items-center gap-2">
                   <Sparkles size={16} className="text-purple-400" />
-                  <span className="text-sm font-semibold text-white">分享海報</span>
+                  <span className="text-sm font-semibold text-white">{t('share.sharePoster')}</span>
                 </div>
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => setIsExpanded(false)}
-                  className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/60 hover:text-white transition-colors"
-                >
+                <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => setIsExpanded(false)} className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/60 hover:text-white transition-colors">
                   <X size={16} />
                 </motion.button>
               </div>
 
-              {/* 選項網格 */}
               <div className="p-3 grid grid-cols-2 gap-2">
                 {shareOptions.map((option, index) => (
                   <motion.button
                     key={option.id}
                     initial={{ opacity: 0, y: 20, scale: 0.8 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
-                    transition={{
-                      delay: index * 0.08,
-                      type: 'spring',
-                      stiffness: 400,
-                      damping: 25,
-                    }}
+                    transition={{ delay: index * 0.08, type: 'spring', stiffness: 400, damping: 25 }}
                     whileHover={{ scale: 1.02, y: -2 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => handleOptionClick(option.id)}
                     disabled={isGenerating !== null}
-                    className={`
-                      relative overflow-hidden flex flex-col items-center gap-2 p-4 rounded-2xl
-                      bg-gradient-to-br ${option.gradient} p-[1px]
-                      disabled:opacity-50 disabled:cursor-not-allowed
-                    `}
+                    className={`relative overflow-hidden flex flex-col items-center gap-2 p-4 rounded-2xl bg-gradient-to-br ${option.gradient} p-[1px] disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
-                    {/* 漸變背景 */}
-                    <div
-                      className="absolute inset-[1px] rounded-2xl bg-[#0f0a1e]/95"
-                      style={{ background: 'rgba(15, 10, 30, 0.95)' }}
-                    />
-
-                    {/* 內容 */}
+                    <div className="absolute inset-[1px] rounded-2xl" style={{ background: 'rgba(15, 10, 30, 0.95)' }} />
                     <div className="relative flex flex-col items-center gap-2">
                       {isGenerating === option.id ? (
                         <Loader2 size={28} className="text-white animate-spin" />
                       ) : (
-                        <motion.div
-                          whileHover={{ rotate: 360 }}
-                          transition={{ duration: 0.5 }}
-                          className={`p-2 rounded-xl bg-gradient-to-br ${option.gradient}`}
-                        >
+                        <motion.div whileHover={{ rotate: 360 }} transition={{ duration: 0.5 }} className={`p-2 rounded-xl bg-gradient-to-br ${option.gradient}`}>
                           <option.icon size={24} className="text-white" />
                         </motion.div>
                       )}
                       <div className="text-center">
                         <div className="text-sm font-semibold text-white">
-                          {isGenerating === option.id ? '生成中...' : option.label}
+                          {isGenerating === option.id ? t('share.generating') : option.label}
                         </div>
                         <div className="text-[10px] text-white/60 mt-0.5">{option.sublabel}</div>
                       </div>
                     </div>
-
-                    {/* 懸停光暈 */}
                     <motion.div
                       className="absolute inset-0 rounded-2xl opacity-0"
                       style={{ background: option.glowColor }}
-                      animate={{
-                        opacity: [0, 0.15, 0],
-                      }}
+                      animate={{ opacity: [0, 0.15, 0] }}
                       transition={{ duration: 1.5, repeat: Infinity }}
                     />
                   </motion.button>
                 ))}
               </div>
 
-              {/* 系統分享入口 */}
               {'share' in navigator && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
@@ -441,12 +362,11 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
                     className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
                   >
                     <Share2 size={18} className="text-emerald-400" />
-                    <span className="text-sm font-medium text-white">使用系統分享</span>
+                    <span className="text-sm font-medium text-white">{t('share.useNativeShare')}</span>
                   </motion.button>
                 </motion.div>
               )}
 
-              {/* 消息提示 */}
               <AnimatePresence>
                 {success && (
                   <motion.div
@@ -478,7 +398,6 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
         )}
       </AnimatePresence>
 
-      {/* 全局樣式 - 漸變動畫 */}
       <style>{`
         @keyframes gradient-rotate {
           0% { background-position: 0% 50%; }

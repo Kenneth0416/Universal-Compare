@@ -30,5 +30,42 @@
   },
   "error": {
     "generic": "比较过程中发生错误。"
+  },
+  "share": {
+    "sharePoster": "分享海报",
+    "shareSubtitle": "生成精美海报，分享到社交媒体",
+    "downloadAll": "下载全套",
+    "downloadAllDesc": "封面 + 维度卡片",
+    "downloadCover": "封面海报",
+    "downloadCoverDesc": "雷达图总览",
+    "downloadCards": "维度卡片",
+    "downloadCardsDesc": "详细对比图",
+    "copyLink": "复制链接",
+    "copyLinkDesc": "快速分享",
+    "generating": "生成中...",
+    "downloadedAll": "已下载 {count} 张图片",
+    "downloadedCover": "封面海报已下载",
+    "downloadedCards": "已下载 {count} 张维度卡片",
+    "linkCopied": "链接已复制",
+    "copyFailed": "复制失败",
+    "generateFailed": "生成失败，请重试",
+    "useNativeShare": "使用系统分享",
+    "reportSuffix": "对比报告"
+  },
+  "poster": {
+    "dimensionsOverview": "{count} 维度总览",
+    "visualComparison": "AI 对比海报",
+    "averageScore": "平均分",
+    "winner": "胜出",
+    "radarOverview": "雷达总览",
+    "axisLegend": "维度图例",
+    "chartNote": "图上以编号显示维度",
+    "scanOrVisit": "扫码或访问",
+    "scanHint": "用二维码打开，或直接访问下方网址",
+    "dimensionDetail": "维度详情",
+    "wins": "胜出",
+    "gap": "差距",
+    "keyDifference": "关键差异",
+    "noAnalysis": "暂无分析"
   }
 }

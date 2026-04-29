@@ -30,5 +30,42 @@
   },
   "error": {
     "generic": "比較過程中發生錯誤。"
+  },
+  "share": {
+    "sharePoster": "分享海報",
+    "shareSubtitle": "生成精美海報，分享到社交媒體",
+    "downloadAll": "下載全套",
+    "downloadAllDesc": "封面 + 維度卡片",
+    "downloadCover": "封面海報",
+    "downloadCoverDesc": "雷達圖總覽",
+    "downloadCards": "維度卡片",
+    "downloadCardsDesc": "詳細對比圖",
+    "copyLink": "複製連結",
+    "copyLinkDesc": "快速分享",
+    "generating": "生成中...",
+    "downloadedAll": "已下載 {count} 張圖片",
+    "downloadedCover": "封面海報已下載",
+    "downloadedCards": "已下載 {count} 張維度卡片",
+    "linkCopied": "連結已複製",
+    "copyFailed": "複製失敗",
+    "generateFailed": "生成失敗，請重試",
+    "useNativeShare": "使用系統分享",
+    "reportSuffix": "對比報告"
+  },
+  "poster": {
+    "dimensionsOverview": "{count} 維度總覽",
+    "visualComparison": "AI 對比海報",
+    "averageScore": "平均分",
+    "winner": "勝出",
+    "radarOverview": "雷達總覽",
+    "axisLegend": "維度圖例",
+    "chartNote": "圖上以編號顯示維度",
+    "scanOrVisit": "掃碼或訪問",
+    "scanHint": "用二維碼打開，或直接訪問下方網址",
+    "dimensionDetail": "維度詳情",
+    "wins": "勝出",
+    "gap": "差距",
+    "keyDifference": "關鍵差異",
+    "noAnalysis": "暫無分析"
   }
 }

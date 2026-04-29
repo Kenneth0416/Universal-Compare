@@ -13,10 +13,40 @@ interface DimensionCardProps {
   totalDimensions: number;
   width?: number;
   height?: number;
+  language?: string;
 }
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && isFinite(value);
+
+const cardI18n: Record<string, Record<string, string>> = {
+  en: {
+    dimensionDetail: 'Dimension Detail',
+    wins: 'Wins',
+    gap: 'Gap',
+    keyDifference: 'Key Difference',
+    noAnalysis: 'No analysis available',
+  },
+  'zh-CN': {
+    dimensionDetail: '维度详情',
+    wins: '胜出',
+    gap: '差距',
+    keyDifference: '关键差异',
+    noAnalysis: '暂无分析',
+  },
+  'zh-TW': {
+    dimensionDetail: '維度詳情',
+    wins: '勝出',
+    gap: '差距',
+    keyDifference: '關鍵差異',
+    noAnalysis: '暫無分析',
+  },
+};
+
+function cardT(lang: string | undefined, key: string): string {
+  const map = cardI18n[lang || 'en'] || cardI18n.en;
+  return map[key] || cardI18n.en[key] || key;
+}
 
 export const DimensionCard: React.FC<DimensionCardProps> = ({
   dimension,
@@ -26,6 +56,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
   totalDimensions,
   width = 540,
   height = 720,
+  language,
 }) => {
   const [mounted, setMounted] = useState(false);
   const [url, setUrl] = useState('');
@@ -82,7 +113,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
               / {totalDimensions}
             </span>
           </div>
-          <span className="text-[10px] text-white/30">维度详情</span>
+          <span className="text-[10px] text-white/30">{cardT(language, 'dimensionDetail')}</span>
         </div>
       </div>
 
@@ -122,7 +153,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
               </span>
               {isAWinner && (
                 <span className="text-[10px] text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">
-                  胜出
+                  {cardT(language, 'wins')}
                 </span>
               )}
             </div>
@@ -168,7 +199,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
               </span>
               {isBWinner && (
                 <span className="text-[10px] text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">
-                  胜出
+                  {cardT(language, 'wins')}
                 </span>
               )}
             </div>
@@ -197,7 +228,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
         {!isTie && (
           <div className="text-center">
             <span className="text-xs text-white/40">
-              差距{' '}
+              {cardT(language, 'gap')}{' '}
               <span className="text-indigo-300/80 font-semibold">
                 {diff.toFixed(1)}
               </span>
@@ -213,7 +244,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
             className="p-4 rounded-xl bg-white/5 border border-white/10 mb-3"
           >
             <div className="text-[10px] text-indigo-300/60 font-semibold uppercase tracking-wider mb-2">
-              关键差异
+              {cardT(language, 'keyDifference')}
             </div>
             <p className="text-sm text-white/80 leading-relaxed">
               {dimension.analysis.key_difference}
@@ -228,7 +259,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
               {entityA}
             </div>
             <p className="text-xs text-white/60 leading-relaxed line-clamp-3">
-              {dimension.analysis?.item_a_summary || '暂无分析'}
+              {dimension.analysis?.item_a_summary || cardT(language, 'noAnalysis')}
             </p>
           </div>
           <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
@@ -236,7 +267,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
               {entityB}
             </div>
             <p className="text-xs text-white/60 leading-relaxed line-clamp-3">
-              {dimension.analysis?.item_b_summary || '暂无分析'}
+              {dimension.analysis?.item_b_summary || cardT(language, 'noAnalysis')}
             </p>
           </div>
         </div>

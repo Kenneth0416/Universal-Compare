@@ -13,10 +13,59 @@ interface PosterCoverProps {
   width?: number;
   /** 设计高度 (px) - 渲染时 2x */
   height?: number;
+  /** 语言代码 */
+  language?: string;
 }
 
 const POSTER_WIDTH = 540;
 const POSTER_HEIGHT = 720;
+
+const posterI18n: Record<string, Record<string, string>> = {
+  en: {
+    dimensionsOverview: '{count} Dimensions Overview',
+    visualComparison: 'Visual Comparison Poster',
+    averageScore: 'Average Score',
+    winner: 'Winner',
+    radarOverview: 'Radar Overview',
+    axisLegend: 'Axis Legend',
+    chartNote: 'Dimensions shown as numbers on chart',
+    scanOrVisit: 'Scan Or Visit',
+    scanHint: 'Scan QR code or visit the URL below',
+  },
+  'zh-CN': {
+    dimensionsOverview: '{count} 维度总览',
+    visualComparison: 'AI 对比海报',
+    averageScore: '平均分',
+    winner: '胜出',
+    radarOverview: '雷达总览',
+    axisLegend: '维度图例',
+    chartNote: '图上以编号显示维度',
+    scanOrVisit: '扫码或访问',
+    scanHint: '用二维码打开，或直接访问下方网址',
+  },
+  'zh-TW': {
+    dimensionsOverview: '{count} 維度總覽',
+    visualComparison: 'AI 對比海報',
+    averageScore: '平均分',
+    winner: '勝出',
+    radarOverview: '雷達總覽',
+    axisLegend: '維度圖例',
+    chartNote: '圖上以編號顯示維度',
+    scanOrVisit: '掃碼或訪問',
+    scanHint: '用二維碼打開，或直接訪問下方網址',
+  },
+};
+
+function posterT(lang: string | undefined, key: string, vars?: Record<string, string | number>): string {
+  const map = posterI18n[lang || 'en'] || posterI18n.en;
+  let text = map[key] || posterI18n.en[key] || key;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      text = text.replace(`{${k}}`, String(v));
+    }
+  }
+  return text;
+}
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && isFinite(value);
@@ -96,6 +145,7 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
   result,
   width = POSTER_WIDTH,
   height = POSTER_HEIGHT,
+  language,
 }) => {
   const [mounted, setMounted] = useState(false);
   const [url, setUrl] = useState('');
@@ -217,7 +267,7 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
               border: '1px solid rgba(255,255,255,0.1)',
             }}
           >
-            {dimensionLegend.length} 维度总览
+            {posterT(language, 'dimensionsOverview', { count: dimensionLegend.length })}
           </div>
         </div>
       </div>
@@ -225,7 +275,7 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
       {/* 主标题区 */}
       <div className="relative px-6 pt-2 text-center overflow-hidden">
         <div className="text-[10px] uppercase tracking-[0.28em] text-white/35 mb-2">
-          Visual Comparison Poster
+          {posterT(language, 'visualComparison')}
         </div>
         <div
           className="font-bold mb-2.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1"
@@ -251,7 +301,7 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
               boxShadow: '0 4px 18px rgba(52, 211, 153, 0.12)',
             }}
           >
-            <span className="text-[10px] uppercase tracking-[0.22em] text-emerald-200/70">Winner</span>
+            <span className="text-[10px] uppercase tracking-[0.22em] text-emerald-200/70">{posterT(language, 'winner')}</span>
             <span className="text-sm font-semibold text-emerald-300">{winner}</span>
             {loser && (
               <span className="text-[10px] text-white/38">vs {loser}</span>
@@ -286,7 +336,7 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
             }}
           >
             <div className="text-[10px] uppercase tracking-[0.22em] text-indigo-200/55 mb-2">
-              Average Score
+              {posterT(language, 'averageScore')}
             </div>
             <div
               className="text-[34px] font-black text-transparent bg-clip-text bg-gradient-to-b from-indigo-300 to-indigo-500"
@@ -307,7 +357,7 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
             }}
           >
             <div className="text-[10px] uppercase tracking-[0.22em] text-purple-200/55 mb-2">
-              Average Score
+              {posterT(language, 'averageScore')}
             </div>
             <div
               className="text-[34px] font-black text-transparent bg-clip-text bg-gradient-to-b from-purple-300 to-pink-500"
@@ -347,7 +397,7 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
             }}
           >
             <span className="text-[10px] tracking-[0.24em] uppercase text-white/46">
-              Radar Overview
+              {posterT(language, 'radarOverview')}
             </span>
           </div>
           <MiniRadarChart
@@ -363,10 +413,10 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
       <div className="relative px-6 pt-1.5 overflow-hidden">
         <div className="flex items-center justify-between mb-2">
           <div className="text-[10px] uppercase tracking-[0.22em] text-white/42">
-            Axis Legend
+            {posterT(language, 'axisLegend')}
           </div>
           <div className="text-[10px] text-white/30">
-            图上以编号显示维度
+            {posterT(language, 'chartNote')}
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2.5">
@@ -430,10 +480,10 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
           </div>
           <div className="min-w-0">
             <div className="text-[10px] uppercase tracking-[0.18em] text-white/48 mb-1">
-              Scan Or Visit
+              {posterT(language, 'scanOrVisit')}
             </div>
             <div className="text-[10px] text-white/72 leading-[1.35]">
-              用二维码打开，或直接访问下方网址
+              {posterT(language, 'scanHint')}
             </div>
             <div
               className="mt-1 text-[9px] text-white/40 font-mono leading-[1.3]"

@@ -30,5 +30,42 @@
   },
   "error": {
     "generic": "An error occurred during comparison."
+  },
+  "share": {
+    "sharePoster": "Share Poster",
+    "shareSubtitle": "Generate beautiful posters to share",
+    "downloadAll": "Download All",
+    "downloadAllDesc": "Cover + dimension cards",
+    "downloadCover": "Cover Poster",
+    "downloadCoverDesc": "Radar chart overview",
+    "downloadCards": "Dimension Cards",
+    "downloadCardsDesc": "Detailed comparison",
+    "copyLink": "Copy Link",
+    "copyLinkDesc": "Quick share",
+    "generating": "Generating...",
+    "downloadedAll": "Downloaded {count} images",
+    "downloadedCover": "Cover poster downloaded",
+    "downloadedCards": "Downloaded {count} dimension cards",
+    "linkCopied": "Link copied",
+    "copyFailed": "Copy failed",
+    "generateFailed": "Generation failed, please retry",
+    "useNativeShare": "Share via system",
+    "reportSuffix": "Comparison Report"
+  },
+  "poster": {
+    "dimensionsOverview": "{count} Dimensions Overview",
+    "visualComparison": "Visual Comparison Poster",
+    "averageScore": "Average Score",
+    "winner": "Winner",
+    "radarOverview": "Radar Overview",
+    "axisLegend": "Axis Legend",
+    "chartNote": "Dimensions shown as numbers on chart",
+    "scanOrVisit": "Scan Or Visit",
+    "scanHint": "Scan QR code or visit the URL below",
+    "dimensionDetail": "Dimension Detail",
+    "wins": "Wins",
+    "gap": "Gap",
+    "keyDifference": "Key Difference",
+    "noAnalysis": "No analysis available"
   }
 }
