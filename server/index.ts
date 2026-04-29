@@ -1,70 +1,33 @@
 /**
  * Grok API Proxy Server
- * Proxies AI calls from frontend to Grok API, keeping API key server-side
+ * Proxies AI calls from frontend to Grok API, keeping API key server-side.
  */
 
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
-import express from 'express';
+import path from 'node:path';
 import OpenAI from 'openai';
+import { createAnalyticsStore } from './analytics';
+import { createApp } from './app';
 
-const app = express();
 const PORT = process.env.API_SERVER_PORT || 3001;
 
-// Initialize OpenAI client with server-side API key
 const openai = new OpenAI({
   apiKey: process.env.XAI_API_KEY,
   baseURL: 'https://api.x.ai/v1',
 });
 
-// Responses API type definitions
-type ResponsesAPIInput = {
-  role: 'user' | 'assistant';
-  content: string;
-};
+const analyticsDbPath =
+  process.env.ANALYTICS_DB_PATH || path.resolve(process.cwd(), 'server', 'compareai-analytics.db');
+const adminSessionSecret =
+  process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD || process.env.XAI_API_KEY || 'dev-admin-secret';
 
-type ResponsesAPITool = { type: 'web_search' } | { type: 'x_search' };
-
-app.use(express.json());
-
-// Proxy endpoint for all AI calls
-app.post('/api/ai', async (req, res) => {
-  const { callType, params } = req.body;
-
-  if (!callType || !params) {
-    res.status(400).json({ error: 'Missing callType or params' });
-    return;
-  }
-
-  try {
-    let response;
-
-    switch (callType) {
-      case 'responses':
-        // Responses API (web_search, x_search)
-        response = await (openai as any).responses.create({
-          ...params,
-          tools: params.tools as ResponsesAPITool[],
-        });
-        break;
-
-      case 'chat':
-        // Chat Completions API
-        response = await openai.chat.completions.create(params);
-        break;
-
-      default:
-        res.status(400).json({ error: `Unknown callType: ${callType}` });
-        return;
-    }
-
-    res.json(response);
-  } catch (error) {
-    console.error('AI API error:', error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : 'AI API call failed',
-    });
-  }
+const analyticsStore = createAnalyticsStore(analyticsDbPath, adminSessionSecret);
+const app = createApp({
+  analyticsStore,
+  openai: openai as any,
+  adminPassword: process.env.ADMIN_PASSWORD,
+  adminSessionSecret,
 });
 
 app.listen(PORT, () => {

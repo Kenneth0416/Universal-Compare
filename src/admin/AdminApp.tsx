@@ -1,0 +1,451 @@
+import { FormEvent, useEffect, useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  Clock3,
+  Database,
+  GitCompareArrows,
+  LogOut,
+  RefreshCw,
+  ShieldCheck,
+  Users,
+} from 'lucide-react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import {
+  getAdminCalls,
+  getAdminRuns,
+  getAdminSession,
+  getAdminSummary,
+  getAdminUsers,
+  loginAdmin,
+  logoutAdmin,
+} from './adminApi';
+import type { AdminSummary, CallListItem, RunListItem, UserListItem } from './types';
+
+type AdminTab = 'overview' | 'runs' | 'calls' | 'users';
+
+const dateTime = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+function formatDate(value: string | null) {
+  if (!value) return '-';
+  return dateTime.format(new Date(value));
+}
+
+function formatDuration(value: number) {
+  if (value < 1000) return `${Math.round(value)} ms`;
+  return `${(value / 1000).toFixed(1)} s`;
+}
+
+function statusClass(status: string) {
+  if (status === 'completed' || status === 'success') return 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20';
+  if (status === 'failed' || status === 'error') return 'bg-red-500/10 text-red-300 border-red-500/20';
+  return 'bg-amber-500/10 text-amber-200 border-amber-500/20';
+}
+
+function MetricCard({
+  label,
+  value,
+  detail,
+  icon: Icon,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  icon: typeof Activity;
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
+      <div className="mb-4 flex items-center justify-between">
+        <span className="text-sm text-neutral-400">{label}</span>
+        <Icon size={18} className="text-neutral-500" />
+      </div>
+      <div className="text-2xl font-semibold text-white">{value}</div>
+      <div className="mt-1 text-xs text-neutral-500">{detail}</div>
+    </div>
+  );
+}
+
+function EmptyState({ label }: { label: string }) {
+  return <div className="rounded-lg border border-white/10 bg-white/[0.03] p-6 text-sm text-neutral-500">{label}</div>;
+}
+
+function RunsTable({ items }: { items: RunListItem[] }) {
+  if (items.length === 0) return <EmptyState label="No comparison runs recorded yet." />;
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-white/10">
+      <table className="w-full min-w-[860px] text-left text-sm">
+        <thead className="bg-white/[0.04] text-xs uppercase text-neutral-500">
+          <tr>
+            <th className="px-4 py-3">Comparison</th>
+            <th className="px-4 py-3">Status</th>
+            <th className="px-4 py-3">Calls</th>
+            <th className="px-4 py-3">Duration</th>
+            <th className="px-4 py-3">Language</th>
+            <th className="px-4 py-3">Started</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/10">
+          {items.map((item) => (
+            <tr key={item.runId} className="bg-neutral-950/40">
+              <td className="px-4 py-3 font-medium text-neutral-100">
+                {item.itemA || '-'} <span className="text-neutral-500">vs</span> {item.itemB || '-'}
+                <div className="mt-1 max-w-[320px] truncate text-xs font-normal text-neutral-500">{item.runId}</div>
+              </td>
+              <td className="px-4 py-3">
+                <span className={`rounded-full border px-2 py-1 text-xs ${statusClass(item.status)}`}>{item.status}</span>
+              </td>
+              <td className="px-4 py-3 text-neutral-300">{item.callCount}</td>
+              <td className="px-4 py-3 text-neutral-300">{formatDuration(item.totalDurationMs)}</td>
+              <td className="px-4 py-3 text-neutral-300">{item.language}</td>
+              <td className="px-4 py-3 text-neutral-400">{formatDate(item.startedAt)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CallsTable({ items }: { items: CallListItem[] }) {
+  if (items.length === 0) return <EmptyState label="No AI calls recorded yet." />;
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-white/10">
+      <table className="w-full min-w-[920px] text-left text-sm">
+        <thead className="bg-white/[0.04] text-xs uppercase text-neutral-500">
+          <tr>
+            <th className="px-4 py-3">Model</th>
+            <th className="px-4 py-3">Type</th>
+            <th className="px-4 py-3">Status</th>
+            <th className="px-4 py-3">HTTP</th>
+            <th className="px-4 py-3">Duration</th>
+            <th className="px-4 py-3">Created</th>
+            <th className="px-4 py-3">Error</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/10">
+          {items.map((item) => (
+            <tr key={item.id} className="bg-neutral-950/40">
+              <td className="px-4 py-3 font-medium text-neutral-100">{item.model || '-'}</td>
+              <td className="px-4 py-3 text-neutral-300">{item.callType}</td>
+              <td className="px-4 py-3">
+                <span className={`rounded-full border px-2 py-1 text-xs ${statusClass(item.status)}`}>{item.status}</span>
+              </td>
+              <td className="px-4 py-3 text-neutral-300">{item.statusCode}</td>
+              <td className="px-4 py-3 text-neutral-300">{formatDuration(item.durationMs)}</td>
+              <td className="px-4 py-3 text-neutral-400">{formatDate(item.createdAt)}</td>
+              <td className="max-w-[260px] truncate px-4 py-3 text-neutral-500">{item.errorMessage || '-'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function UsersTable({ items }: { items: UserListItem[] }) {
+  if (items.length === 0) return <EmptyState label="No anonymous users recorded yet." />;
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-white/10">
+      <table className="w-full min-w-[820px] text-left text-sm">
+        <thead className="bg-white/[0.04] text-xs uppercase text-neutral-500">
+          <tr>
+            <th className="px-4 py-3">Visitor</th>
+            <th className="px-4 py-3">Comparisons</th>
+            <th className="px-4 py-3">AI Calls</th>
+            <th className="px-4 py-3">First Seen</th>
+            <th className="px-4 py-3">Last Seen</th>
+            <th className="px-4 py-3">User Agent</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/10">
+          {items.map((item) => (
+            <tr key={item.visitorId} className="bg-neutral-950/40">
+              <td className="px-4 py-3 font-medium text-neutral-100">{item.visitorId}</td>
+              <td className="px-4 py-3 text-neutral-300">{item.comparisonCount}</td>
+              <td className="px-4 py-3 text-neutral-300">{item.aiCallCount}</td>
+              <td className="px-4 py-3 text-neutral-400">{formatDate(item.firstSeenAt)}</td>
+              <td className="px-4 py-3 text-neutral-400">{formatDate(item.lastSeenAt)}</td>
+              <td className="max-w-[280px] truncate px-4 py-3 text-neutral-500">{item.userAgent || '-'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default function AdminApp() {
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [password, setPassword] = useState('');
+  const [summary, setSummary] = useState<AdminSummary | null>(null);
+  const [runs, setRuns] = useState<RunListItem[]>([]);
+  const [calls, setCalls] = useState<CallListItem[]>([]);
+  const [users, setUsers] = useState<UserListItem[]>([]);
+  const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadDashboard = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const [summaryData, runsData, callsData, usersData] = await Promise.all([
+        getAdminSummary(),
+        getAdminRuns(),
+        getAdminCalls(),
+        getAdminUsers(),
+      ]);
+      setSummary(summaryData);
+      setRuns(runsData.items);
+      setCalls(callsData.items);
+      setUsers(usersData.items);
+    } catch (loadError: any) {
+      setError(loadError.message || 'Failed to load admin data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    getAdminSession().then((session) => {
+      setAuthenticated(session.authenticated);
+      if (session.authenticated) {
+        loadDashboard();
+      } else {
+        setLoading(false);
+      }
+    });
+  }, []);
+
+  const handleLogin = async (event: FormEvent) => {
+    event.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await loginAdmin(password);
+      setAuthenticated(true);
+      setPassword('');
+      await loadDashboard();
+    } catch (loginError: any) {
+      setError(loginError.message || 'Invalid password');
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await logoutAdmin().catch(() => undefined);
+    setAuthenticated(false);
+    setSummary(null);
+    setRuns([]);
+    setCalls([]);
+    setUsers([]);
+  };
+
+  if (authenticated === null) {
+    return <div className="min-h-screen bg-neutral-950 text-neutral-400" />;
+  }
+
+  if (!authenticated) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-neutral-950 px-4 text-neutral-100">
+        <form onSubmit={handleLogin} className="w-full max-w-sm rounded-lg border border-white/10 bg-white/[0.04] p-6">
+          <div className="mb-6 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-300">
+              <ShieldCheck size={20} />
+            </div>
+            <div>
+              <h1 className="text-xl font-semibold text-white">CompareAI Admin</h1>
+              <p className="text-sm text-neutral-500">Private analytics dashboard</p>
+            </div>
+          </div>
+          <label className="mb-2 block text-sm text-neutral-400" htmlFor="admin-password">
+            Password
+          </label>
+          <input
+            id="admin-password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className="mb-4 h-11 w-full rounded-lg border border-white/10 bg-neutral-900 px-3 text-white outline-none focus:border-indigo-400"
+            autoComplete="current-password"
+            required
+          />
+          {error && <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">{error}</div>}
+          <button
+            type="submit"
+            disabled={loading}
+            className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 font-medium text-white transition hover:bg-indigo-500 disabled:opacity-60"
+          >
+            {loading ? <RefreshCw size={18} className="animate-spin" /> : <ShieldCheck size={18} />}
+            Sign in
+          </button>
+        </form>
+      </main>
+    );
+  }
+
+  const today = summary?.today;
+  const tabs: Array<{ key: AdminTab; label: string }> = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'runs', label: 'Runs' },
+    { key: 'calls', label: 'Calls' },
+    { key: 'users', label: 'Users' },
+  ];
+
+  return (
+    <main className="min-h-screen bg-neutral-950 px-4 py-6 text-neutral-100 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <header className="mb-6 flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-white">CompareAI Admin</h1>
+            <p className="mt-1 text-sm text-neutral-500">Operational analytics from the local API proxy.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={loadDashboard}
+              disabled={loading}
+              className="flex h-10 items-center gap-2 rounded-lg border border-white/10 px-3 text-sm text-neutral-200 transition hover:bg-white/10 disabled:opacity-60"
+            >
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex h-10 items-center gap-2 rounded-lg border border-white/10 px-3 text-sm text-neutral-200 transition hover:bg-white/10"
+            >
+              <LogOut size={16} />
+              Logout
+            </button>
+          </div>
+        </header>
+
+        {error && (
+          <div className="mb-5 flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">
+            <AlertTriangle size={16} />
+            {error}
+          </div>
+        )}
+
+        <div className="mb-6 flex gap-1 rounded-lg border border-white/10 bg-white/[0.03] p-1">
+          {tabs.map((tab) => (
+            <button
+              type="button"
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`h-9 rounded-md px-3 text-sm transition ${
+                activeTab === tab.key ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-200'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === 'overview' && (
+          <div className="space-y-6">
+            <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              <MetricCard label="Today Users" value={String(today?.users ?? 0)} detail="Anonymous visitors" icon={Users} />
+              <MetricCard label="Comparisons" value={String(today?.comparisons ?? 0)} detail="Started today" icon={GitCompareArrows} />
+              <MetricCard label="AI Calls" value={String(today?.aiCalls ?? 0)} detail="Proxy requests" icon={Activity} />
+              <MetricCard label="Success Rate" value={`${today?.successRate ?? 0}%`} detail={`${today?.failedCalls ?? 0} failed`} icon={BarChart3} />
+              <MetricCard label="Avg Latency" value={formatDuration(today?.averageDurationMs ?? 0)} detail="AI proxy duration" icon={Clock3} />
+            </section>
+
+            <section className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
+                <div className="mb-4 flex items-center gap-2 text-sm font-medium text-neutral-200">
+                  <Users size={16} />
+                  7-Day Users and Comparisons
+                </div>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={summary?.trend || []}>
+                      <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                      <XAxis dataKey="date" tick={{ fill: '#a3a3a3', fontSize: 12 }} tickLine={false} axisLine={false} />
+                      <YAxis tick={{ fill: '#a3a3a3', fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                      <Tooltip contentStyle={{ background: '#171717', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8 }} />
+                      <Line type="monotone" dataKey="users" stroke="#38bdf8" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="comparisons" stroke="#a78bfa" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
+                <div className="mb-4 flex items-center gap-2 text-sm font-medium text-neutral-200">
+                  <Database size={16} />
+                  7-Day AI Calls
+                </div>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={summary?.trend || []}>
+                      <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                      <XAxis dataKey="date" tick={{ fill: '#a3a3a3', fontSize: 12 }} tickLine={false} axisLine={false} />
+                      <YAxis tick={{ fill: '#a3a3a3', fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                      <Tooltip contentStyle={{ background: '#171717', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8 }} />
+                      <Bar dataKey="aiCalls" fill="#34d399" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </section>
+
+            <section className="grid gap-4 lg:grid-cols-2">
+              <div>
+                <h2 className="mb-3 text-sm font-medium text-neutral-200">Recent Runs</h2>
+                <RunsTable items={summary?.recentRuns || []} />
+              </div>
+              <div>
+                <h2 className="mb-3 text-sm font-medium text-neutral-200">Recent Failed Calls</h2>
+                <CallsTable items={summary?.recentFailedCalls || []} />
+              </div>
+            </section>
+
+            <section>
+              <h2 className="mb-3 text-sm font-medium text-neutral-200">Popular Comparisons</h2>
+              {summary?.popularComparisons.length ? (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {summary.popularComparisons.map((item) => (
+                    <div key={`${item.itemA}-${item.itemB}`} className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
+                      <div className="font-medium text-white">
+                        {item.itemA} <span className="text-neutral-500">vs</span> {item.itemB}
+                      </div>
+                      <div className="mt-2 text-sm text-neutral-500">{item.count} runs</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState label="No popular comparisons yet." />
+              )}
+            </section>
+          </div>
+        )}
+
+        {activeTab === 'runs' && <RunsTable items={runs} />}
+        {activeTab === 'calls' && <CallsTable items={calls} />}
+        {activeTab === 'users' && <UsersTable items={users} />}
+      </div>
+    </main>
+  );
+}

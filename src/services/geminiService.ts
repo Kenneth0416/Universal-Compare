@@ -27,27 +27,28 @@ export async function generateComparison(
   itemB: string,
   onProgress?: (step: string) => void,
   onPhaseComplete?: (phase: string, data: any) => void,
-  language?: string
+  language?: string,
+  runId?: string
 ): Promise<ComparisonResult> {
 
   // Phase 1: Dual-Track Research
   onProgress?.("Phase 1: Researching entities concurrently...");
   const [profileA, profileB] = await Promise.all([
-    apiService.runResearcherAgent(itemA, language),
-    apiService.runResearcherAgent(itemB, language)
+    apiService.runResearcherAgent(itemA, language, runId),
+    apiService.runResearcherAgent(itemB, language, runId)
   ]);
   onPhaseComplete?.('entities', { entityA: profileA, entityB: profileB });
 
   // Phase 2: Framework Architecture
   onProgress?.("Phase 2: Architecting comparison framework...");
-  const framework = await apiService.runArchitectAgent(profileA, profileB, language);
+  const framework = await apiService.runArchitectAgent(profileA, profileB, language, runId);
   onPhaseComplete?.('framework', { relationship: framework.relationship, dimensionCount: framework.dimensions.length });
 
   // Phase 3: Multi-Dimensional Analysis (Concurrent)
   onProgress?.(`Phase 3: Analyzing ${framework.dimensions.length} dimensions concurrently...`);
   // Limit concurrency to 6 for faster processing
   const analyzedDimensions = await apiService.mapConcurrent(framework.dimensions, 6, async (dim) => {
-    const result = await apiService.runAnalystAgent(profileA, profileB, dim, language);
+    const result = await apiService.runAnalystAgent(profileA, profileB, dim, language, runId);
     onPhaseComplete?.('dimension', result);
     return result;
   });
@@ -55,8 +56,8 @@ export async function generateComparison(
   // Phase 4: Synthesis & Verdict (Concurrent)
   onProgress?.("Phase 4: Synthesizing final verdict and pros/cons...");
   const [prosCons, recommendation] = await Promise.all([
-    apiService.runProsConsAgent(profileA, profileB, analyzedDimensions, language),
-    apiService.runRecommendationAgent(profileA, profileB, analyzedDimensions, null, language)
+    apiService.runProsConsAgent(profileA, profileB, analyzedDimensions, language, runId),
+    apiService.runRecommendationAgent(profileA, profileB, analyzedDimensions, null, language, runId)
   ]);
   onPhaseComplete?.('verdict', { prosCons, recommendation });
 

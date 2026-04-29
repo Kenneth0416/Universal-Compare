@@ -1,0 +1,70 @@
+export type AdminMetricSummary = {
+  users: number;
+  comparisons: number;
+  aiCalls: number;
+  failedCalls: number;
+  successRate: number;
+  averageDurationMs: number;
+};
+
+export type TrendPoint = {
+  date: string;
+  users: number;
+  comparisons: number;
+  aiCalls: number;
+};
+
+export type RunListItem = {
+  runId: string;
+  visitorId: string;
+  itemA: string;
+  itemB: string;
+  language: string;
+  status: 'started' | 'completed' | 'failed';
+  errorMessage: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  callCount: number;
+  totalDurationMs: number;
+};
+
+export type CallListItem = {
+  id: number;
+  runId: string | null;
+  visitorId: string | null;
+  callType: string;
+  model: string;
+  status: 'success' | 'error';
+  statusCode: number;
+  durationMs: number;
+  errorMessage: string | null;
+  createdAt: string;
+};
+
+export type UserListItem = {
+  visitorId: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  userAgent: string;
+  comparisonCount: number;
+  aiCallCount: number;
+};
+
+export type PopularComparison = {
+  itemA: string;
+  itemB: string;
+  count: number;
+};
+
+export type AdminSummary = {
+  today: AdminMetricSummary;
+  trend: TrendPoint[];
+  recentRuns: RunListItem[];
+  recentFailedCalls: CallListItem[];
+  popularComparisons: PopularComparison[];
+};
+
+export type ListResponse<T> = {
+  items: T[];
+  total: number;
+};

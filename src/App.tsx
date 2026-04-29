@@ -7,6 +7,7 @@ import { ComparisonCard } from './components/ComparisonCard';
 import { AILoadingState } from './components/AILoadingState';
 import { DimensionChart } from './components/DimensionChart';
 import { ShareButton } from './components/ShareButton';
+import { finishComparisonRun, startComparisonRun } from './services/trackingService';
 import MinimalGrid from './components/react-bits/MinimalGrid';
 import Counter from './components/react-bits/Counter';
 import BlurText from './components/react-bits/BlurText';
@@ -41,6 +42,10 @@ const useReducedMotion = () => {
   return shouldReduce;
 };
 
+const warnTrackingFailure = (error: unknown) => {
+  console.warn('Comparison tracking failed:', error);
+};
+
 export default function App() {
   const { t, i18n: i18nInstance } = useTranslation();
   const [itemA, setItemA] = useState('');
@@ -65,7 +70,19 @@ export default function App() {
     setResult(null);
     setLoadingStep(t('loading.initializing'));
 
+    let runId: string | undefined;
+
     try {
+      const run = await startComparisonRun({
+        itemA,
+        itemB,
+        language: currentLanguage,
+      }).catch((trackingError) => {
+        warnTrackingFailure(trackingError);
+        return null;
+      });
+      runId = run?.runId;
+
       const res = await generateComparison(
         itemA,
         itemB,
@@ -84,10 +101,21 @@ export default function App() {
             return { ...prev, ...data };
           });
         },
-        currentLanguage
+        currentLanguage,
+        runId
       );
       setResult(res);
+      if (runId) {
+        await finishComparisonRun({ runId, status: 'completed' }).catch(warnTrackingFailure);
+      }
     } catch (err: any) {
+      if (runId) {
+        await finishComparisonRun({
+          runId,
+          status: 'failed',
+          errorMessage: err.message || t('error.generic'),
+        }).catch(warnTrackingFailure);
+      }
       setError(err.message || t('error.generic'));
     } finally {
       setLoading(false);

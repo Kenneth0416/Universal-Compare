@@ -10,6 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
+    "test": "tsx --test",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
