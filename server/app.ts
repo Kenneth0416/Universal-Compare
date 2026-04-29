@@ -307,6 +307,24 @@ export function createApp({ analyticsStore, reportStore, featuredStore, openai, 
     res.json({ ok: true });
   });
 
+  app.patch('/api/admin/featured/:id', (req, res) => {
+    const { reportId } = req.body || {};
+
+    if (typeof reportId !== 'string' || !reportId.trim()) {
+      res.status(400).json({ error: 'Missing reportId' });
+      return;
+    }
+
+    const updated = featuredStore.updateReportId(Number(req.params.id), reportId.trim());
+
+    if (!updated) {
+      res.status(404).json({ error: 'Featured comparison not found' });
+      return;
+    }
+
+    res.json({ ok: true });
+  });
+
   // --- Report endpoints ---
 
   app.post('/api/reports', (req: RequestWithVisitor, res) => {

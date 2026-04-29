@@ -8,6 +8,7 @@ interface FeaturedItem {
   itemA: string;
   itemB: string;
   description: string;
+  reportId: string | null;
 }
 
 interface FeaturedShowcaseProps {
@@ -27,6 +28,14 @@ export default function FeaturedShowcase({ onSelect }: FeaturedShowcaseProps) {
   }, [i18nInstance.language]);
 
   if (items.length === 0) return null;
+
+  const handleClick = (item: FeaturedItem) => {
+    if (item.reportId) {
+      window.location.href = `/r/${item.reportId}`;
+    } else {
+      onSelect(item.itemA, item.itemB);
+    }
+  };
 
   return (
     <section className="mt-8">
@@ -48,7 +57,7 @@ export default function FeaturedShowcase({ onSelect }: FeaturedShowcaseProps) {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.3 + index * 0.08 }}
-              onClick={() => onSelect(item.itemA, item.itemB)}
+              onClick={() => handleClick(item)}
               className="group relative rounded-2xl border border-white/10 bg-white/[0.03] p-5 text-left backdrop-blur-sm transition-all duration-300 hover:border-indigo-500/30 hover:bg-white/[0.06] hover:shadow-lg hover:shadow-indigo-500/5"
             >
               <div className="mb-3 text-base font-semibold text-white">
@@ -62,7 +71,7 @@ export default function FeaturedShowcase({ onSelect }: FeaturedShowcaseProps) {
                 </p>
               )}
               <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-400 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                <span>{t('hero.compareBtn', 'Compare')}</span>
+                <span>{item.reportId ? t('hero.viewReport', 'View report') : t('hero.compareBtn', 'Compare')}</span>
                 <ArrowRight size={12} />
               </div>
             </motion.button>

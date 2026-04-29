@@ -77,3 +77,10 @@ export function addAdminFeatured(itemA: string, itemB: string, language: string,
 export function deleteAdminFeatured(id: number) {
   return request<{ ok: true }>(`/featured/${id}`, { method: 'DELETE' });
 }
+
+export function patchAdminFeatured(id: number, reportId: string) {
+  return request<{ ok: true }>(`/featured/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ reportId }),
+  });
+}

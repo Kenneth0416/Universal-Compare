@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 interface ComparisonSuggestion {
   itemA: string;
   itemB: string;
+  reportId?: string | null;
   timestamp?: number;
 }
 
@@ -82,7 +83,13 @@ export default function ComparisonSuggestions({ onSelect, visible }: ComparisonS
                   <button
                     key={`f-${i}`}
                     type="button"
-                    onClick={() => onSelect(item.itemA, item.itemB)}
+                    onClick={() => {
+                      if (item.reportId) {
+                        window.location.href = `/r/${item.reportId}`;
+                      } else {
+                        onSelect(item.itemA, item.itemB);
+                      }
+                    }}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-neutral-300 hover:bg-white/5 hover:text-white transition-colors text-left"
                   >
                     <span className="font-medium">{item.itemA}</span>

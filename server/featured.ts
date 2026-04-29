@@ -13,6 +13,7 @@ export type FeaturedComparison = {
   itemB: string;
   language: string;
   description: string;
+  reportId: string | null;
   sortOrder: number;
   createdAt: string;
 };
@@ -34,6 +35,7 @@ function initializeSchema(db: DatabaseConnection) {
       item_b      TEXT    NOT NULL,
       language    TEXT    NOT NULL DEFAULT 'en',
       description TEXT    NOT NULL DEFAULT '',
+      report_id   TEXT,
       sort_order  INTEGER NOT NULL DEFAULT 0,
       created_at  TEXT    NOT NULL
     );
@@ -41,36 +43,39 @@ function initializeSchema(db: DatabaseConnection) {
     CREATE INDEX IF NOT EXISTS idx_featured_sort ON featured_comparisons(sort_order);
   `);
 
-  // Migrate: add language and description columns if missing (for existing tables)
-  try {
-    db.prepare("SELECT language FROM featured_comparisons LIMIT 1").get();
-  } catch {
-    db.exec("ALTER TABLE featured_comparisons ADD COLUMN language TEXT NOT NULL DEFAULT 'en'");
-  }
-  try {
-    db.prepare("SELECT description FROM featured_comparisons LIMIT 1").get();
-  } catch {
-    db.exec("ALTER TABLE featured_comparisons ADD COLUMN description TEXT NOT NULL DEFAULT ''");
+  // Migrate: add columns if missing (for existing tables)
+  const migrations: [string, string][] = [
+    ['language', "ALTER TABLE featured_comparisons ADD COLUMN language TEXT NOT NULL DEFAULT 'en'"],
+    ['description', "ALTER TABLE featured_comparisons ADD COLUMN description TEXT NOT NULL DEFAULT ''"],
+    ['report_id', 'ALTER TABLE featured_comparisons ADD COLUMN report_id TEXT'],
+  ];
+  for (const [col, sql] of migrations) {
+    try {
+      db.prepare(`SELECT ${col} FROM featured_comparisons LIMIT 1`).get();
+    } catch {
+      db.exec(sql);
+    }
   }
 
-  // Create index after migration ensures column exists
-  db.exec("CREATE INDEX IF NOT EXISTS idx_featured_lang ON featured_comparisons(language)");
+  db.exec('CREATE INDEX IF NOT EXISTS idx_featured_lang ON featured_comparisons(language)');
 }
 
 export function createFeaturedStore(db: DatabaseConnection) {
   initializeSchema(db);
 
+  const selectCols = 'id, item_a AS itemA, item_b AS itemB, language, description, report_id AS reportId, sort_order AS sortOrder, created_at AS createdAt';
+
   const listFeatured = (language?: string): FeaturedComparison[] => {
     if (language) {
       return db.prepare(`
-        SELECT id, item_a AS itemA, item_b AS itemB, language, description, sort_order AS sortOrder, created_at AS createdAt
+        SELECT ${selectCols}
         FROM featured_comparisons
         WHERE language = ?
         ORDER BY sort_order ASC, created_at DESC
       `).all(language) as FeaturedComparison[];
     }
     return db.prepare(`
-      SELECT id, item_a AS itemA, item_b AS itemB, language, description, sort_order AS sortOrder, created_at AS createdAt
+      SELECT ${selectCols}
       FROM featured_comparisons
       ORDER BY sort_order ASC, created_at DESC
     `).all() as FeaturedComparison[];
@@ -97,9 +102,15 @@ export function createFeaturedStore(db: DatabaseConnection) {
       itemB: truncate(itemB),
       language: lang,
       description: desc,
+      reportId: null,
       sortOrder: order,
       createdAt: now,
     };
+  };
+
+  const updateReportId = (id: number, reportId: string): boolean => {
+    const result = db.prepare('UPDATE featured_comparisons SET report_id = ? WHERE id = ?').run(reportId, id);
+    return result.changes > 0;
   };
 
   const removeFeatured = (id: number): boolean => {
@@ -110,6 +121,7 @@ export function createFeaturedStore(db: DatabaseConnection) {
   return {
     listFeatured,
     addFeatured,
+    updateReportId,
     removeFeatured,
   };
 }

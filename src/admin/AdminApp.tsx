@@ -1,12 +1,14 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
   BarChart3,
+  Check,
   Clock3,
   Database,
   FileText,
   GitCompareArrows,
+  Loader2,
   LogOut,
   Plus,
   RefreshCw,
@@ -39,7 +41,10 @@ import {
   deleteAdminReport,
   addAdminFeatured,
   deleteAdminFeatured,
+  patchAdminFeatured,
 } from './adminApi';
+import { generateComparison } from '../services/geminiService';
+import { saveReport } from '../services/reportService';
 import type { AdminSummary, CallListItem, FeaturedComparison, ReportListItem, RunListItem, UserListItem } from './types';
 
 type AdminTab = 'overview' | 'runs' | 'calls' | 'users' | 'reports';
@@ -292,6 +297,8 @@ export default function AdminApp() {
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [reports, setReports] = useState<ReportListItem[]>([]);
   const [featured, setFeatured] = useState<FeaturedComparison[]>([]);
+  const [generatingIds, setGeneratingIds] = useState<Set<number>>(new Set());
+  const [generatingProgress, setGeneratingProgress] = useState<Record<number, string>>({});
   const [newItemA, setNewItemA] = useState('');
   const [newItemB, setNewItemB] = useState('');
   const [newLang, setNewLang] = useState('en');
@@ -375,14 +382,53 @@ export default function AdminApp() {
   const handleAddFeatured = async (event: FormEvent) => {
     event.preventDefault();
     if (!newItemA.trim() || !newItemB.trim()) return;
+    const itemA = newItemA.trim();
+    const itemB = newItemB.trim();
+    const lang = newLang;
+    const desc = newDesc.trim();
     try {
-      const created = await addAdminFeatured(newItemA.trim(), newItemB.trim(), newLang, newDesc.trim());
+      const created = await addAdminFeatured(itemA, itemB, lang, desc);
       setFeatured((prev) => [...prev, created]);
       setNewItemA('');
       setNewItemB('');
       setNewDesc('');
+
+      // Auto-generate report in background
+      generateReportForFeatured(created.id, itemA, itemB, lang);
     } catch (addError: any) {
       setError(addError.message || 'Failed to add featured comparison');
+    }
+  };
+
+  const generateReportForFeatured = async (featuredId: number, itemA: string, itemB: string, language: string) => {
+    setGeneratingIds((prev) => new Set(prev).add(featuredId));
+    setGeneratingProgress((prev) => ({ ...prev, [featuredId]: 'Starting...' }));
+    try {
+      const result = await generateComparison(
+        itemA,
+        itemB,
+        (step) => setGeneratingProgress((prev) => ({ ...prev, [featuredId]: step })),
+        undefined,
+        language,
+      );
+      const saved = await saveReport({ itemA, itemB, language, result });
+      await patchAdminFeatured(featuredId, saved.reportId);
+      setFeatured((prev) =>
+        prev.map((f) => (f.id === featuredId ? { ...f, reportId: saved.reportId } : f)),
+      );
+    } catch (genError: any) {
+      setError(`Report generation failed for "${itemA} vs ${itemB}": ${genError.message}`);
+    } finally {
+      setGeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(featuredId);
+        return next;
+      });
+      setGeneratingProgress((prev) => {
+        const next = { ...prev };
+        delete next[featuredId];
+        return next;
+      });
     }
   };
 
@@ -611,28 +657,57 @@ export default function AdminApp() {
               </form>
               {featured.length > 0 ? (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {featured.map((item) => (
-                    <div key={item.id} className="flex items-start justify-between rounded-lg border border-white/10 bg-white/[0.04] p-4">
-                      <div className="min-w-0">
-                        <div className="font-medium text-white">
-                          {item.itemA} <span className="text-neutral-500">vs</span> {item.itemB}
+                  {featured.map((item) => {
+                    const isGenerating = generatingIds.has(item.id);
+                    const progress = generatingProgress[item.id];
+                    return (
+                      <div key={item.id} className="flex items-start justify-between rounded-lg border border-white/10 bg-white/[0.04] p-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-white">
+                            {item.itemA} <span className="text-neutral-500">vs</span> {item.itemB}
+                          </div>
+                          {item.description && (
+                            <div className="mt-1 truncate text-xs text-neutral-500">{item.description}</div>
+                          )}
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                            <span className="rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-neutral-400">{item.language}</span>
+                            {isGenerating ? (
+                              <span className="flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
+                                <Loader2 size={10} className="animate-spin" />
+                                {progress || 'Generating...'}
+                              </span>
+                            ) : item.reportId ? (
+                              <a
+                                href={`/r/${item.reportId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300 transition hover:bg-emerald-500/20"
+                              >
+                                <Check size={10} />
+                                Report
+                              </a>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => generateReportForFeatured(item.id, item.itemA, item.itemB, item.language)}
+                                className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] text-indigo-300 transition hover:bg-indigo-500/20"
+                              >
+                                Generate
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        {item.description && (
-                          <div className="mt-1 truncate text-xs text-neutral-500">{item.description}</div>
-                        )}
-                        <div className="mt-1.5">
-                          <span className="rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-neutral-400">{item.language}</span>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteFeatured(item.id)}
+                          disabled={isGenerating}
+                          className="ml-2 shrink-0 rounded-lg border border-red-500/20 p-1.5 text-red-400 transition hover:bg-red-500/20 disabled:opacity-30"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteFeatured(item.id)}
-                        className="ml-2 shrink-0 rounded-lg border border-red-500/20 p-1.5 text-red-400 transition hover:bg-red-500/20"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <EmptyState label="No featured comparisons yet. Add some above to show as recommendations." />
