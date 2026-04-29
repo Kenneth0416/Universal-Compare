@@ -5,6 +5,7 @@ import { useEffect, useMemo } from 'react';
 type PlaceValue = number | '.';
 
 interface NumberProps {
+  key?: React.Key;
   mv: MotionValue<number>;
   number: number;
   height: number;
@@ -48,6 +49,7 @@ function getValueRoundedToPlace(value: number, place: number): number {
 }
 
 interface DigitProps {
+  key?: React.Key;
   place: PlaceValue;
   mv: MotionValue<number>;
   height: number;
