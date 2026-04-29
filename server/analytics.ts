@@ -45,6 +45,13 @@ export type LogAiCallInput = {
   statusCode: number;
   durationMs: number;
   errorMessage?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  cachedTokens?: number;
+  reasoningTokens?: number;
+  costUsd?: number;
+  costSource?: 'provider' | 'estimated' | 'unavailable';
 };
 
 export type AdminMetricSummary = {
@@ -54,6 +61,12 @@ export type AdminMetricSummary = {
   failedCalls: number;
   successRate: number;
   averageDurationMs: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  aiCostUsd: number;
 };
 
 export type TrendPoint = {
@@ -75,6 +88,8 @@ export type RunListItem = {
   finishedAt: string | null;
   callCount: number;
   totalDurationMs: number;
+  totalTokens: number;
+  totalCostUsd: number;
 };
 
 export type CallListItem = {
@@ -86,6 +101,13 @@ export type CallListItem = {
   status: 'success' | 'error';
   statusCode: number;
   durationMs: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  costUsd: number;
+  costSource: 'provider' | 'estimated' | 'unavailable';
   errorMessage: string | null;
   createdAt: string;
 };
@@ -217,6 +239,13 @@ function initializeSchema(db: DatabaseConnection) {
       status TEXT NOT NULL CHECK (status IN ('success', 'error')),
       status_code INTEGER NOT NULL,
       duration_ms INTEGER NOT NULL,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_tokens INTEGER NOT NULL DEFAULT 0,
+      reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+      cost_usd REAL NOT NULL DEFAULT 0,
+      cost_source TEXT NOT NULL DEFAULT 'unavailable',
       error_message TEXT,
       created_at TEXT NOT NULL
     );
@@ -228,6 +257,24 @@ function initializeSchema(db: DatabaseConnection) {
     CREATE INDEX IF NOT EXISTS idx_calls_created ON ai_call_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_calls_run_id ON ai_call_logs(run_id);
   `);
+
+  const migrations: [string, string][] = [
+    ['prompt_tokens', 'ALTER TABLE ai_call_logs ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0'],
+    ['completion_tokens', 'ALTER TABLE ai_call_logs ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0'],
+    ['total_tokens', 'ALTER TABLE ai_call_logs ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0'],
+    ['cached_tokens', 'ALTER TABLE ai_call_logs ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0'],
+    ['reasoning_tokens', 'ALTER TABLE ai_call_logs ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0'],
+    ['cost_usd', 'ALTER TABLE ai_call_logs ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0'],
+    ['cost_source', "ALTER TABLE ai_call_logs ADD COLUMN cost_source TEXT NOT NULL DEFAULT 'unavailable'"],
+  ];
+
+  for (const [col, sql] of migrations) {
+    try {
+      db.prepare(`SELECT ${col} FROM ai_call_logs LIMIT 1`).get();
+    } catch {
+      db.exec(sql);
+    }
+  }
 }
 
 export function createAnalyticsStore(dbPath: string, secret: string) {
@@ -317,9 +364,11 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
   const logAiCall = (input: LogAiCallInput) => {
     db.prepare(`
       INSERT INTO ai_call_logs (
-        run_id, visitor_id, call_type, model, status, status_code, duration_ms, error_message, created_at
+        run_id, visitor_id, call_type, model, status, status_code, duration_ms,
+        prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens,
+        cost_usd, cost_source, error_message, created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.runId || null,
       input.visitorId || null,
@@ -328,6 +377,13 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       input.status,
       input.statusCode,
       Math.max(Math.round(input.durationMs), 0),
+      Math.max(Math.round(input.promptTokens || 0), 0),
+      Math.max(Math.round(input.completionTokens || 0), 0),
+      Math.max(Math.round(input.totalTokens || 0), 0),
+      Math.max(Math.round(input.cachedTokens || 0), 0),
+      Math.max(Math.round(input.reasoningTokens || 0), 0),
+      Math.max(input.costUsd || 0, 0),
+      input.costSource || 'unavailable',
       input.errorMessage ? truncate(input.errorMessage, 1000) : null,
       isoNow(),
     );
@@ -352,7 +408,9 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
           WHEN r.finished_at IS NOT NULL
           THEN CAST((julianday(r.finished_at) - julianday(r.started_at)) * 86400000 AS INTEGER)
           ELSE 0
-        END AS totalDurationMs
+        END AS totalDurationMs,
+        COALESCE(SUM(c.total_tokens), 0) AS totalTokens,
+        COALESCE(SUM(c.cost_usd), 0) AS totalCostUsd
       FROM comparison_runs r
       LEFT JOIN ai_call_logs c ON c.run_id = r.run_id
       GROUP BY r.id
@@ -387,6 +445,13 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
         status,
         status_code AS statusCode,
         duration_ms AS durationMs,
+        prompt_tokens AS promptTokens,
+        completion_tokens AS completionTokens,
+        total_tokens AS totalTokens,
+        cached_tokens AS cachedTokens,
+        reasoning_tokens AS reasoningTokens,
+        cost_usd AS costUsd,
+        cost_source AS costSource,
         error_message AS errorMessage,
         created_at AS createdAt
       FROM ai_call_logs
@@ -449,8 +514,26 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
         (SELECT COUNT(*) FROM comparison_runs WHERE started_at >= ?) AS comparisons,
         (SELECT COUNT(*) FROM ai_call_logs WHERE created_at >= ?) AS aiCalls,
         (SELECT COUNT(*) FROM ai_call_logs WHERE created_at >= ? AND status = 'error') AS failedCalls,
-        (SELECT COALESCE(AVG(duration_ms), 0) FROM ai_call_logs WHERE created_at >= ?) AS averageDurationMs
-    `).get(todayStart, todayStart, todayStart, todayStart, todayStart);
+        (SELECT COALESCE(AVG(duration_ms), 0) FROM ai_call_logs WHERE created_at >= ?) AS averageDurationMs,
+        (SELECT COALESCE(SUM(prompt_tokens), 0) FROM ai_call_logs WHERE created_at >= ?) AS promptTokens,
+        (SELECT COALESCE(SUM(completion_tokens), 0) FROM ai_call_logs WHERE created_at >= ?) AS completionTokens,
+        (SELECT COALESCE(SUM(total_tokens), 0) FROM ai_call_logs WHERE created_at >= ?) AS totalTokens,
+        (SELECT COALESCE(SUM(cached_tokens), 0) FROM ai_call_logs WHERE created_at >= ?) AS cachedTokens,
+        (SELECT COALESCE(SUM(reasoning_tokens), 0) FROM ai_call_logs WHERE created_at >= ?) AS reasoningTokens,
+        (SELECT COALESCE(SUM(cost_usd), 0) FROM ai_call_logs WHERE created_at >= ?) AS aiCostUsd
+    `).get(
+      todayStart,
+      todayStart,
+      todayStart,
+      todayStart,
+      todayStart,
+      todayStart,
+      todayStart,
+      todayStart,
+      todayStart,
+      todayStart,
+      todayStart,
+    );
 
     const aiCalls = Number(todayRow.aiCalls || 0);
     const failedCalls = Number(todayRow.failedCalls || 0);
@@ -461,6 +544,12 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       failedCalls,
       successRate: percentage(aiCalls - failedCalls, aiCalls),
       averageDurationMs: Math.round(Number(todayRow.averageDurationMs || 0)),
+      promptTokens: Number(todayRow.promptTokens || 0),
+      completionTokens: Number(todayRow.completionTokens || 0),
+      totalTokens: Number(todayRow.totalTokens || 0),
+      cachedTokens: Number(todayRow.cachedTokens || 0),
+      reasoningTokens: Number(todayRow.reasoningTokens || 0),
+      aiCostUsd: Number(todayRow.aiCostUsd || 0),
     };
 
     const trend = buildLastSevenDays();

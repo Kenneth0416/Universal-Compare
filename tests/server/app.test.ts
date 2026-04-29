@@ -28,7 +28,18 @@ function createTestApp() {
       },
       chat: {
         completions: {
-          create: async () => ({ id: 'chatcmpl_test', choices: [] }),
+          create: async () => ({
+            id: 'chatcmpl_test',
+            choices: [],
+            usage: {
+              prompt_tokens: 100,
+              completion_tokens: 25,
+              total_tokens: 130,
+              prompt_tokens_details: { cached_tokens: 10 },
+              completion_tokens_details: { reasoning_tokens: 5 },
+              cost_in_usd_ticks: 2_500_000,
+            },
+          }),
         },
       },
     },
@@ -96,7 +107,22 @@ test('tracks comparison runs and logs AI proxy calls', async () => {
   assert.equal(summary.today.users, 1);
   assert.equal(summary.today.comparisons, 1);
   assert.equal(summary.today.aiCalls, 1);
+  assert.equal(summary.today.promptTokens, 100);
+  assert.equal(summary.today.completionTokens, 25);
+  assert.equal(summary.today.totalTokens, 130);
+  assert.equal(summary.today.cachedTokens, 10);
+  assert.equal(summary.today.reasoningTokens, 5);
+  assert.equal(summary.today.aiCostUsd, 0.00025);
   assert.equal(summary.recentRuns[0].status, 'completed');
+
+  const calls = analyticsStore.listCalls({ limit: 1 });
+  assert.equal(calls.items[0].promptTokens, 100);
+  assert.equal(calls.items[0].completionTokens, 25);
+  assert.equal(calls.items[0].totalTokens, 130);
+  assert.equal(calls.items[0].cachedTokens, 10);
+  assert.equal(calls.items[0].reasoningTokens, 5);
+  assert.equal(calls.items[0].costUsd, 0.00025);
+  assert.equal(calls.items[0].costSource, 'provider');
 });
 
 test('protects admin summary behind password login', async () => {
@@ -120,5 +146,64 @@ test('protects admin summary behind password login', async () => {
     });
     assert.equal(summary.status, 200);
     assert.equal(typeof (await summary.json()), 'object');
+  });
+});
+
+test('returns linked report view counts for admin featured comparisons', async () => {
+  const { app } = createTestApp();
+
+  await withServer(app, async (baseUrl) => {
+    const reportResponse = await fetch(`${baseUrl}/api/reports`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        itemA: 'Claude',
+        itemB: 'ChatGPT',
+        language: 'en',
+        result: {
+          entityA: { name: 'Claude' },
+          entityB: { name: 'ChatGPT' },
+          dimensions: [],
+          recommendation: { winner: 'tie' },
+        },
+      }),
+    });
+    assert.equal(reportResponse.status, 201);
+    const { reportId } = (await reportResponse.json()) as { reportId: string };
+
+    assert.equal((await fetch(`${baseUrl}/api/reports/${reportId}`)).status, 200);
+    assert.equal((await fetch(`${baseUrl}/api/reports/${reportId}`)).status, 200);
+
+    const login = await fetch(`${baseUrl}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: 'admin-password' }),
+    });
+    assert.equal(login.status, 200);
+    const adminCookie = extractCookie(login.headers.get('set-cookie') || '', ADMIN_SESSION_COOKIE);
+
+    const featuredResponse = await fetch(`${baseUrl}/api/admin/featured`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: adminCookie,
+      },
+      body: JSON.stringify({
+        itemA: 'Claude',
+        itemB: 'ChatGPT',
+        language: 'en',
+        description: '',
+        reportId,
+      }),
+    });
+    assert.equal(featuredResponse.status, 201);
+
+    const listResponse = await fetch(`${baseUrl}/api/admin/featured`, {
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(listResponse.status, 200);
+    const featured = (await listResponse.json()) as { items: Array<{ reportId: string; viewCount: number }> };
+    assert.equal(featured.items[0].reportId, reportId);
+    assert.equal(featured.items[0].viewCount, 2);
   });
 });

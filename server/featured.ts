@@ -14,6 +14,7 @@ export type FeaturedComparison = {
   language: string;
   description: string;
   reportId: string | null;
+  viewCount: number;
   sortOrder: number;
   createdAt: string;
 };
@@ -65,20 +66,39 @@ export function createFeaturedStore(db: DatabaseConnection) {
 
   const selectCols = 'id, item_a AS itemA, item_b AS itemB, language, description, report_id AS reportId, sort_order AS sortOrder, created_at AS createdAt';
 
+  const getReportViewCount = (reportId: string | null): number => {
+    if (!reportId) return 0;
+
+    try {
+      const row = db.prepare('SELECT view_count AS viewCount FROM comparison_reports WHERE report_id = ?').get(reportId) as any;
+      return Number(row?.viewCount || 0);
+    } catch {
+      return 0;
+    }
+  };
+
+  const withViewCount = (items: FeaturedComparison[]): FeaturedComparison[] =>
+    items.map((item) => ({
+      ...item,
+      viewCount: getReportViewCount(item.reportId),
+    }));
+
   const listFeatured = (language?: string): FeaturedComparison[] => {
     if (language) {
-      return db.prepare(`
+      const items = db.prepare(`
         SELECT ${selectCols}
         FROM featured_comparisons
         WHERE language = ?
         ORDER BY sort_order ASC, created_at DESC
       `).all(language) as FeaturedComparison[];
+      return withViewCount(items);
     }
-    return db.prepare(`
+    const items = db.prepare(`
       SELECT ${selectCols}
       FROM featured_comparisons
       ORDER BY sort_order ASC, created_at DESC
     `).all() as FeaturedComparison[];
+    return withViewCount(items);
   };
 
   const addFeatured = (
@@ -104,6 +124,7 @@ export function createFeaturedStore(db: DatabaseConnection) {
       language: lang,
       description: desc,
       reportId: rId,
+      viewCount: getReportViewCount(rId),
       sortOrder: order,
       createdAt: now,
     };

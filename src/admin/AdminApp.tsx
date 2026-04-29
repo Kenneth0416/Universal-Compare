@@ -6,6 +6,7 @@ import {
   Check,
   Clock3,
   Database,
+  Eye,
   FileText,
   GitCompareArrows,
   Loader2,
@@ -66,6 +67,19 @@ function formatDuration(value: number) {
   return `${(value / 1000).toFixed(1)} s`;
 }
 
+function formatTokens(value: number) {
+  const tokens = Math.max(Number(value) || 0, 0);
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(2)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
+  return String(Math.round(tokens));
+}
+
+function formatCost(value: number) {
+  const cost = Math.max(Number(value) || 0, 0);
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return `$${cost.toFixed(2)}`;
+}
+
 function statusClass(status: string) {
   if (status === 'completed' || status === 'success') return 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20';
   if (status === 'failed' || status === 'error') return 'bg-red-500/10 text-red-300 border-red-500/20';
@@ -104,12 +118,14 @@ function RunsTable({ items }: { items: RunListItem[] }) {
 
   return (
     <div className="overflow-x-auto rounded-lg border border-white/10">
-      <table className="w-full min-w-[860px] text-left text-sm">
+      <table className="w-full min-w-[1040px] text-left text-sm">
         <thead className="bg-white/[0.04] text-xs uppercase text-neutral-500">
           <tr>
             <th className="px-4 py-3">Comparison</th>
             <th className="px-4 py-3">Status</th>
             <th className="px-4 py-3">Calls</th>
+            <th className="px-4 py-3">Tokens</th>
+            <th className="px-4 py-3">Cost</th>
             <th className="px-4 py-3">Duration</th>
             <th className="px-4 py-3">Language</th>
             <th className="px-4 py-3">Started</th>
@@ -126,6 +142,8 @@ function RunsTable({ items }: { items: RunListItem[] }) {
                 <span className={`rounded-full border px-2 py-1 text-xs ${statusClass(item.status)}`}>{item.status}</span>
               </td>
               <td className="px-4 py-3 text-neutral-300">{item.callCount}</td>
+              <td className="px-4 py-3 text-neutral-300">{formatTokens(item.totalTokens)}</td>
+              <td className="px-4 py-3 text-neutral-300">{formatCost(item.totalCostUsd)}</td>
               <td className="px-4 py-3 text-neutral-300">{formatDuration(item.totalDurationMs)}</td>
               <td className="px-4 py-3 text-neutral-300">{item.language}</td>
               <td className="px-4 py-3 text-neutral-400">{formatDate(item.startedAt)}</td>
@@ -142,12 +160,14 @@ function CallsTable({ items }: { items: CallListItem[] }) {
 
   return (
     <div className="overflow-x-auto rounded-lg border border-white/10">
-      <table className="w-full min-w-[920px] text-left text-sm">
+      <table className="w-full min-w-[1120px] text-left text-sm">
         <thead className="bg-white/[0.04] text-xs uppercase text-neutral-500">
           <tr>
             <th className="px-4 py-3">Model</th>
             <th className="px-4 py-3">Type</th>
             <th className="px-4 py-3">Status</th>
+            <th className="px-4 py-3">Tokens</th>
+            <th className="px-4 py-3">Cost</th>
             <th className="px-4 py-3">HTTP</th>
             <th className="px-4 py-3">Duration</th>
             <th className="px-4 py-3">Created</th>
@@ -161,6 +181,16 @@ function CallsTable({ items }: { items: CallListItem[] }) {
               <td className="px-4 py-3 text-neutral-300">{item.callType}</td>
               <td className="px-4 py-3">
                 <span className={`rounded-full border px-2 py-1 text-xs ${statusClass(item.status)}`}>{item.status}</span>
+              </td>
+              <td className="px-4 py-3 text-neutral-300">
+                {formatTokens(item.totalTokens)}
+                <div className="mt-1 text-xs text-neutral-500">
+                  In {formatTokens(item.promptTokens)} / Out {formatTokens(item.completionTokens + item.reasoningTokens)}
+                </div>
+              </td>
+              <td className="px-4 py-3 text-neutral-300">
+                {formatCost(item.costUsd)}
+                <div className="mt-1 text-xs text-neutral-500">{item.costSource}</div>
               </td>
               <td className="px-4 py-3 text-neutral-300">{item.statusCode}</td>
               <td className="px-4 py-3 text-neutral-300">{formatDuration(item.durationMs)}</td>
@@ -570,10 +600,17 @@ export default function AdminApp() {
 
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
               <MetricCard label="Today Users" value={String(today?.users ?? 0)} detail="Anonymous visitors" icon={Users} />
               <MetricCard label="Comparisons" value={String(today?.comparisons ?? 0)} detail="Started today" icon={GitCompareArrows} />
               <MetricCard label="AI Calls" value={String(today?.aiCalls ?? 0)} detail="Proxy requests" icon={Activity} />
+              <MetricCard
+                label="Tokens"
+                value={formatTokens(today?.totalTokens ?? 0)}
+                detail={`In ${formatTokens(today?.promptTokens ?? 0)} / Out ${formatTokens((today?.completionTokens ?? 0) + (today?.reasoningTokens ?? 0))}`}
+                icon={Database}
+              />
+              <MetricCard label="AI Cost" value={formatCost(today?.aiCostUsd ?? 0)} detail="Provider or estimate" icon={BarChart3} />
               <MetricCard label="Success Rate" value={`${today?.successRate ?? 0}%`} detail={`${today?.failedCalls ?? 0} failed`} icon={BarChart3} />
               <MetricCard label="Avg Latency" value={formatDuration(today?.averageDurationMs ?? 0)} detail="AI proxy duration" icon={Clock3} />
             </section>
@@ -695,6 +732,13 @@ export default function AdminApp() {
                           )}
                           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                             <span className="rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-neutral-400">{item.language}</span>
+                            <span
+                              className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-neutral-400"
+                              title="Views"
+                            >
+                              <Eye size={10} />
+                              {item.viewCount ?? 0} views
+                            </span>
                             {isGenerating ? (
                               <span className="flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
                                 <Loader2 size={10} className="animate-spin" />

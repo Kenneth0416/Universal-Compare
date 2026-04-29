@@ -59,6 +59,44 @@ test('records a visitor, comparison run, and successful AI call', () => {
   assert.equal(runs.items[0].status, 'completed');
 });
 
+test('records token usage and cost for AI calls', () => {
+  const store = createTempStore();
+  store.logAiCall({
+    runId: 'run_usage',
+    visitorId: 'v_usage',
+    callType: 'chat',
+    model: 'grok-4-1-fast-reasoning',
+    status: 'success',
+    statusCode: 200,
+    durationMs: 80,
+    promptTokens: 1000,
+    completionTokens: 250,
+    totalTokens: 1300,
+    cachedTokens: 120,
+    reasoningTokens: 50,
+    costUsd: 0.0123456789,
+    costSource: 'provider',
+  });
+
+  const calls = store.listCalls({ limit: 10 });
+  assert.equal(calls.items.length, 1);
+  assert.equal(calls.items[0].promptTokens, 1000);
+  assert.equal(calls.items[0].completionTokens, 250);
+  assert.equal(calls.items[0].totalTokens, 1300);
+  assert.equal(calls.items[0].cachedTokens, 120);
+  assert.equal(calls.items[0].reasoningTokens, 50);
+  assert.equal(calls.items[0].costUsd, 0.0123456789);
+  assert.equal(calls.items[0].costSource, 'provider');
+
+  const summary = store.getSummary();
+  assert.equal(summary.today.promptTokens, 1000);
+  assert.equal(summary.today.completionTokens, 250);
+  assert.equal(summary.today.totalTokens, 1300);
+  assert.equal(summary.today.cachedTokens, 120);
+  assert.equal(summary.today.reasoningTokens, 50);
+  assert.equal(summary.today.aiCostUsd, 0.0123456789);
+});
+
 test('aggregates failed calls and popular comparisons', () => {
   const store = createTempStore();
   const visitor = store.ensureVisitor({

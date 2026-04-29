@@ -7,6 +7,7 @@ import {
   parseCookieHeader,
   verifyAdminSessionToken,
 } from './adminAuth';
+import { extractAiUsageMetrics } from './aiUsage';
 import type { createAnalyticsStore } from './analytics';
 import type { createFeaturedStore } from './featured';
 import type { createReportStore } from './reports';
@@ -184,6 +185,7 @@ export function createApp({ analyticsStore, reportStore, featuredStore, openai, 
         status: 'success',
         statusCode: 200,
         durationMs: Date.now() - startedAt,
+        ...extractAiUsageMetrics(response, model),
       });
 
       res.json(response);

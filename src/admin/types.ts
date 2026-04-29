@@ -5,6 +5,12 @@ export type AdminMetricSummary = {
   failedCalls: number;
   successRate: number;
   averageDurationMs: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  aiCostUsd: number;
 };
 
 export type TrendPoint = {
@@ -26,6 +32,8 @@ export type RunListItem = {
   finishedAt: string | null;
   callCount: number;
   totalDurationMs: number;
+  totalTokens: number;
+  totalCostUsd: number;
 };
 
 export type CallListItem = {
@@ -37,6 +45,13 @@ export type CallListItem = {
   status: 'success' | 'error';
   statusCode: number;
   durationMs: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  costUsd: number;
+  costSource: 'provider' | 'estimated' | 'unavailable';
   errorMessage: string | null;
   createdAt: string;
 };
@@ -64,6 +79,7 @@ export type FeaturedComparison = {
   language: string;
   description: string;
   reportId: string | null;
+  viewCount: number;
   sortOrder: number;
   createdAt: string;
 };
