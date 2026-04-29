@@ -106,7 +106,7 @@ export const DimensionChart: React.FC<DimensionChartProps> = ({ dimensions, enti
         </div>
 
         {/* Score Table */}
-        <div className="w-full overflow-x-auto relative after:pointer-events-none after:content-[''] after:absolute after:top-0 after:right-0 after:h-full after:w-8 after:bg-gradient-to-l after:from-black/40 after:to-transparent">
+        <div className="w-full overflow-x-auto">
           <table className="w-full min-w-[500px] text-left border-collapse">
             <thead>
               <tr className="border-b border-white/10">
