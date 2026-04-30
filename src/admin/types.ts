@@ -11,6 +11,8 @@ export type AdminMetricSummary = {
   cachedTokens: number;
   reasoningTokens: number;
   aiCostUsd: number;
+  webSearchCount: number;
+  xSearchCount: number;
 };
 
 export type TrendPoint = {
@@ -52,6 +54,9 @@ export type CallListItem = {
   reasoningTokens: number;
   costUsd: number;
   costSource: 'provider' | 'estimated' | 'unavailable';
+  webSearchCount: number;
+  xSearchCount: number;
+  toolUsageJson: string | null;
   errorMessage: string | null;
   createdAt: string;
 };

@@ -1,4 +1,7 @@
 # CompareAI robots.txt
 User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /admin/
+
 Sitemap: https://compare-ai.com/sitemap.xml

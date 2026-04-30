@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 400">
+  <defs>
+    <linearGradient id="gradLeft" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#667eea"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <linearGradient id="gradRight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+    <linearGradient id="gradOverlap" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="50%" stop-color="#b87cf5"/>
+      <stop offset="100%" stop-color="#f093fb"/>
+    </linearGradient>
+    <linearGradient id="gradText" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#667eea"/>
+      <stop offset="40%" stop-color="#764ba2"/>
+      <stop offset="100%" stop-color="#f093fb"/>
+    </linearGradient>
+    <filter id="glow" x="-15%" y="-15%" width="130%" height="130%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <filter id="strongGlow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Left diamond -->
+  <g filter="url(#glow)">
+    <polygon
+      points="200,36 320,132 200,228 80,132"
+      fill="url(#gradLeft)"
+      opacity="0.92"
+    />
+  </g>
+
+  <!-- Right diamond -->
+  <g filter="url(#glow)">
+    <polygon
+      points="312,36 432,132 312,228 192,132"
+      fill="url(#gradRight)"
+      opacity="0.88"
+    />
+  </g>
+
+  <!-- Overlap region - brighter -->
+  <polygon
+    points="256,58 320,132 256,206 192,132"
+    fill="url(#gradOverlap)"
+    opacity="0.55"
+  />
+
+  <!-- Overlap glow -->
+  <g filter="url(#strongGlow)" opacity="0.4">
+    <polygon
+      points="256,68 310,132 256,196 202,132"
+      fill="#c084fc"
+    />
+  </g>
+
+  <!-- Scan lines (radar effect) -->
+  <g opacity="0.2" stroke="white" stroke-width="1.8" fill="none" stroke-linecap="round">
+    <path d="M256,78 Q296,132 256,186"/>
+    <path d="M256,92 Q286,132 256,172"/>
+    <path d="M256,106 Q276,132 256,158"/>
+  </g>
+
+  <!-- Center "C" -->
+  <text
+    x="256"
+    y="152"
+    text-anchor="middle"
+    dominant-baseline="central"
+    font-family="Sora, system-ui, -apple-system, sans-serif"
+    font-weight="800"
+    font-size="88"
+    fill="white"
+    opacity="0.95"
+    filter="url(#glow)"
+  >C</text>
+
+  <!-- Divider line between icon and text -->
+  <line
+    x1="180" y1="262" x2="332" y2="262"
+    stroke="url(#gradText)"
+    stroke-width="1"
+    opacity="0.3"
+  />
+
+  <!-- Wordmark: "CompareAI" -->
+  <text
+    x="256"
+    y="310"
+    text-anchor="middle"
+    font-family="Sora, system-ui, -apple-system, sans-serif"
+    font-weight="700"
+    font-size="52"
+    fill="url(#gradText)"
+    letter-spacing="-0.5"
+  >CompareAI</text>
+
+  <!-- Tagline -->
+  <text
+    x="256"
+    y="348"
+    text-anchor="middle"
+    font-family="Space Grotesk, system-ui, sans-serif"
+    font-weight="400"
+    font-size="16"
+    fill="white"
+    opacity="0.4"
+    letter-spacing="5"
+  >COMPARE ANYTHING</text>
+</svg>

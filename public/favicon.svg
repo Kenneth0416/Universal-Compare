@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="gl" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#667eea"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <linearGradient id="gr" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+    <linearGradient id="go" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="50%" stop-color="#b87cf5"/>
+      <stop offset="100%" stop-color="#f093fb"/>
+    </linearGradient>
+    <filter id="g" x="-15%" y="-15%" width="130%" height="130%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feComposite in="SourceGraphic" in2="b" operator="over"/>
+    </filter>
+    <filter id="sg" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="14" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Dark rounded background -->
+  <rect width="512" height="512" rx="108" fill="#0a0a0f"/>
+
+  <!-- Ambient glow -->
+  <circle cx="195" cy="250" r="200" fill="#667eea" opacity="0.04"/>
+  <circle cx="317" cy="250" r="200" fill="#a855f7" opacity="0.04"/>
+
+  <!-- Left diamond -->
+  <g filter="url(#g)">
+    <polygon
+      points="230,80 378,200 230,320 82,200"
+      fill="url(#gl)"
+      opacity="0.92"
+    />
+  </g>
+
+  <!-- Right diamond -->
+  <g filter="url(#g)">
+    <polygon
+      points="282,80 430,200 282,320 134,200"
+      fill="url(#gr)"
+      opacity="0.88"
+    />
+  </g>
+
+  <!-- Overlap -->
+  <polygon
+    points="256,106 304,200 256,294 208,200"
+    fill="url(#go)"
+    opacity="0.5"
+  />
+
+  <!-- Overlap glow -->
+  <g filter="url(#sg)" opacity="0.35">
+    <polygon
+      points="256,120 296,200 256,280 216,200"
+      fill="#c084fc"
+    />
+  </g>
+
+  <!-- Scan lines -->
+  <g opacity="0.2" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round">
+    <path d="M256,128 Q300,200 256,272"/>
+    <path d="M256,148 Q290,200 256,252"/>
+    <path d="M256,168 Q278,200 256,232"/>
+  </g>
+
+  <!-- Center "C" -->
+  <text
+    x="256"
+    y="220"
+    text-anchor="middle"
+    dominant-baseline="central"
+    font-family="Sora, system-ui, sans-serif"
+    font-weight="800"
+    font-size="140"
+    fill="white"
+    opacity="0.95"
+    filter="url(#g)"
+  >C</text>
+</svg>

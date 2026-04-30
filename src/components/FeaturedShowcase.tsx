@@ -29,13 +29,26 @@ export default function FeaturedShowcase({ onSelect }: FeaturedShowcaseProps) {
 
   if (items.length === 0) return null;
 
-  const handleClick = (item: FeaturedItem) => {
-    if (item.reportId) {
-      window.location.href = `/r/${item.reportId}`;
-    } else {
-      onSelect(item.itemA, item.itemB);
-    }
-  };
+  const cardClassName = 'group block h-full rounded-2xl border border-white/10 bg-white/[0.03] p-5 text-left backdrop-blur-sm transition-all duration-300 hover:border-indigo-500/30 hover:bg-white/[0.06] hover:shadow-lg hover:shadow-indigo-500/5';
+
+  const renderCardContent = (item: FeaturedItem) => (
+    <>
+      <div className="mb-3 text-base font-semibold text-white">
+        <span>{item.itemA}</span>
+        <span className="mx-2 text-xs font-normal text-neutral-600">vs</span>
+        <span>{item.itemB}</span>
+      </div>
+      {item.description && (
+        <p className="mb-4 text-sm leading-relaxed text-neutral-500">
+          {item.description}
+        </p>
+      )}
+      <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-400 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+        <span>{item.reportId ? t('hero.viewReport', 'View report') : t('hero.compareBtn', 'Compare')}</span>
+        <ArrowRight size={12} />
+      </div>
+    </>
+  );
 
   return (
     <section className="mt-8">
@@ -51,30 +64,27 @@ export default function FeaturedShowcase({ onSelect }: FeaturedShowcaseProps) {
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((item, index) => (
-            <motion.button
+            <motion.div
               key={item.id}
-              type="button"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.3 + index * 0.08 }}
-              onClick={() => handleClick(item)}
-              className="group relative rounded-2xl border border-white/10 bg-white/[0.03] p-5 text-left backdrop-blur-sm transition-all duration-300 hover:border-indigo-500/30 hover:bg-white/[0.06] hover:shadow-lg hover:shadow-indigo-500/5"
+              className="h-full"
             >
-              <div className="mb-3 text-base font-semibold text-white">
-                <span>{item.itemA}</span>
-                <span className="mx-2 text-xs font-normal text-neutral-600">vs</span>
-                <span>{item.itemB}</span>
-              </div>
-              {item.description && (
-                <p className="mb-4 text-sm leading-relaxed text-neutral-500">
-                  {item.description}
-                </p>
+              {item.reportId ? (
+                <a href={`/r/${item.reportId}`} className={cardClassName}>
+                  {renderCardContent(item)}
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onSelect(item.itemA, item.itemB)}
+                  className={`w-full ${cardClassName}`}
+                >
+                  {renderCardContent(item)}
+                </button>
               )}
-              <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-400 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                <span>{item.reportId ? t('hero.viewReport', 'View report') : t('hero.compareBtn', 'Compare')}</span>
-                <ArrowRight size={12} />
-              </div>
-            </motion.button>
+            </motion.div>
           ))}
         </div>
       </motion.div>

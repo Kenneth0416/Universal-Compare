@@ -8,6 +8,9 @@ export type AiUsageMetrics = {
   reasoningTokens: number;
   costUsd: number;
   costSource: AiCostSource;
+  webSearchCount: number;
+  xSearchCount: number;
+  toolUsageJson: string | null;
 };
 
 type ModelPricing = {
@@ -33,6 +36,9 @@ function emptyMetrics(): AiUsageMetrics {
     reasoningTokens: 0,
     costUsd: 0,
     costSource: 'unavailable',
+    webSearchCount: 0,
+    xSearchCount: 0,
+    toolUsageJson: null,
   };
 }
 
@@ -54,7 +60,10 @@ function getKnownPricing(model: string): ModelPricing | null {
   return null;
 }
 
-function estimateCostUsd(metrics: Omit<AiUsageMetrics, 'costUsd' | 'costSource'>, model: string): number | null {
+function estimateCostUsd(
+  metrics: Pick<AiUsageMetrics, 'promptTokens' | 'completionTokens' | 'totalTokens' | 'cachedTokens' | 'reasoningTokens'>,
+  model: string,
+): number | null {
   const pricing = getKnownPricing(model);
   if (!pricing || metrics.totalTokens === 0) return null;
 
@@ -71,10 +80,51 @@ function estimateCostUsd(metrics: Omit<AiUsageMetrics, 'costUsd' | 'costSource'>
   return Number(cost.toFixed(12));
 }
 
+function compactToolUsageJson(toolUsage: Record<string, number>): string | null {
+  const entries = Object.entries(toolUsage)
+    .filter(([, value]) => value > 0)
+    .sort(([left], [right]) => left.localeCompare(right));
+  if (entries.length === 0) return null;
+  return JSON.stringify(Object.fromEntries(entries));
+}
+
+function readToolUsage(response: unknown) {
+  const responseObject = response as {
+    server_side_tool_usage?: Record<string, unknown>;
+    usage?: {
+      server_side_tool_usage_details?: Record<string, unknown>;
+    };
+  } | null;
+  const raw = responseObject?.usage?.server_side_tool_usage_details || responseObject?.server_side_tool_usage;
+  if (!raw || typeof raw !== 'object') {
+    return {
+      webSearchCount: 0,
+      xSearchCount: 0,
+      toolUsageJson: null,
+    };
+  }
+
+  const toolUsage: Record<string, number> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const normalizedValue = nonNegativeInteger(value);
+    if (normalizedValue > 0) toolUsage[key] = normalizedValue;
+  }
+
+  return {
+    webSearchCount: toolUsage.web_search_calls || toolUsage.web_search || 0,
+    xSearchCount: toolUsage.x_search_calls || toolUsage.x_search || 0,
+    toolUsageJson: compactToolUsageJson(toolUsage),
+  };
+}
+
 export function extractAiUsageMetrics(response: unknown, model: string): AiUsageMetrics {
+  const toolUsage = readToolUsage(response);
   const usage = (response as { usage?: Record<string, any> } | null)?.usage;
   if (!usage || typeof usage !== 'object') {
-    return emptyMetrics();
+    return {
+      ...emptyMetrics(),
+      ...toolUsage,
+    };
   }
 
   const promptTokens = nonNegativeInteger(usage.prompt_tokens ?? usage.input_tokens);
@@ -102,6 +152,7 @@ export function extractAiUsageMetrics(response: unknown, model: string): AiUsage
       ...baseMetrics,
       costUsd: costTicks / COST_TICK_DENOMINATOR,
       costSource: 'provider',
+      ...toolUsage,
     };
   }
 
@@ -111,6 +162,7 @@ export function extractAiUsageMetrics(response: unknown, model: string): AiUsage
       ...baseMetrics,
       costUsd: estimatedCostUsd,
       costSource: 'estimated',
+      ...toolUsage,
     };
   }
 
@@ -118,5 +170,6 @@ export function extractAiUsageMetrics(response: unknown, model: string): AiUsage
     ...baseMetrics,
     costUsd: 0,
     costSource: 'unavailable',
+    ...toolUsage,
   };
 }

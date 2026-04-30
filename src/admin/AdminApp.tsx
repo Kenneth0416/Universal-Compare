@@ -160,7 +160,7 @@ function CallsTable({ items }: { items: CallListItem[] }) {
 
   return (
     <div className="overflow-x-auto rounded-lg border border-white/10">
-      <table className="w-full min-w-[1120px] text-left text-sm">
+      <table className="w-full min-w-[1240px] text-left text-sm">
         <thead className="bg-white/[0.04] text-xs uppercase text-neutral-500">
           <tr>
             <th className="px-4 py-3">Model</th>
@@ -168,6 +168,7 @@ function CallsTable({ items }: { items: CallListItem[] }) {
             <th className="px-4 py-3">Status</th>
             <th className="px-4 py-3">Tokens</th>
             <th className="px-4 py-3">Cost</th>
+            <th className="px-4 py-3">Tools</th>
             <th className="px-4 py-3">HTTP</th>
             <th className="px-4 py-3">Duration</th>
             <th className="px-4 py-3">Created</th>
@@ -191,6 +192,14 @@ function CallsTable({ items }: { items: CallListItem[] }) {
               <td className="px-4 py-3 text-neutral-300">
                 {formatCost(item.costUsd)}
                 <div className="mt-1 text-xs text-neutral-500">{item.costSource}</div>
+              </td>
+              <td className="px-4 py-3 text-neutral-300">
+                W {item.webSearchCount}
+                <span className="mx-1 text-neutral-600">/</span>
+                X {item.xSearchCount}
+                <div className="mt-1 max-w-[180px] truncate text-xs text-neutral-500" title={item.toolUsageJson || undefined}>
+                  {item.toolUsageJson || '-'}
+                </div>
               </td>
               <td className="px-4 py-3 text-neutral-300">{item.statusCode}</td>
               <td className="px-4 py-3 text-neutral-300">{formatDuration(item.durationMs)}</td>
@@ -611,6 +620,12 @@ export default function AdminApp() {
                 icon={Database}
               />
               <MetricCard label="AI Cost" value={formatCost(today?.aiCostUsd ?? 0)} detail="Provider or estimate" icon={BarChart3} />
+              <MetricCard
+                label="Search Tools"
+                value={`W ${today?.webSearchCount ?? 0} / X ${today?.xSearchCount ?? 0}`}
+                detail="Server-side tool calls"
+                icon={Database}
+              />
               <MetricCard label="Success Rate" value={`${today?.successRate ?? 0}%`} detail={`${today?.failedCalls ?? 0} failed`} icon={BarChart3} />
               <MetricCard label="Avg Latency" value={formatDuration(today?.averageDurationMs ?? 0)} detail="AI proxy duration" icon={Clock3} />
             </section>

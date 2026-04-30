@@ -3,15 +3,9 @@
  * Calls the backend proxy instead of direct OpenAI SDK
  */
 
+import { buildResearchRequest, normalizeXSearchMode } from './researchConfig';
+
 const API_BASE = '/api';
-
-// Responses API type definitions (same as server)
-type ResponsesAPIInput = {
-  role: 'user' | 'assistant';
-  content: string;
-};
-
-type ResponsesAPITool = { type: 'web_search' } | { type: 'x_search' };
 
 interface EntityProfile {
   name: string;
@@ -227,45 +221,15 @@ async function callAI<T>(callType: 'responses' | 'chat', params: any, runId?: st
 // --- Agent Functions ---
 
 export async function runResearcherAgent(itemName: string, language?: string, runId?: string): Promise<EntityProfile> {
-  // Dual-Track Research: web search + x search in parallel
-  const [webSearchResponse, xSearchResponse] = await Promise.all([
-    callAI<{ output_text: string }>('responses', {
-      model: 'grok-4-1-fast-non-reasoning',
-      input: [
-        {
-          role: 'user',
-          content: `Search the web for comprehensive information about "${itemName}":
-- Key characteristics and defining attributes
-- Historical background and timeline
-- Expert analysis and comparisons
-- Recent developments or changes
-- Relevant facts and data points
+  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+  const xSearchMode = normalizeXSearchMode(env?.VITE_X_SEARCH_MODE);
+  const researchRequest = buildResearchRequest(itemName, xSearchMode);
+  const researchResponse = await callAI<{ output_text: string }>('responses', {
+    model: 'grok-4-1-fast-non-reasoning',
+    ...researchRequest,
+  }, runId);
 
-Provide detailed, factual information with sources.`
-        }
-      ] as ResponsesAPIInput[],
-      tools: [{ type: 'web_search' }] as ResponsesAPITool[]
-    }, runId),
-    callAI<{ output_text: string }>('responses', {
-      model: 'grok-4-1-fast-non-reasoning',
-      input: [
-        {
-          role: 'user',
-          content: `Search X (Twitter) for recent discussions about "${itemName}":
-- Public opinions and perspectives
-- Common criticisms or praise
-- Trending topics and discussions
-- Real-world observations and insights
-
-Focus on posts from the last 3 months.`
-        }
-      ] as ResponsesAPIInput[],
-      tools: [{ type: 'x_search' }] as ResponsesAPITool[]
-    }, runId)
-  ]);
-
-  const webResults = webSearchResponse.output_text || '';
-  const xResults = xSearchResponse.output_text || '';
+  const researchResults = researchResponse.output_text || '';
 
   // Structured profiling via chat
   const structuredResponse = await callAI<{ choices: Array<{ message: { content: string } }> }>('chat', {
@@ -273,19 +237,16 @@ Focus on posts from the last 3 months.`
     messages: [
       {
         role: 'user',
-        content: `Based on the following information, create a structured profile for "${itemName}":
+        content: `Based on the following research information, create a structured profile for "${itemName}":
 
-WEB SEARCH RESULTS:
-${webResults}
-
-X (TWITTER) DISCUSSIONS:
-${xResults}
+RESEARCH RESULTS:
+${researchResults}
 
 Extract and synthesize:
 1. Normalized name and category classification
 2. Key characteristics and defining attributes from authoritative sources
 3. Domain and subcategory classification
-4. Concise definition incorporating both factual information and public perception
+4. Concise definition incorporating factual information and public perception when the research includes useful social signals
 5. Key attributes list combining objective facts and notable observations
 
 IMPORTANT: Respond in ${language === 'zh-CN' ? 'Simplified Chinese (简体中文)' : language === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English'}.`
@@ -352,7 +313,7 @@ IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" an
   const fullPrompt = `${prompt}${languagePrompt}`;
 
   const response = await callAI<{ choices: Array<{ message: { content: string } }> }>('chat', {
-    model: 'grok-4-1-fast-reasoning',
+    model: 'grok-4-1-fast-non-reasoning',
     messages: [{ role: 'user', content: fullPrompt }],
     temperature: 0.2,
     response_format: {

@@ -76,6 +76,9 @@ test('records token usage and cost for AI calls', () => {
     reasoningTokens: 50,
     costUsd: 0.0123456789,
     costSource: 'provider',
+    webSearchCount: 2,
+    xSearchCount: 1,
+    toolUsageJson: '{"web_search_calls":2,"x_search_calls":1}',
   });
 
   const calls = store.listCalls({ limit: 10 });
@@ -87,6 +90,9 @@ test('records token usage and cost for AI calls', () => {
   assert.equal(calls.items[0].reasoningTokens, 50);
   assert.equal(calls.items[0].costUsd, 0.0123456789);
   assert.equal(calls.items[0].costSource, 'provider');
+  assert.equal(calls.items[0].webSearchCount, 2);
+  assert.equal(calls.items[0].xSearchCount, 1);
+  assert.equal(calls.items[0].toolUsageJson, '{"web_search_calls":2,"x_search_calls":1}');
 
   const summary = store.getSummary();
   assert.equal(summary.today.promptTokens, 1000);
@@ -95,6 +101,8 @@ test('records token usage and cost for AI calls', () => {
   assert.equal(summary.today.cachedTokens, 120);
   assert.equal(summary.today.reasoningTokens, 50);
   assert.equal(summary.today.aiCostUsd, 0.0123456789);
+  assert.equal(summary.today.webSearchCount, 2);
+  assert.equal(summary.today.xSearchCount, 1);
 });
 
 test('aggregates failed calls and popular comparisons', () => {

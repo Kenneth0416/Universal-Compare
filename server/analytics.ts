@@ -52,6 +52,9 @@ export type LogAiCallInput = {
   reasoningTokens?: number;
   costUsd?: number;
   costSource?: 'provider' | 'estimated' | 'unavailable';
+  webSearchCount?: number;
+  xSearchCount?: number;
+  toolUsageJson?: string | null;
 };
 
 export type AdminMetricSummary = {
@@ -67,6 +70,8 @@ export type AdminMetricSummary = {
   cachedTokens: number;
   reasoningTokens: number;
   aiCostUsd: number;
+  webSearchCount: number;
+  xSearchCount: number;
 };
 
 export type TrendPoint = {
@@ -108,6 +113,9 @@ export type CallListItem = {
   reasoningTokens: number;
   costUsd: number;
   costSource: 'provider' | 'estimated' | 'unavailable';
+  webSearchCount: number;
+  xSearchCount: number;
+  toolUsageJson: string | null;
   errorMessage: string | null;
   createdAt: string;
 };
@@ -246,6 +254,9 @@ function initializeSchema(db: DatabaseConnection) {
       reasoning_tokens INTEGER NOT NULL DEFAULT 0,
       cost_usd REAL NOT NULL DEFAULT 0,
       cost_source TEXT NOT NULL DEFAULT 'unavailable',
+      web_search_count INTEGER NOT NULL DEFAULT 0,
+      x_search_count INTEGER NOT NULL DEFAULT 0,
+      tool_usage_json TEXT,
       error_message TEXT,
       created_at TEXT NOT NULL
     );
@@ -266,6 +277,9 @@ function initializeSchema(db: DatabaseConnection) {
     ['reasoning_tokens', 'ALTER TABLE ai_call_logs ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0'],
     ['cost_usd', 'ALTER TABLE ai_call_logs ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0'],
     ['cost_source', "ALTER TABLE ai_call_logs ADD COLUMN cost_source TEXT NOT NULL DEFAULT 'unavailable'"],
+    ['web_search_count', 'ALTER TABLE ai_call_logs ADD COLUMN web_search_count INTEGER NOT NULL DEFAULT 0'],
+    ['x_search_count', 'ALTER TABLE ai_call_logs ADD COLUMN x_search_count INTEGER NOT NULL DEFAULT 0'],
+    ['tool_usage_json', 'ALTER TABLE ai_call_logs ADD COLUMN tool_usage_json TEXT'],
   ];
 
   for (const [col, sql] of migrations) {
@@ -366,9 +380,9 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       INSERT INTO ai_call_logs (
         run_id, visitor_id, call_type, model, status, status_code, duration_ms,
         prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens,
-        cost_usd, cost_source, error_message, created_at
+        cost_usd, cost_source, web_search_count, x_search_count, tool_usage_json, error_message, created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.runId || null,
       input.visitorId || null,
@@ -384,6 +398,9 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       Math.max(Math.round(input.reasoningTokens || 0), 0),
       Math.max(input.costUsd || 0, 0),
       input.costSource || 'unavailable',
+      Math.max(Math.round(input.webSearchCount || 0), 0),
+      Math.max(Math.round(input.xSearchCount || 0), 0),
+      input.toolUsageJson || null,
       input.errorMessage ? truncate(input.errorMessage, 1000) : null,
       isoNow(),
     );
@@ -452,6 +469,9 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
         reasoning_tokens AS reasoningTokens,
         cost_usd AS costUsd,
         cost_source AS costSource,
+        web_search_count AS webSearchCount,
+        x_search_count AS xSearchCount,
+        tool_usage_json AS toolUsageJson,
         error_message AS errorMessage,
         created_at AS createdAt
       FROM ai_call_logs
@@ -520,8 +540,12 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
         (SELECT COALESCE(SUM(total_tokens), 0) FROM ai_call_logs WHERE created_at >= ?) AS totalTokens,
         (SELECT COALESCE(SUM(cached_tokens), 0) FROM ai_call_logs WHERE created_at >= ?) AS cachedTokens,
         (SELECT COALESCE(SUM(reasoning_tokens), 0) FROM ai_call_logs WHERE created_at >= ?) AS reasoningTokens,
-        (SELECT COALESCE(SUM(cost_usd), 0) FROM ai_call_logs WHERE created_at >= ?) AS aiCostUsd
+        (SELECT COALESCE(SUM(cost_usd), 0) FROM ai_call_logs WHERE created_at >= ?) AS aiCostUsd,
+        (SELECT COALESCE(SUM(web_search_count), 0) FROM ai_call_logs WHERE created_at >= ?) AS webSearchCount,
+        (SELECT COALESCE(SUM(x_search_count), 0) FROM ai_call_logs WHERE created_at >= ?) AS xSearchCount
     `).get(
+      todayStart,
+      todayStart,
       todayStart,
       todayStart,
       todayStart,
@@ -550,6 +574,8 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       cachedTokens: Number(todayRow.cachedTokens || 0),
       reasoningTokens: Number(todayRow.reasoningTokens || 0),
       aiCostUsd: Number(todayRow.aiCostUsd || 0),
+      webSearchCount: Number(todayRow.webSearchCount || 0),
+      xSearchCount: Number(todayRow.xSearchCount || 0),
     };
 
     const trend = buildLastSevenDays();

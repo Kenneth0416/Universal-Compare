@@ -38,6 +38,10 @@ function createTestApp() {
               prompt_tokens_details: { cached_tokens: 10 },
               completion_tokens_details: { reasoning_tokens: 5 },
               cost_in_usd_ticks: 2_500_000,
+              server_side_tool_usage_details: {
+                web_search_calls: 2,
+                x_search_calls: 1,
+              },
             },
           }),
         },
@@ -113,6 +117,8 @@ test('tracks comparison runs and logs AI proxy calls', async () => {
   assert.equal(summary.today.cachedTokens, 10);
   assert.equal(summary.today.reasoningTokens, 5);
   assert.equal(summary.today.aiCostUsd, 0.00025);
+  assert.equal(summary.today.webSearchCount, 2);
+  assert.equal(summary.today.xSearchCount, 1);
   assert.equal(summary.recentRuns[0].status, 'completed');
 
   const calls = analyticsStore.listCalls({ limit: 1 });
@@ -123,6 +129,9 @@ test('tracks comparison runs and logs AI proxy calls', async () => {
   assert.equal(calls.items[0].reasoningTokens, 5);
   assert.equal(calls.items[0].costUsd, 0.00025);
   assert.equal(calls.items[0].costSource, 'provider');
+  assert.equal(calls.items[0].webSearchCount, 2);
+  assert.equal(calls.items[0].xSearchCount, 1);
+  assert.equal(calls.items[0].toolUsageJson, '{"web_search_calls":2,"x_search_calls":1}');
 });
 
 test('protects admin summary behind password login', async () => {
