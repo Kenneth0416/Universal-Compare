@@ -23,7 +23,7 @@ type SeoReportResult = {
   };
 };
 
-export type SitemapReport = Pick<ReportListItem, 'reportId' | 'createdAt'>;
+export type SitemapReport = Pick<ReportListItem, 'createdAt'> & { slug: string };
 
 function normalizeSiteUrl(siteUrl = DEFAULT_SITE_URL) {
   return siteUrl.replace(/\/+$/, '');
@@ -92,7 +92,9 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
   const { itemA, itemB } = getEntityNames(report);
   const title = `${itemA} vs ${itemB}: AI Comparison Report | CompareAI`;
   const description = getReportDescription(report, featured);
-  const url = `${siteUrl}/r/${encodeURIComponent(report.reportId)}`;
+  const url = featured?.slug
+    ? `${siteUrl}/compare/${encodeURIComponent(featured.slug)}`
+    : `${siteUrl}/r/${encodeURIComponent(report.reportId)}`;
 
   return [
     {
@@ -218,7 +220,9 @@ export function renderReportSeoHtml({
   const { itemA, itemB } = getEntityNames(report);
   const title = `${itemA} vs ${itemB}: AI Comparison Report | CompareAI`;
   const description = getReportDescription(report, featured);
-  const url = `${siteUrl}/r/${encodeURIComponent(report.reportId)}`;
+  const url = featured?.slug
+    ? `${siteUrl}/compare/${encodeURIComponent(featured.slug)}`
+    : `${siteUrl}/r/${encodeURIComponent(report.reportId)}`;
   const image = `${siteUrl}${OG_IMAGE_PATH}`;
   const robots = featured ? 'index, follow, max-snippet:-1, max-image-preview:large' : 'noindex, follow';
   const structuredData = buildStructuredData(report, featured, siteUrl);
@@ -275,7 +279,7 @@ export function renderSitemapXml(reports: SitemapReport[], siteUrl?: string) {
       priority: '1.0',
     },
     ...reports.map((report) => ({
-      loc: `${normalizedSiteUrl}/r/${encodeURIComponent(report.reportId)}`,
+      loc: `${normalizedSiteUrl}/compare/${encodeURIComponent(report.slug)}`,
       lastmod: getIsoDate(report.createdAt),
       changefreq: 'monthly',
       priority: '0.7',

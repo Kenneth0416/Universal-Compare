@@ -107,10 +107,30 @@ export function createApp({
         if (!item.reportId || seenReportIds.has(item.reportId)) return [];
         seenReportIds.add(item.reportId);
         const report = reportStore.getReport(item.reportId);
-        return report ? [{ reportId: report.reportId, createdAt: report.createdAt }] : [];
+        return report ? [{ slug: item.slug, createdAt: report.createdAt }] : [];
       });
 
     res.type('application/xml').send(renderSitemapXml(reports, siteUrl));
+  });
+
+  app.get('/compare/:slug', (req, res) => {
+    const indexHtml = readClientIndexHtml();
+    const featured = featuredStore.getFeaturedBySlug(req.params.slug);
+    const report = featured?.reportId ? reportStore.getReport(featured.reportId) : null;
+
+    if (!featured || !report) {
+      res.status(404).type('text/html').send(renderReportNotFoundHtml(indexHtml, siteUrl));
+      return;
+    }
+
+    res.type('text/html').send(
+      renderReportSeoHtml({
+        report,
+        featured,
+        indexHtml,
+        siteUrl,
+      }),
+    );
   });
 
   app.get('/r/:reportId', (req, res) => {
@@ -122,7 +142,12 @@ export function createApp({
       return;
     }
 
-    const featured = featuredStore.listFeatured().find((item) => item.reportId === report.reportId) || null;
+    const featured = featuredStore.getFeaturedByReportId(report.reportId);
+    if (featured) {
+      res.redirect(301, `/compare/${featured.slug}`);
+      return;
+    }
+
     res.type('text/html').send(
       renderReportSeoHtml({
         report,
@@ -426,6 +451,19 @@ export function createApp({
       console.error('Failed to save report:', err);
       res.status(500).json({ error: 'Failed to save report' });
     }
+  });
+
+  app.get('/api/reports/by-slug/:slug', (req, res) => {
+    const featured = featuredStore.getFeaturedBySlug(req.params.slug);
+    const report = featured?.reportId ? reportStore.getReport(featured.reportId) : null;
+
+    if (!featured || !report) {
+      res.status(404).json({ error: 'Report not found' });
+      return;
+    }
+
+    reportStore.incrementViewCount(report.reportId);
+    res.json(report);
   });
 
   app.get('/api/reports/:reportId', (req, res) => {

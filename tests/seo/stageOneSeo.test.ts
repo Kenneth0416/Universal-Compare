@@ -41,6 +41,6 @@ test('featured reports use crawlable links instead of script-only navigation', (
   const source = readProjectFile('src/components/FeaturedShowcase.tsx');
 
   assert.match(source, /<a\s/);
-  assert.match(source, /href=\{`\/r\/\$\{item\.reportId\}`\}/);
+  assert.match(source, /href=\{`\/compare\/\$\{item\.slug\}`\}/);
   assert.doesNotMatch(source, /window\.location\.href\s*=/);
 });

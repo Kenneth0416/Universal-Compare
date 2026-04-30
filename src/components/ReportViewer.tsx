@@ -3,23 +3,27 @@ import { motion } from 'motion/react';
 import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 import ComparisonResultView from './ComparisonResultView';
 import MinimalGrid from './react-bits/MinimalGrid';
-import { getReport, type ReportData } from '../services/reportService';
+import { getReport, getReportBySlug, type ReportData } from '../services/reportService';
 import type { ComparisonResult } from '../services/geminiService';
 
 export default function ReportViewer() {
-  const reportId = window.location.pathname.replace('/r/', '');
+  const pathname = window.location.pathname;
+  const isCompareUrl = pathname.startsWith('/compare/');
+  const reportKey = pathname.replace(isCompareUrl ? '/compare/' : '/r/', '');
   const [report, setReport] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!reportId) {
+    if (!reportKey) {
       setError('Invalid report URL');
       setLoading(false);
       return;
     }
 
-    getReport(reportId)
+    const loadReport = isCompareUrl ? getReportBySlug : getReport;
+
+    loadReport(reportKey)
       .then((data) => {
         setReport(data);
         document.title = `${data.itemA} vs ${data.itemB} — CompareAI`;
@@ -30,7 +34,7 @@ export default function ReportViewer() {
           : 'Failed to load report. Please try again.');
       })
       .finally(() => setLoading(false));
-  }, [reportId]);
+  }, [isCompareUrl, reportKey]);
 
   return (
     <div className="min-h-screen font-sans selection:bg-indigo-500/30 selection:text-indigo-200 relative">

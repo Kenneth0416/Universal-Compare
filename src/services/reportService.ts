@@ -53,3 +53,16 @@ export async function getReport(reportId: string): Promise<ReportData> {
 
   return response.json();
 }
+
+export async function getReportBySlug(slug: string): Promise<ReportData> {
+  const response = await fetch(`${API_BASE}/reports/by-slug/${encodeURIComponent(slug)}`);
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('Report not found');
+    }
+    throw new Error(`Failed to load report: ${response.status}`);
+  }
+
+  return response.json();
+}

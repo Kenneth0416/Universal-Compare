@@ -84,6 +84,7 @@ export type FeaturedComparison = {
   language: string;
   description: string;
   reportId: string | null;
+  slug: string;
   viewCount: number;
   sortOrder: number;
   createdAt: string;

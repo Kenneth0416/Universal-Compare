@@ -789,7 +789,7 @@ export default function AdminApp() {
                               </span>
                             ) : item.reportId ? (
                               <a
-                                href={`/r/${item.reportId}`}
+                                href={`/compare/${item.slug}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300 transition hover:bg-emerald-500/20"

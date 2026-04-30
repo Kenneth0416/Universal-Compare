@@ -9,6 +9,7 @@ interface FeaturedItem {
   itemB: string;
   description: string;
   reportId: string | null;
+  slug: string;
 }
 
 interface FeaturedShowcaseProps {
@@ -71,8 +72,8 @@ export default function FeaturedShowcase({ onSelect }: FeaturedShowcaseProps) {
               transition={{ duration: 0.4, delay: 0.3 + index * 0.08 }}
               className="h-full"
             >
-              {item.reportId ? (
-                <a href={`/r/${item.reportId}`} className={cardClassName}>
+              {item.reportId && item.slug ? (
+                <a href={`/compare/${item.slug}`} className={cardClassName}>
                   {renderCardContent(item)}
                 </a>
               ) : (

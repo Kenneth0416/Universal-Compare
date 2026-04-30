@@ -14,6 +14,7 @@ export type FeaturedComparison = {
   language: string;
   description: string;
   reportId: string | null;
+  slug: string;
   viewCount: number;
   sortOrder: number;
   createdAt: string;
@@ -28,6 +29,24 @@ function truncate(value: string | undefined, maxLength = 500) {
   return value.trim().slice(0, maxLength);
 }
 
+function slugify(value: string) {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+function buildSlugBase(itemA: string, itemB: string) {
+  const left = slugify(itemA);
+  const right = slugify(itemB);
+  const base = [left, right].filter(Boolean).join('-vs-');
+  return base || 'comparison';
+}
+
 function initializeSchema(db: DatabaseConnection) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS featured_comparisons (
@@ -37,6 +56,7 @@ function initializeSchema(db: DatabaseConnection) {
       language    TEXT    NOT NULL DEFAULT 'en',
       description TEXT    NOT NULL DEFAULT '',
       report_id   TEXT,
+      slug        TEXT,
       sort_order  INTEGER NOT NULL DEFAULT 0,
       created_at  TEXT    NOT NULL
     );
@@ -49,6 +69,7 @@ function initializeSchema(db: DatabaseConnection) {
     ['language', "ALTER TABLE featured_comparisons ADD COLUMN language TEXT NOT NULL DEFAULT 'en'"],
     ['description', "ALTER TABLE featured_comparisons ADD COLUMN description TEXT NOT NULL DEFAULT ''"],
     ['report_id', 'ALTER TABLE featured_comparisons ADD COLUMN report_id TEXT'],
+    ['slug', 'ALTER TABLE featured_comparisons ADD COLUMN slug TEXT'],
   ];
   for (const [col, sql] of migrations) {
     try {
@@ -64,7 +85,44 @@ function initializeSchema(db: DatabaseConnection) {
 export function createFeaturedStore(db: DatabaseConnection) {
   initializeSchema(db);
 
-  const selectCols = 'id, item_a AS itemA, item_b AS itemB, language, description, report_id AS reportId, sort_order AS sortOrder, created_at AS createdAt';
+  const selectCols = 'id, item_a AS itemA, item_b AS itemB, language, description, report_id AS reportId, slug, sort_order AS sortOrder, created_at AS createdAt';
+
+  const slugExists = (slug: string): boolean => {
+    const existing = db.prepare('SELECT id FROM featured_comparisons WHERE slug = ? LIMIT 1').get(slug);
+    return !!existing;
+  };
+
+  const createUniqueSlug = (itemA: string, itemB: string): string => {
+    const base = buildSlugBase(itemA, itemB);
+    let candidate = base;
+    let suffix = 2;
+
+    while (slugExists(candidate)) {
+      candidate = `${base}-${suffix}`;
+      suffix += 1;
+    }
+
+    return candidate;
+  };
+
+  const ensureExistingSlugs = () => {
+    const rows = db.prepare(`
+      SELECT id, item_a AS itemA, item_b AS itemB
+      FROM featured_comparisons
+      WHERE slug IS NULL OR slug = ''
+      ORDER BY id ASC
+    `).all() as Array<{ id: number; itemA: string; itemB: string }>;
+
+    for (const row of rows) {
+      db.prepare('UPDATE featured_comparisons SET slug = ? WHERE id = ?').run(
+        createUniqueSlug(row.itemA, row.itemB),
+        row.id,
+      );
+    }
+  };
+
+  ensureExistingSlugs();
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_featured_slug ON featured_comparisons(slug)');
 
   const getReportViewCount = (reportId: string | null): number => {
     if (!reportId) return 0;
@@ -111,11 +169,12 @@ export function createFeaturedStore(db: DatabaseConnection) {
     const desc = truncate(options.description, 200);
     const order = options.sortOrder ?? 0;
     const rId = options.reportId || null;
+    const slug = createUniqueSlug(itemA, itemB);
 
     const result = db.prepare(`
-      INSERT INTO featured_comparisons (item_a, item_b, language, description, report_id, sort_order, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(truncate(itemA), truncate(itemB), lang, desc, rId, order, now);
+      INSERT INTO featured_comparisons (item_a, item_b, language, description, report_id, slug, sort_order, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(truncate(itemA), truncate(itemB), lang, desc, rId, slug, order, now);
 
     return {
       id: Number((result as any).lastInsertRowid),
@@ -124,10 +183,31 @@ export function createFeaturedStore(db: DatabaseConnection) {
       language: lang,
       description: desc,
       reportId: rId,
+      slug,
       viewCount: getReportViewCount(rId),
       sortOrder: order,
       createdAt: now,
     };
+  };
+
+  const getFeaturedBySlug = (slug: string): FeaturedComparison | null => {
+    const item = db.prepare(`
+      SELECT ${selectCols}
+      FROM featured_comparisons
+      WHERE slug = ?
+    `).get(slug) as FeaturedComparison | undefined;
+    return item ? withViewCount([item])[0] : null;
+  };
+
+  const getFeaturedByReportId = (reportId: string): FeaturedComparison | null => {
+    const item = db.prepare(`
+      SELECT ${selectCols}
+      FROM featured_comparisons
+      WHERE report_id = ?
+      ORDER BY sort_order ASC, created_at DESC
+      LIMIT 1
+    `).get(reportId) as FeaturedComparison | undefined;
+    return item ? withViewCount([item])[0] : null;
   };
 
   const updateReportId = (id: number, reportId: string): boolean => {
@@ -143,6 +223,8 @@ export function createFeaturedStore(db: DatabaseConnection) {
   return {
     listFeatured,
     addFeatured,
+    getFeaturedBySlug,
+    getFeaturedByReportId,
     updateReportId,
     removeFeatured,
   };

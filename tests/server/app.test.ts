@@ -245,13 +245,14 @@ test('returns linked report view counts for admin featured comparisons', async (
       headers: { cookie: adminCookie },
     });
     assert.equal(listResponse.status, 200);
-    const featured = (await listResponse.json()) as { items: Array<{ reportId: string; viewCount: number }> };
+    const featured = (await listResponse.json()) as { items: Array<{ reportId: string; slug: string; viewCount: number }> };
     assert.equal(featured.items[0].reportId, reportId);
+    assert.equal(featured.items[0].slug, 'claude-vs-chatgpt');
     assert.equal(featured.items[0].viewCount, 2);
   });
 });
 
-test('serves featured report pages with crawlable Versus-style SEO HTML', async () => {
+test('serves featured report pages at crawlable comparison slugs', async () => {
   const { app, reportStore, featuredStore } = createTestApp();
   const saved = reportStore.saveReport({
     itemA: 'Claude',
@@ -267,20 +268,44 @@ test('serves featured report pages with crawlable Versus-style SEO HTML', async 
   });
 
   await withServer(app, async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/r/${saved.reportId}`);
+    const response = await fetch(`${baseUrl}/compare/claude-vs-chatgpt`);
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type') || '', /text\/html/);
     const html = await response.text();
 
     assert.match(html, /<title>Claude vs ChatGPT: AI Comparison Report \| CompareAI<\/title>/);
     assert.match(html, /<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" \/>/);
-    assert.match(html, /<link rel="canonical" href="https:\/\/compare-ai\.com\/r\/Rpt-[^"]+" \/>/);
+    assert.match(html, /<link rel="canonical" href="https:\/\/compare-ai\.com\/compare\/claude-vs-chatgpt" \/>/);
     assert.match(html, /<meta property="og:title" content="Claude vs ChatGPT: AI Comparison Report \| CompareAI" \/>/);
+    assert.match(html, /<meta property="og:url" content="https:\/\/compare-ai\.com\/compare\/claude-vs-chatgpt" \/>/);
     assert.match(html, /Compare Claude and ChatGPT for AI writing, research, and reasoning workflows/);
     assert.match(html, /<h1>Claude <span>vs<\/span> ChatGPT<\/h1>/);
     assert.match(html, /Reasoning quality/);
     assert.match(html, /BreadcrumbList/);
     assert.match(html, /SearchAction/);
+  });
+});
+
+test('redirects legacy report ids to their featured comparison slug', async () => {
+  const { app, reportStore, featuredStore } = createTestApp();
+  const saved = reportStore.saveReport({
+    itemA: 'Claude',
+    itemB: 'ChatGPT',
+    language: 'en',
+    result: createComparisonResult('Claude', 'ChatGPT'),
+  });
+  assert.ok(saved);
+  featuredStore.addFeatured('Claude', 'ChatGPT', {
+    language: 'en',
+    description: 'Featured AI assistant comparison.',
+    reportId: saved.reportId,
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/r/${saved.reportId}`, { redirect: 'manual' });
+
+    assert.equal(response.status, 301);
+    assert.equal(response.headers.get('location'), '/compare/claude-vs-chatgpt');
   });
 });
 
@@ -333,7 +358,18 @@ test('serves a dynamic sitemap that includes only homepage and featured reports'
     const xml = await response.text();
 
     assert.match(xml, /<loc>https:\/\/compare-ai\.com\/<\/loc>/);
-    assert.match(xml, new RegExp(`<loc>https://compare-ai\\.com/r/${featured.reportId}</loc>`));
+    assert.match(xml, /<loc>https:\/\/compare-ai\.com\/compare\/claude-vs-chatgpt<\/loc>/);
+    assert.doesNotMatch(xml, new RegExp(featured.reportId));
     assert.doesNotMatch(xml, new RegExp(privateReport.reportId));
   });
+});
+
+test('deduplicates featured comparison slugs with stable numeric suffixes', () => {
+  const { featuredStore } = createTestApp();
+
+  const first = featuredStore.addFeatured('Claude', 'ChatGPT');
+  const second = featuredStore.addFeatured('Claude', 'ChatGPT');
+
+  assert.equal(first.slug, 'claude-vs-chatgpt');
+  assert.equal(second.slug, 'claude-vs-chatgpt-2');
 });

@@ -10,7 +10,7 @@ const pathname = window.location.pathname;
 let RootApp;
 if (pathname.startsWith('/admin')) {
   RootApp = AdminApp;
-} else if (pathname.startsWith('/r/')) {
+} else if (pathname.startsWith('/r/') || pathname.startsWith('/compare/')) {
   RootApp = ReportViewer;
 } else {
   RootApp = App;
