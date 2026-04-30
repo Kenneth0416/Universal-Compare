@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import {
   ADMIN_SESSION_COOKIE,
@@ -11,6 +13,12 @@ import { extractAiUsageMetrics } from './aiUsage';
 import type { createAnalyticsStore } from './analytics';
 import type { createFeaturedStore } from './featured';
 import type { createReportStore } from './reports';
+import {
+  renderReportNotFoundHtml,
+  renderReportSeoHtml,
+  renderRobotsTxt,
+  renderSitemapXml,
+} from './seo';
 
 const VISITOR_COOKIE = 'compareai_visitor_id';
 const VISITOR_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
@@ -41,6 +49,7 @@ type CreateAppOptions = {
   openai: AiClient;
   adminPassword?: string;
   adminSessionSecret: string;
+  siteUrl?: string;
 };
 
 type ResponsesAPITool = { type: 'web_search' } | { type: 'x_search' };
@@ -66,10 +75,63 @@ function isAdminPasswordValid(input: unknown, adminPassword: string) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
-export function createApp({ analyticsStore, reportStore, featuredStore, openai, adminPassword, adminSessionSecret }: CreateAppOptions) {
+function readClientIndexHtml() {
+  const distIndex = path.resolve(process.cwd(), 'dist', 'index.html');
+  const sourceIndex = path.resolve(process.cwd(), 'index.html');
+  const indexPath = existsSync(distIndex) ? distIndex : sourceIndex;
+  return readFileSync(indexPath, 'utf8');
+}
+
+export function createApp({
+  analyticsStore,
+  reportStore,
+  featuredStore,
+  openai,
+  adminPassword,
+  adminSessionSecret,
+  siteUrl = process.env.SITE_URL || process.env.APP_URL,
+}: CreateAppOptions) {
   const app = express();
 
   app.use(express.json({ limit: '1mb' }));
+
+  app.get('/robots.txt', (_req, res) => {
+    res.type('text/plain').send(renderRobotsTxt(siteUrl));
+  });
+
+  app.get('/sitemap.xml', (_req, res) => {
+    const seenReportIds = new Set<string>();
+    const reports = featuredStore
+      .listFeatured()
+      .flatMap((item) => {
+        if (!item.reportId || seenReportIds.has(item.reportId)) return [];
+        seenReportIds.add(item.reportId);
+        const report = reportStore.getReport(item.reportId);
+        return report ? [{ reportId: report.reportId, createdAt: report.createdAt }] : [];
+      });
+
+    res.type('application/xml').send(renderSitemapXml(reports, siteUrl));
+  });
+
+  app.get('/r/:reportId', (req, res) => {
+    const indexHtml = readClientIndexHtml();
+    const report = reportStore.getReport(req.params.reportId);
+
+    if (!report) {
+      res.status(404).type('text/html').send(renderReportNotFoundHtml(indexHtml, siteUrl));
+      return;
+    }
+
+    const featured = featuredStore.listFeatured().find((item) => item.reportId === report.reportId) || null;
+    res.type('text/html').send(
+      renderReportSeoHtml({
+        report,
+        featured,
+        indexHtml,
+        siteUrl,
+      }),
+    );
+  });
 
   app.use('/api', (req: RequestWithVisitor, res, next) => {
     try {

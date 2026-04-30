@@ -34,6 +34,7 @@ const app = createApp({
   openai: openai as any,
   adminPassword: process.env.ADMIN_PASSWORD,
   adminSessionSecret,
+  siteUrl: process.env.SITE_URL || process.env.APP_URL,
 });
 
 app.listen(PORT, () => {

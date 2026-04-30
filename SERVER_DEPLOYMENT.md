@@ -64,6 +64,12 @@ nano .env.local
 添加內容：
 ```
 XAI_API_KEY=your_api_key_here
+SITE_URL=https://compare-ai.com
+```
+
+動態報告頁 SEO、API、`robots.txt` 和 `sitemap.xml` 需要 Node 服務常駐運行：
+```bash
+API_SERVER_PORT=3001 npm run server
 ```
 
 ### 4. 設置 Webhook 服務器
@@ -135,6 +141,34 @@ server {
 
     root /var/www/compare-ai/dist;
     index index.html;
+
+    # Dynamic SEO and API routes served by the Node app.
+    # Keep these above the SPA fallback so report pages return page-specific
+    # title, description, robots, canonical, OG, sitemap, and structured data.
+    location = /robots.txt {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /sitemap.xml {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location ^~ /r/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location ^~ /api/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
     # SPA 路由支持
     location / {

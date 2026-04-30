@@ -16,7 +16,7 @@ test('homepage exposes English-first global SEO metadata and social preview imag
     html,
     /<title>CompareAI - AI Comparison Tool for Products, Apps, and Decisions<\/title>/,
   );
-  assert.match(html, /<meta name="robots" content="index, follow, max-image-preview:large" \/>/);
+  assert.match(html, /<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" \/>/);
   assert.match(html, /AI comparison tool/i);
   assert.match(html, /compare products/i);
   assert.match(html, /https:\/\/compare-ai\.com\/og-image\.png/);
@@ -24,12 +24,13 @@ test('homepage exposes English-first global SEO metadata and social preview imag
 });
 
 test('robots and sitemap expose only public crawl targets for phase one', () => {
-  const robots = readProjectFile('robots.txt');
-  const sitemap = readProjectFile('sitemap.xml');
+  const robots = readProjectFile('public/robots.txt');
+  const sitemap = readProjectFile('public/sitemap.xml');
 
   assert.match(robots, /User-agent: \*/);
   assert.match(robots, /Allow: \//);
   assert.match(robots, /Disallow: \/admin/);
+  assert.match(robots, /Disallow: \/api\//);
   assert.match(robots, /Sitemap: https:\/\/compare-ai\.com\/sitemap\.xml/);
 
   assert.match(sitemap, /<loc>https:\/\/compare-ai\.com\/<\/loc>/);

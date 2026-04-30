@@ -49,7 +49,7 @@ function createTestApp() {
     },
   });
 
-  return { app, analyticsStore };
+  return { app, analyticsStore, reportStore, featuredStore };
 }
 
 async function withServer<T>(app: ReturnType<typeof createApp>, callback: (baseUrl: string) => Promise<T>) {
@@ -70,6 +70,40 @@ function extractCookie(setCookieHeader: string, name: string) {
   const match = setCookieHeader.match(new RegExp(`${name}=[^;,]+`));
   assert.ok(match, `Expected ${name} cookie in ${setCookieHeader}`);
   return match[0];
+}
+
+function createComparisonResult(itemA = 'Claude', itemB = 'ChatGPT') {
+  return {
+    entityA: { name: itemA },
+    entityB: { name: itemB },
+    relationship: {
+      relationship_type: 'alternatives',
+      comparison_goal: `Choose between ${itemA} and ${itemB}`,
+      reasoning: 'Both tools can be evaluated as AI assistants.',
+    },
+    dimensions: [
+      {
+        key: 'reasoning',
+        label: 'Reasoning quality',
+        why_it_matters: 'Reasoning quality affects complex decisions.',
+        analysis: {
+          item_a_summary: `${itemA} is strong for careful written analysis.`,
+          item_b_summary: `${itemB} is strong for broad everyday tasks.`,
+          key_difference: `${itemA} favors depth while ${itemB} favors versatility.`,
+        },
+      },
+    ],
+    prosCons: {
+      item_a_pros: ['Careful long-form answers'],
+      item_a_cons: ['Less familiar to some users'],
+      item_b_pros: ['Broad ecosystem'],
+      item_b_cons: ['Can be less focused'],
+    },
+    recommendation: {
+      short_verdict: `${itemA} is better for careful analysis.`,
+      long_verdict: `Choose ${itemA} for deep reasoning and ${itemB} for broad daily workflows.`,
+    },
+  };
 }
 
 test('tracks comparison runs and logs AI proxy calls', async () => {
@@ -214,5 +248,92 @@ test('returns linked report view counts for admin featured comparisons', async (
     const featured = (await listResponse.json()) as { items: Array<{ reportId: string; viewCount: number }> };
     assert.equal(featured.items[0].reportId, reportId);
     assert.equal(featured.items[0].viewCount, 2);
+  });
+});
+
+test('serves featured report pages with crawlable Versus-style SEO HTML', async () => {
+  const { app, reportStore, featuredStore } = createTestApp();
+  const saved = reportStore.saveReport({
+    itemA: 'Claude',
+    itemB: 'ChatGPT',
+    language: 'en',
+    result: createComparisonResult('Claude', 'ChatGPT'),
+  });
+  assert.ok(saved);
+  featuredStore.addFeatured('Claude', 'ChatGPT', {
+    language: 'en',
+    description: 'Compare Claude and ChatGPT for AI writing, research, and reasoning workflows.',
+    reportId: saved.reportId,
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/r/${saved.reportId}`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') || '', /text\/html/);
+    const html = await response.text();
+
+    assert.match(html, /<title>Claude vs ChatGPT: AI Comparison Report \| CompareAI<\/title>/);
+    assert.match(html, /<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" \/>/);
+    assert.match(html, /<link rel="canonical" href="https:\/\/compare-ai\.com\/r\/Rpt-[^"]+" \/>/);
+    assert.match(html, /<meta property="og:title" content="Claude vs ChatGPT: AI Comparison Report \| CompareAI" \/>/);
+    assert.match(html, /Compare Claude and ChatGPT for AI writing, research, and reasoning workflows/);
+    assert.match(html, /<h1>Claude <span>vs<\/span> ChatGPT<\/h1>/);
+    assert.match(html, /Reasoning quality/);
+    assert.match(html, /BreadcrumbList/);
+    assert.match(html, /SearchAction/);
+  });
+});
+
+test('keeps non-featured generated reports out of the search index', async () => {
+  const { app, reportStore } = createTestApp();
+  const saved = reportStore.saveReport({
+    itemA: 'Private Tool A',
+    itemB: 'Private Tool B',
+    language: 'en',
+    result: createComparisonResult('Private Tool A', 'Private Tool B'),
+  });
+  assert.ok(saved);
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/r/${saved.reportId}`);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+
+    assert.match(html, /<meta name="robots" content="noindex, follow" \/>/);
+    assert.match(html, /Private Tool A vs Private Tool B/);
+  });
+});
+
+test('serves a dynamic sitemap that includes only homepage and featured reports', async () => {
+  const { app, reportStore, featuredStore } = createTestApp();
+  const featured = reportStore.saveReport({
+    itemA: 'Claude',
+    itemB: 'ChatGPT',
+    language: 'en',
+    result: createComparisonResult('Claude', 'ChatGPT'),
+  });
+  const privateReport = reportStore.saveReport({
+    itemA: 'Internal A',
+    itemB: 'Internal B',
+    language: 'en',
+    result: createComparisonResult('Internal A', 'Internal B'),
+  });
+  assert.ok(featured);
+  assert.ok(privateReport);
+  featuredStore.addFeatured('Claude', 'ChatGPT', {
+    language: 'en',
+    description: 'Featured AI assistant comparison.',
+    reportId: featured.reportId,
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/sitemap.xml`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') || '', /xml/);
+    const xml = await response.text();
+
+    assert.match(xml, /<loc>https:\/\/compare-ai\.com\/<\/loc>/);
+    assert.match(xml, new RegExp(`<loc>https://compare-ai\\.com/r/${featured.reportId}</loc>`));
+    assert.doesNotMatch(xml, new RegExp(privateReport.reportId));
   });
 });

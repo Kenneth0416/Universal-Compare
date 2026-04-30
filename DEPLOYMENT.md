@@ -57,6 +57,34 @@ server {
     root /var/www/compare-ai/dist;
     index index.html;
 
+    # Dynamic SEO and API routes served by the Node app.
+    # Keep these above the SPA fallback so report pages return page-specific
+    # title, description, robots, canonical, OG, sitemap, and structured data.
+    location = /robots.txt {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /sitemap.xml {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location ^~ /r/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location ^~ /api/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }
@@ -111,9 +139,15 @@ npm install
 ```bash
 cd /var/www/compare-ai
 echo "XAI_API_KEY=your_api_key_here" > .env.local
+echo "SITE_URL=https://compare-ai.com" >> .env.local
 ```
 
 注意：由於 Vite 在構建時注入環境變量，你需要在 GitHub Actions 中設置 `XAI_API_KEY` secret。
+
+動態報告頁 SEO、API、`robots.txt` 和 `sitemap.xml` 需要 Node 服務常駐運行：
+```bash
+API_SERVER_PORT=3001 npm run server
+```
 
 ---
 

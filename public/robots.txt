@@ -1,7 +1,16 @@
 # CompareAI robots.txt
+User-agent: GPTBot
+User-agent: ClaudeBot
+User-agent: CCBot
+User-agent: Google-Extended
+Disallow: /
+
 User-agent: *
 Allow: /
 Disallow: /admin
 Disallow: /admin/
+Disallow: /api/
+Disallow: /out/
+Disallow: /*/search
 
 Sitemap: https://compare-ai.com/sitemap.xml
