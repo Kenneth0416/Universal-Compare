@@ -1,7 +1,7 @@
 import type { FeaturedComparison } from './featured';
 import type { ReportData, ReportListItem } from './reports';
 
-const DEFAULT_SITE_URL = 'https://compare-ai.com';
+const DEFAULT_SITE_URL = 'https://compare-anythings.com';
 const OG_IMAGE_PATH = '/og-image.png';
 
 type SeoReportResult = {

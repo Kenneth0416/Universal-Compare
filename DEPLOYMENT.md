@@ -145,7 +145,7 @@ npm install
 ```bash
 cd /var/www/compare-ai
 echo "XAI_API_KEY=your_api_key_here" > .env.local
-echo "SITE_URL=https://compare-ai.com" >> .env.local
+echo "SITE_URL=https://compare-anythings.com" >> .env.local
 ```
 
 注意：由於 Vite 在構建時注入環境變量，你需要在 GitHub Actions 中設置 `XAI_API_KEY` secret。

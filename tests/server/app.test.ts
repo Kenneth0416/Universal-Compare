@@ -11,6 +11,8 @@ import { createAnalyticsStore } from '../../server/analytics';
 import { createFeaturedStore } from '../../server/featured';
 import { createReportStore } from '../../server/reports';
 
+const defaultSiteUrl = 'https://compare-anythings.com';
+
 function createTestApp() {
   const dbPath = path.join(mkdtempSync(path.join(tmpdir(), 'compareai-app-')), 'analytics.db');
   const analyticsStore = createAnalyticsStore(dbPath, 'test-secret');
@@ -275,9 +277,9 @@ test('serves featured report pages at crawlable comparison slugs', async () => {
 
     assert.match(html, /<title>Claude vs ChatGPT: AI Comparison Report \| CompareAI<\/title>/);
     assert.match(html, /<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" \/>/);
-    assert.match(html, /<link rel="canonical" href="https:\/\/compare-ai\.com\/compare\/claude-vs-chatgpt" \/>/);
+    assert.match(html, new RegExp(`<link rel="canonical" href="${defaultSiteUrl}/compare/claude-vs-chatgpt" />`));
     assert.match(html, /<meta property="og:title" content="Claude vs ChatGPT: AI Comparison Report \| CompareAI" \/>/);
-    assert.match(html, /<meta property="og:url" content="https:\/\/compare-ai\.com\/compare\/claude-vs-chatgpt" \/>/);
+    assert.match(html, new RegExp(`<meta property="og:url" content="${defaultSiteUrl}/compare/claude-vs-chatgpt" />`));
     assert.match(html, /Compare Claude and ChatGPT for AI writing, research, and reasoning workflows/);
     assert.match(html, /<h1>Claude <span>vs<\/span> ChatGPT<\/h1>/);
     assert.match(html, /Reasoning quality/);
@@ -357,8 +359,8 @@ test('serves a dynamic sitemap that includes only homepage and featured reports'
     assert.match(response.headers.get('content-type') || '', /xml/);
     const xml = await response.text();
 
-    assert.match(xml, /<loc>https:\/\/compare-ai\.com\/<\/loc>/);
-    assert.match(xml, /<loc>https:\/\/compare-ai\.com\/compare\/claude-vs-chatgpt<\/loc>/);
+    assert.match(xml, new RegExp(`<loc>${defaultSiteUrl}/</loc>`));
+    assert.match(xml, new RegExp(`<loc>${defaultSiteUrl}/compare/claude-vs-chatgpt</loc>`));
     assert.doesNotMatch(xml, new RegExp(featured.reportId));
     assert.doesNotMatch(xml, new RegExp(privateReport.reportId));
   });

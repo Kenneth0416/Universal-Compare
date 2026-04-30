@@ -13,4 +13,4 @@ Disallow: /api/
 Disallow: /out/
 Disallow: /*/search
 
-Sitemap: https://compare-ai.com/sitemap.xml
+Sitemap: https://compare-anythings.com/sitemap.xml

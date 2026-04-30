@@ -64,7 +64,7 @@ nano .env.local
 添加內容：
 ```
 XAI_API_KEY=your_api_key_here
-SITE_URL=https://compare-ai.com
+SITE_URL=https://compare-anythings.com
 ```
 
 動態報告頁 SEO、API、`robots.txt` 和 `sitemap.xml` 需要 Node 服務常駐運行：
