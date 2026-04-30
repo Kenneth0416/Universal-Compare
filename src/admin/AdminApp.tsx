@@ -351,15 +351,16 @@ export default function AdminApp() {
   const [newLang, setNewLang] = useState('en');
   const [newDesc, setNewDesc] = useState('');
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+  const [periodDays, setPeriodDays] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const loadDashboard = async () => {
+  const loadDashboard = async (period = periodDays) => {
     setLoading(true);
     setError('');
     try {
       const [summaryData, runsData, callsData, usersData, reportsData, featuredData] = await Promise.all([
-        getAdminSummary(),
+        getAdminSummary(period),
         getAdminRuns(),
         getAdminCalls(),
         getAdminUsers(),
@@ -504,6 +505,19 @@ export default function AdminApp() {
     }
   };
 
+  const handlePeriodChange = (days: number) => {
+    setPeriodDays(days);
+    loadDashboard(days);
+  };
+
+  const periodOptions = [
+    { value: 1, label: '24h' },
+    { value: 7, label: '7d' },
+    { value: 14, label: '14d' },
+    { value: 30, label: '30d' },
+    { value: 0, label: 'All' },
+  ];
+
   if (authenticated === null) {
     return <div className="min-h-screen bg-neutral-950 text-neutral-400" />;
   }
@@ -609,6 +623,20 @@ export default function AdminApp() {
 
         {activeTab === 'overview' && (
           <div className="space-y-6">
+            <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] p-1 self-start">
+              {periodOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => handlePeriodChange(opt.value)}
+                  className={`h-8 rounded-md px-3 text-sm transition ${
+                    periodDays === opt.value ? 'bg-indigo-600 text-white' : 'text-neutral-500 hover:text-neutral-200'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
             <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
               <MetricCard label="Today Users" value={String(today?.users ?? 0)} detail="Anonymous visitors" icon={Users} />
               <MetricCard label="Comparisons" value={String(today?.comparisons ?? 0)} detail="Started today" icon={GitCompareArrows} />

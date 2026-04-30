@@ -526,7 +526,20 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
     return { items, total };
   };
 
-  const getSummary = (): AdminSummary => {
+  const getSummary = (periodDays?: number): AdminSummary => {
+    const now = new Date();
+    let periodStart: string;
+
+    if (!periodDays) {
+      // "All time" — use a very old date
+      periodStart = '2000-01-01T00:00:00.000Z';
+    } else {
+      const start = new Date(now);
+      start.setDate(start.getDate() - periodDays + 1);
+      start.setHours(0, 0, 0, 0);
+      periodStart = start.toISOString();
+    }
+
     const todayStart = startOfTodayIso();
     const todayRow = db.prepare(`
       SELECT
@@ -544,19 +557,19 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
         (SELECT COALESCE(SUM(web_search_count), 0) FROM ai_call_logs WHERE created_at >= ?) AS webSearchCount,
         (SELECT COALESCE(SUM(x_search_count), 0) FROM ai_call_logs WHERE created_at >= ?) AS xSearchCount
     `).get(
-      todayStart,
-      todayStart,
-      todayStart,
-      todayStart,
-      todayStart,
-      todayStart,
-      todayStart,
-      todayStart,
-      todayStart,
-      todayStart,
-      todayStart,
-      todayStart,
-      todayStart,
+      periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
     );
 
     const aiCalls = Number(todayRow.aiCalls || 0);
@@ -578,7 +591,23 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       xSearchCount: Number(todayRow.xSearchCount || 0),
     };
 
-    const trend = buildLastSevenDays();
+    // Build trend window: use periodDays if specified, otherwise 7 days
+    const trendDays = periodDays || 7;
+    const trend: TrendPoint[] = [];
+    const trendStart = new Date(now);
+    trendStart.setDate(trendStart.getDate() - trendDays + 1);
+    trendStart.setHours(0, 0, 0, 0);
+    for (let index = 0; index < trendDays; index += 1) {
+      const date = new Date(trendStart);
+      date.setDate(trendStart.getDate() + index);
+      trend.push({
+        date: dateKey(date),
+        users: 0,
+        comparisons: 0,
+        aiCalls: 0,
+      });
+    }
+
     const trendByDate = new Map(trend.map((item) => [item.date, item]));
     const firstTrendDate = `${trend[0].date}T00:00:00.000Z`;
 

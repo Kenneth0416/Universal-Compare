@@ -39,8 +39,8 @@ export function logoutAdmin() {
   return request<{ authenticated: boolean }>('/logout', { method: 'POST' });
 }
 
-export function getAdminSummary() {
-  return request<AdminSummary>('/summary');
+export function getAdminSummary(periodDays = 1) {
+  return request<AdminSummary>(`/summary?period=${periodDays}`);
 }
 
 export function getAdminRuns() {

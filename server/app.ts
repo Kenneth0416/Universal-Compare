@@ -244,8 +244,9 @@ export function createApp({ analyticsStore, reportStore, featuredStore, openai, 
     res.json({ authenticated: true });
   });
 
-  app.get('/api/admin/summary', (_req, res) => {
-    res.json(analyticsStore.getSummary());
+  app.get('/api/admin/summary', (req, res) => {
+    const period = req.query.period ? Number(req.query.period) : 1;
+    res.json(analyticsStore.getSummary(period || 1));
   });
 
   app.get('/api/admin/runs', (req, res) => {
