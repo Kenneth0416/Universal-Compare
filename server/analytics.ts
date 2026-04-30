@@ -591,53 +591,86 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       xSearchCount: Number(todayRow.xSearchCount || 0),
     };
 
-    // Build trend window: use periodDays if specified, otherwise 7 days
-    const trendDays = periodDays || 7;
+    // Build trend window: hourly for 24h, daily for 7d+
+    const isHourly = periodDays === 1;
     const trend: TrendPoint[] = [];
-    const trendStart = new Date(now);
-    trendStart.setDate(trendStart.getDate() - trendDays + 1);
-    trendStart.setHours(0, 0, 0, 0);
-    for (let index = 0; index < trendDays; index += 1) {
-      const date = new Date(trendStart);
-      date.setDate(trendStart.getDate() + index);
-      trend.push({
-        date: dateKey(date),
-        users: 0,
-        comparisons: 0,
-        aiCalls: 0,
-      });
+
+    if (isHourly) {
+      // 24 hourly buckets
+      const hourStart = new Date(now);
+      hourStart.setMinutes(0, 0, 0);
+      hourStart.setHours(hourStart.getHours() - 23);
+      for (let index = 0; index < 24; index += 1) {
+        const h = new Date(hourStart);
+        h.setHours(hourStart.getHours() + index);
+        trend.push({
+          date: `${String(h.getHours()).padStart(2, '0')}:00`,
+          users: 0,
+          comparisons: 0,
+          aiCalls: 0,
+        });
+      }
+    } else {
+      const trendDays = periodDays || 7;
+      const trendStart = new Date(now);
+      trendStart.setDate(trendStart.getDate() - trendDays + 1);
+      trendStart.setHours(0, 0, 0, 0);
+      for (let index = 0; index < trendDays; index += 1) {
+        const date = new Date(trendStart);
+        date.setDate(trendStart.getDate() + index);
+        trend.push({
+          date: dateKey(date),
+          users: 0,
+          comparisons: 0,
+          aiCalls: 0,
+        });
+      }
     }
 
     const trendByDate = new Map(trend.map((item) => [item.date, item]));
-    const firstTrendDate = `${trend[0].date}T00:00:00.000Z`;
+    const trendStartDate = isHourly
+      ? (() => { const h = new Date(now); h.setMinutes(0, 0, 0); h.setHours(h.getHours() - 23); return h.toISOString(); })()
+      : `${trend[0].date}T00:00:00.000Z`;
+
+    // Group by: hourly = first 13 chars (YYYY-MM-DDTHH), daily = first 10 chars (YYYY-MM-DD)
+    const groupLen = isHourly ? 13 : 10;
 
     for (const row of db.prepare(`
-      SELECT substr(first_seen_at, 1, 10) AS date, COUNT(*) AS count
+      SELECT substr(first_seen_at, 1, ${groupLen}) AS date, COUNT(*) AS count
       FROM visitors
       WHERE first_seen_at >= ?
-      GROUP BY substr(first_seen_at, 1, 10)
-    `).all(firstTrendDate)) {
-      const point = trendByDate.get(row.date);
+      GROUP BY substr(first_seen_at, 1, ${groupLen})
+    `).all(trendStartDate)) {
+      let key = row.date;
+      if (isHourly) {
+        // Convert "2026-04-30T05" to "05:00"
+        key = key.slice(11) + ':00';
+      }
+      const point = trendByDate.get(key);
       if (point) point.users = Number(row.count || 0);
     }
 
     for (const row of db.prepare(`
-      SELECT substr(started_at, 1, 10) AS date, COUNT(*) AS count
+      SELECT substr(started_at, 1, ${groupLen}) AS date, COUNT(*) AS count
       FROM comparison_runs
       WHERE started_at >= ?
-      GROUP BY substr(started_at, 1, 10)
-    `).all(firstTrendDate)) {
-      const point = trendByDate.get(row.date);
+      GROUP BY substr(started_at, 1, ${groupLen})
+    `).all(trendStartDate)) {
+      let key = row.date;
+      if (isHourly) key = key.slice(11) + ':00';
+      const point = trendByDate.get(key);
       if (point) point.comparisons = Number(row.count || 0);
     }
 
     for (const row of db.prepare(`
-      SELECT substr(created_at, 1, 10) AS date, COUNT(*) AS count
+      SELECT substr(created_at, 1, ${groupLen}) AS date, COUNT(*) AS count
       FROM ai_call_logs
       WHERE created_at >= ?
-      GROUP BY substr(created_at, 1, 10)
-    `).all(firstTrendDate)) {
-      const point = trendByDate.get(row.date);
+      GROUP BY substr(created_at, 1, ${groupLen})
+    `).all(trendStartDate)) {
+      let key = row.date;
+      if (isHourly) key = key.slice(11) + ':00';
+      const point = trendByDate.get(key);
       if (point) point.aiCalls = Number(row.count || 0);
     }
 
