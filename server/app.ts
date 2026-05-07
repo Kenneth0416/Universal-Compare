@@ -98,6 +98,7 @@ export function createApp({
   app.use(express.json({ limit: '1mb' }));
 
   app.get('/robots.txt', (_req, res) => {
+    res.set('Cache-Control', 'public, max-age=3600');
     res.type('text/plain').send(renderRobotsTxt(siteUrl));
   });
 
@@ -112,12 +113,14 @@ export function createApp({
         return report ? [{ slug: item.slug, createdAt: report.createdAt }] : [];
       });
 
+    res.set('Cache-Control', 'public, max-age=3600');
     res.type('application/xml').send(renderSitemapXml(reports, siteUrl));
   });
 
   app.get('/llms.txt', (_req, res) => {
     const featured = featuredStore.listFeatured();
-    res.type('text/plain').send(renderLlmsTxt({ featured, siteUrl }));
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('text/plain; charset=utf-8').send(renderLlmsTxt({ featured, siteUrl }));
   });
 
   const listPublicFeaturedComparisons = (language = 'en') =>
