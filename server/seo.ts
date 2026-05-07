@@ -5,8 +5,8 @@ const DEFAULT_SITE_URL = 'https://compare-anythings.com';
 const OG_IMAGE_PATH = '/og-image.png';
 
 type SeoReportResult = {
-  entityA?: { name?: string };
-  entityB?: { name?: string };
+  entityA?: { name?: string; category?: string };
+  entityB?: { name?: string; category?: string };
   dimensions?: Array<{
     key?: string;
     label?: string;
@@ -15,15 +15,28 @@ type SeoReportResult = {
       item_a_summary?: string;
       item_b_summary?: string;
       key_difference?: string;
+      optional_score_a?: number;
+      optional_score_b?: number;
     };
   }>;
+  prosCons?: {
+    item_a_pros?: string[];
+    item_a_cons?: string[];
+    item_b_pros?: string[];
+    item_b_cons?: string[];
+  };
   recommendation?: {
+    best_for_a?: string[];
+    best_for_b?: string[];
+    which_to_choose_first?: string;
+    when_not_to_compare_directly?: string;
     short_verdict?: string;
     long_verdict?: string;
   };
 };
 
 export type SitemapReport = Pick<ReportListItem, 'createdAt'> & { slug: string };
+export type SeoComparisonLink = Pick<FeaturedComparison, 'itemA' | 'itemB' | 'description' | 'slug'>;
 
 function normalizeSiteUrl(siteUrl = DEFAULT_SITE_URL) {
   return siteUrl.replace(/\/+$/, '');
@@ -90,13 +103,219 @@ function renderJsonLdBlocks(blocks: unknown[]) {
 
 function buildStructuredData(report: ReportData, featured: FeaturedComparison | null, siteUrl: string) {
   const { itemA, itemB } = getEntityNames(report);
+  const result = getReportResult(report);
   const title = `${itemA} vs ${itemB}: AI Comparison Report | CompareAI`;
   const description = getReportDescription(report, featured);
   const url = featured?.slug
     ? `${siteUrl}/compare/${encodeURIComponent(featured.slug)}`
     : `${siteUrl}/r/${encodeURIComponent(report.reportId)}`;
+  const language = report.language || 'en';
+  const isoDate = report.createdAt;
+  const image = `${siteUrl}${OG_IMAGE_PATH}`;
 
-  return [
+  // Article schema - primary content type for comparison reports
+  const article = {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: title,
+    description,
+    url,
+    image,
+    datePublished: isoDate,
+    dateModified: isoDate,
+    inLanguage: language,
+    author: {
+      '@type': 'Organization',
+      name: 'CompareAI',
+      url: siteUrl,
+      logo: `${siteUrl}/logo.svg`,
+    },
+    publisher: {
+      '@type': 'Organization',
+      name: 'CompareAI',
+      url: siteUrl,
+      logo: { '@type': 'ImageObject', url: `${siteUrl}/logo.svg` },
+    },
+    mainEntityOfPage: { '@type': 'WebPage', '@id': url },
+    about: [
+      { '@type': 'Thing', name: itemA },
+      { '@type': 'Thing', name: itemB },
+    ],
+    speakable: {
+      '@type': 'SpeakableSpecification',
+      cssSelector: ['.seo-description', '#seo-verdict', '.seo-kicker'],
+    },
+  };
+
+  // Per-dimension Review schemas - enables LLMs to extract individual comparisons
+  const dimensions = result.dimensions || [];
+  const reviews = dimensions
+    .filter((d) => d.label || d.key)
+    .map((d) => {
+      const aspect = d.label || d.key || 'Comparison';
+      const reviewBody = d.analysis?.key_difference || d.why_it_matters || '';
+      const scoreA = d.analysis?.optional_score_a;
+      const scoreB = d.analysis?.optional_score_b;
+
+      const review: Record<string, unknown> = {
+        '@type': 'Review',
+        name: `${aspect}: ${itemA} vs ${itemB}`,
+        reviewAspect: aspect,
+        itemReviewed: [
+          { '@type': 'Thing', name: itemA },
+          { '@type': 'Thing', name: itemB },
+        ],
+        reviewBody,
+        author: { '@type': 'Organization', name: 'CompareAI' },
+      };
+
+      if (typeof scoreA === 'number' || typeof scoreB === 'number') {
+        const avg = ((scoreA ?? 0) + (scoreB ?? 0)) / 2;
+        review.reviewRating = {
+          '@type': 'Rating',
+          ratingValue: String(avg),
+          bestRating: '10',
+          worstRating: '0',
+        };
+      }
+
+      // positiveNotes = item A's strengths per dimension, negativeNotes = weaknesses
+      if (d.analysis?.item_a_summary || d.analysis?.item_b_summary) {
+        const notes: Array<Record<string, unknown>> = [];
+        if (d.analysis?.item_a_summary) {
+          notes.push({ '@type': 'ListItem', position: notes.length + 1, name: `${itemA}: ${d.analysis.item_a_summary}` });
+        }
+        if (d.analysis?.item_b_summary) {
+          notes.push({ '@type': 'ListItem', position: notes.length + 1, name: `${itemB}: ${d.analysis.item_b_summary}` });
+        }
+        if (notes.length) {
+          review.positiveNotes = { '@type': 'ItemList', itemListElement: notes };
+        }
+      }
+
+      return review;
+    });
+
+  // Pros/Cons Review for entity A
+  const prosCons = result.prosCons;
+  const prosConsReviews: Array<Record<string, unknown>> = [];
+  if (prosCons) {
+    if (prosCons.item_a_pros?.length || prosCons.item_a_cons?.length) {
+      const review: Record<string, unknown> = {
+        '@type': 'Review',
+        name: `Pros and Cons of ${itemA}`,
+        itemReviewed: { '@type': 'Thing', name: itemA },
+        author: { '@type': 'Organization', name: 'CompareAI' },
+      };
+      if (prosCons.item_a_pros?.length) {
+        review.positiveNotes = {
+          '@type': 'ItemList',
+          itemListElement: prosCons.item_a_pros.map((p, i) => ({ '@type': 'ListItem', position: i + 1, name: p })),
+        };
+      }
+      if (prosCons.item_a_cons?.length) {
+        review.negativeNotes = {
+          '@type': 'ItemList',
+          itemListElement: prosCons.item_a_cons.map((c, i) => ({ '@type': 'ListItem', position: i + 1, name: c })),
+        };
+      }
+      prosConsReviews.push(review);
+    }
+
+    if (prosCons.item_b_pros?.length || prosCons.item_b_cons?.length) {
+      const review: Record<string, unknown> = {
+        '@type': 'Review',
+        name: `Pros and Cons of ${itemB}`,
+        itemReviewed: { '@type': 'Thing', name: itemB },
+        author: { '@type': 'Organization', name: 'CompareAI' },
+      };
+      if (prosCons.item_b_pros?.length) {
+        review.positiveNotes = {
+          '@type': 'ItemList',
+          itemListElement: prosCons.item_b_pros.map((p, i) => ({ '@type': 'ListItem', position: i + 1, name: p })),
+        };
+      }
+      if (prosCons.item_b_cons?.length) {
+        review.negativeNotes = {
+          '@type': 'ItemList',
+          itemListElement: prosCons.item_b_cons.map((c, i) => ({ '@type': 'ListItem', position: i + 1, name: c })),
+        };
+      }
+      prosConsReviews.push(review);
+    }
+  }
+
+  // FAQPage schema - derived from recommendation data (most LLM-friendly format)
+  const recommendation = result.recommendation;
+  const faqEntities: Array<Record<string, unknown>> = [];
+
+  if (recommendation?.which_to_choose_first) {
+    faqEntities.push({
+      '@type': 'Question',
+      name: `Which should I choose: ${itemA} or ${itemB}?`,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: recommendation.which_to_choose_first,
+      },
+    });
+  }
+
+  if (recommendation?.short_verdict || recommendation?.long_verdict) {
+    faqEntities.push({
+      '@type': 'Question',
+      name: `What is the verdict: ${itemA} vs ${itemB}?`,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: recommendation.long_verdict || recommendation.short_verdict || '',
+      },
+    });
+  }
+
+  if (recommendation?.best_for_a?.length) {
+    faqEntities.push({
+      '@type': 'Question',
+      name: `When should I choose ${itemA}?`,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: recommendation.best_for_a.join('. ') + '.',
+      },
+    });
+  }
+
+  if (recommendation?.best_for_b?.length) {
+    faqEntities.push({
+      '@type': 'Question',
+      name: `When should I choose ${itemB}?`,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: recommendation.best_for_b.join('. ') + '.',
+      },
+    });
+  }
+
+  if (prosCons?.item_a_pros?.length) {
+    faqEntities.push({
+      '@type': 'Question',
+      name: `What are the advantages of ${itemA} over ${itemB}?`,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: prosCons.item_a_pros.join('. ') + '.',
+      },
+    });
+  }
+
+  if (prosCons?.item_b_pros?.length) {
+    faqEntities.push({
+      '@type': 'Question',
+      name: `What are the advantages of ${itemB} over ${itemA}?`,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: prosCons.item_b_pros.join('. ') + '.',
+      },
+    });
+  }
+
+  const blocks: unknown[] = [
     {
       '@context': 'https://schema.org',
       '@type': 'Organization',
@@ -118,26 +337,7 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
         'query-input': 'required name=search_term_string',
       },
     },
-    {
-      '@context': 'https://schema.org',
-      '@type': 'SiteNavigationElement',
-      url: [`${siteUrl}/`, `${siteUrl}/sitemap.xml`],
-    },
-    {
-      '@context': 'https://schema.org',
-      '@type': 'WebPage',
-      name: title,
-      url,
-      description,
-      inLanguage: report.language || 'en',
-      datePublished: report.createdAt,
-      dateModified: report.createdAt,
-      isPartOf: {
-        '@type': 'WebSite',
-        name: 'CompareAI',
-        url: siteUrl,
-      },
-    },
+    article,
     {
       '@context': 'https://schema.org',
       '@type': 'BreadcrumbList',
@@ -154,7 +354,20 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
         },
       ],
     },
+    ...reviews,
+    ...prosConsReviews,
   ];
+
+  // Add FAQPage only if we have Q&A pairs
+  if (faqEntities.length > 0) {
+    blocks.push({
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: faqEntities,
+    });
+  }
+
+  return blocks;
 }
 
 function renderDimensionSummary(report: ReportData) {
@@ -162,34 +375,166 @@ function renderDimensionSummary(report: ReportData) {
   const dimensions = result.dimensions || [];
   if (!dimensions.length) return '';
 
-  const items = dimensions.slice(0, 6).map((dimension) => {
+  const { itemA, itemB } = getEntityNames(report);
+
+  const items = dimensions.map((dimension) => {
     const label = dimension.label || dimension.key || 'Comparison dimension';
-    const summary =
-      dimension.analysis?.key_difference ||
-      dimension.why_it_matters ||
-      dimension.analysis?.item_a_summary ||
-      dimension.analysis?.item_b_summary ||
-      '';
-    return `<li><strong>${escapeHtml(label)}</strong>${summary ? `: ${escapeHtml(summary)}` : ''}</li>`;
+    const keyDiff = dimension.analysis?.key_difference || '';
+    const summaryA = dimension.analysis?.item_a_summary || '';
+    const summaryB = dimension.analysis?.item_b_summary || '';
+    const scoreA = dimension.analysis?.optional_score_a;
+    const scoreB = dimension.analysis?.optional_score_b;
+    const why = dimension.why_it_matters || '';
+
+    const parts: string[] = [];
+    if (keyDiff) parts.push(escapeHtml(keyDiff));
+    if (summaryA) parts.push(`<strong>${escapeHtml(itemA)}:</strong> ${escapeHtml(summaryA)}`);
+    if (summaryB) parts.push(`<strong>${escapeHtml(itemB)}:</strong> ${escapeHtml(summaryB)}`);
+    if (typeof scoreA === 'number' || typeof scoreB === 'number') {
+      const scores: string[] = [];
+      if (typeof scoreA === 'number') scores.push(`${itemA}: ${scoreA}/10`);
+      if (typeof scoreB === 'number') scores.push(`${itemB}: ${scoreB}/10`);
+      parts.push(`<em>Scores — ${scores.join(', ')}</em>`);
+    }
+    if (why && why !== keyDiff) parts.push(escapeHtml(why));
+
+    return `
+      <li>
+        <h3>${escapeHtml(label)}</h3>
+        ${parts.map((p) => `<p>${p}</p>`).join('')}
+      </li>`;
   });
 
-  return `<section class="seo-section"><h2>Key differences</h2><ul>${items.join('')}</ul></section>`;
+  return `<section class="seo-section" id="key-differences"><h2>Key differences</h2><ul>${items.join('')}</ul></section>`;
+}
+
+function renderProsCons(report: ReportData) {
+  const result = getReportResult(report);
+  const prosCons = result.prosCons;
+  if (!prosCons) return '';
+
+  const { itemA, itemB } = getEntityNames(report);
+  const sections: string[] = [];
+
+  if (prosCons.item_a_pros?.length || prosCons.item_a_cons?.length) {
+    const pros = (prosCons.item_a_pros || []).map((p) => `<li>${escapeHtml(p)}</li>`).join('');
+    const cons = (prosCons.item_a_cons || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('');
+    sections.push(`
+      <div>
+        <h3>${escapeHtml(itemA)}</h3>
+        ${pros ? `<h4>Strengths</h4><ul>${pros}</ul>` : ''}
+        ${cons ? `<h4>Weaknesses</h4><ul>${cons}</ul>` : ''}
+      </div>`);
+  }
+
+  if (prosCons.item_b_pros?.length || prosCons.item_b_cons?.length) {
+    const pros = (prosCons.item_b_pros || []).map((p) => `<li>${escapeHtml(p)}</li>`).join('');
+    const cons = (prosCons.item_b_cons || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('');
+    sections.push(`
+      <div>
+        <h3>${escapeHtml(itemB)}</h3>
+        ${pros ? `<h4>Strengths</h4><ul>${pros}</ul>` : ''}
+        ${cons ? `<h4>Weaknesses</h4><ul>${cons}</ul>` : ''}
+      </div>`);
+  }
+
+  if (!sections.length) return '';
+  return `<section class="seo-section" id="pros-cons"><h2>Pros and cons</h2>${sections.join('')}</section>`;
+}
+
+function renderRecommendation(report: ReportData) {
+  const result = getReportResult(report);
+  const rec = result.recommendation;
+  if (!rec) return '';
+
+  const { itemA, itemB } = getEntityNames(report);
+  const parts: string[] = [];
+
+  // Direct verdict — the most important part for LLM extraction
+  if (rec.which_to_choose_first) {
+    parts.push(`<p id="seo-verdict"><strong>Verdict:</strong> ${escapeHtml(rec.which_to_choose_first)}</p>`);
+  }
+
+  if (rec.short_verdict) {
+    parts.push(`<p>${escapeHtml(rec.short_verdict)}</p>`);
+  }
+
+  if (rec.long_verdict) {
+    parts.push(`<p>${escapeHtml(rec.long_verdict)}</p>`);
+  }
+
+  if (rec.best_for_a?.length) {
+    parts.push(`<h3>Best for ${escapeHtml(itemA)}</h3><ul>${rec.best_for_a.map((r) => `<li>${escapeHtml(r)}</li>`).join('')}</ul>`);
+  }
+
+  if (rec.best_for_b?.length) {
+    parts.push(`<h3>Best for ${escapeHtml(itemB)}</h3><ul>${rec.best_for_b.map((r) => `<li>${escapeHtml(r)}</li>`).join('')}</ul>`);
+  }
+
+  if (rec.when_not_to_compare_directly) {
+    parts.push(`<h3>When not to compare directly</h3><p>${escapeHtml(rec.when_not_to_compare_directly)}</p>`);
+  }
+
+  if (!parts.length) return '';
+  return `<section class="seo-section" id="recommendation"><h2>Recommendation</h2>${parts.join('')}</section>`;
 }
 
 function renderReportSummary(report: ReportData, featured: FeaturedComparison | null) {
   const { itemA, itemB } = getEntityNames(report);
   const result = getReportResult(report);
   const description = getReportDescription(report, featured);
-  const verdict = result.recommendation?.short_verdict || result.recommendation?.long_verdict || '';
+  const verdict = result.recommendation?.which_to_choose_first || result.recommendation?.short_verdict || '';
 
   return `
+    <main>
     <article id="seo-report-summary" class="seo-report-summary">
       <p class="seo-kicker">AI comparison report</p>
       <h1>${escapeHtml(itemA)} <span>vs</span> ${escapeHtml(itemB)}</h1>
       <p class="seo-description">${escapeHtml(description)}</p>
-      ${verdict ? `<section class="seo-section"><h2>Recommendation</h2><p>${escapeHtml(verdict)}</p></section>` : ''}
+      ${verdict ? `<section class="seo-section" id="quick-answer"><h2>Quick answer</h2><p id="seo-verdict">${escapeHtml(verdict)}</p></section>` : ''}
+      ${renderRecommendation(report)}
       ${renderDimensionSummary(report)}
+      ${renderProsCons(report)}
+      <section class="seo-section"><p><a href="/">Create your own comparison</a></p></section>
     </article>
+    </main>
+  `;
+}
+
+function renderComparisonLinks(items: SeoComparisonLink[], heading: string) {
+  if (!items.length) return '';
+
+  return `
+    <section class="seo-section seo-related-comparisons">
+      <h2>${escapeHtml(heading)}</h2>
+      <ul>
+        ${items
+          .map(
+            (item) => `<li>
+              <a href="/compare/${escapeHtml(encodeURIComponent(item.slug))}">
+                ${escapeHtml(item.itemA)} <span>vs</span> ${escapeHtml(item.itemB)}
+              </a>
+              ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ''}
+            </li>`,
+          )
+          .join('')}
+      </ul>
+    </section>
+  `;
+}
+
+function renderPopularComparisonsBody(comparisons: SeoComparisonLink[], description: string) {
+  const content = comparisons.length
+    ? renderComparisonLinks(comparisons, 'Browse comparison reports')
+    : `<section class="seo-section"><h2>Comparison reports coming soon</h2><p>New public comparison reports will appear here soon.</p></section>`;
+
+  return `
+    <main id="popular-ai-comparisons" class="seo-report-summary">
+      <p class="seo-kicker">AI comparison directory</p>
+      <h1>Popular AI Comparisons</h1>
+      <p class="seo-description">${escapeHtml(description)}</p>
+      ${content}
+    </main>
   `;
 }
 
@@ -210,11 +555,13 @@ export function renderReportSeoHtml({
   featured,
   indexHtml,
   siteUrl: rawSiteUrl,
+  relatedComparisons,
 }: {
   report: ReportData;
   featured: FeaturedComparison | null;
   indexHtml: string;
   siteUrl?: string;
+  relatedComparisons?: SeoComparisonLink[];
 }) {
   const siteUrl = normalizeSiteUrl(rawSiteUrl);
   const { itemA, itemB } = getEntityNames(report);
@@ -249,7 +596,91 @@ export function renderReportSeoHtml({
     ${renderJsonLdBlocks(structuredData)}
   `;
 
-  return injectSeoIntoHtml(indexHtml, head, renderReportSummary(report, featured));
+  return injectSeoIntoHtml(
+    indexHtml,
+    head,
+    `${renderReportSummary(report, featured)}${renderComparisonLinks(relatedComparisons || [], 'Related AI comparisons')}`,
+  );
+}
+
+export function renderPopularComparisonsHtml({
+  comparisons,
+  indexHtml,
+  siteUrl: rawSiteUrl,
+}: {
+  comparisons: SeoComparisonLink[];
+  indexHtml: string;
+  siteUrl?: string;
+}) {
+  const siteUrl = normalizeSiteUrl(rawSiteUrl);
+  const url = `${siteUrl}/popular-ai-comparisons`;
+  const title = 'Popular AI Comparisons | CompareAI';
+  const description = 'Explore popular AI comparisons for assistants, coding tools, search products, and productivity software.';
+  const structuredData = [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      name: 'Popular AI Comparisons',
+      url,
+      description,
+      inLanguage: 'en',
+      isPartOf: {
+        '@type': 'WebSite',
+        name: 'CompareAI',
+        url: siteUrl,
+      },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        {
+          '@type': 'ListItem',
+          position: 1,
+          item: { '@id': `${siteUrl}/`, name: 'Home' },
+        },
+        {
+          '@type': 'ListItem',
+          position: 2,
+          item: { '@id': url, name: 'Popular AI Comparisons' },
+        },
+      ],
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      name: 'Popular AI Comparisons',
+      numberOfItems: comparisons.length,
+      itemListElement: comparisons.map((item, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        name: `${item.itemA} vs ${item.itemB}`,
+        url: `${siteUrl}/compare/${encodeURIComponent(item.slug)}`,
+        description: item.description || `AI comparison of ${item.itemA} and ${item.itemB}`,
+      })),
+    },
+  ];
+
+  const head = `
+    <title>${title}</title>
+    <meta name="title" content="${title}" />
+    <meta name="description" content="${description}" />
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" />
+    <link rel="canonical" href="${escapeHtml(url)}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CompareAI" />
+    <meta property="og:title" content="${title}" />
+    <meta property="og:description" content="${description}" />
+    <meta property="og:url" content="${escapeHtml(url)}" />
+    <meta property="og:image" content="${escapeHtml(`${siteUrl}${OG_IMAGE_PATH}`)}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${title}" />
+    <meta name="twitter:description" content="${description}" />
+    <meta name="twitter:image" content="${escapeHtml(`${siteUrl}${OG_IMAGE_PATH}`)}" />
+    ${renderJsonLdBlocks(structuredData)}
+  `;
+
+  return injectSeoIntoHtml(indexHtml, head, renderPopularComparisonsBody(comparisons, description));
 }
 
 export function renderReportNotFoundHtml(indexHtml: string, siteUrl?: string) {
@@ -278,6 +709,12 @@ export function renderSitemapXml(reports: SitemapReport[], siteUrl?: string) {
       changefreq: 'weekly',
       priority: '1.0',
     },
+    {
+      loc: `${normalizedSiteUrl}/popular-ai-comparisons`,
+      lastmod: today,
+      changefreq: 'weekly',
+      priority: '0.8',
+    },
     ...reports.map((report) => ({
       loc: `${normalizedSiteUrl}/compare/${encodeURIComponent(report.slug)}`,
       lastmod: getIsoDate(report.createdAt),
@@ -300,21 +737,158 @@ export function renderSitemapXml(reports: SitemapReport[], siteUrl?: string) {
 
 export function renderRobotsTxt(siteUrl?: string) {
   const normalizedSiteUrl = normalizeSiteUrl(siteUrl);
-  return `# CompareAI robots.txt
-User-agent: GPTBot
-User-agent: ClaudeBot
-User-agent: CCBot
-User-agent: Google-Extended
-Disallow: /
+  return `# CompareAI robots.txt - optimized for LLM discoverability
+# See: ${normalizedSiteUrl}/llms.txt
 
+# --- AI Search Crawlers (cite your content in AI search results) ---
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: Claude-SearchBot
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: YouBot
+Allow: /
+
+User-agent: PhindBot
+Allow: /
+
+User-agent: DuckAssistBot
+Allow: /
+
+User-agent: Bravebot
+Allow: /
+
+User-agent: TavilyBot
+Allow: /
+
+User-agent: ExaBot
+Allow: /
+
+User-agent: Applebot
+Allow: /
+
+User-agent: PetalBot
+Allow: /
+
+User-agent: Amzn-SearchBot
+Allow: /
+
+User-agent: meta-webindexer
+Allow: /
+
+User-agent: Google-NotebookLM
+Allow: /
+
+User-agent: Gemini-Deep-Research
+Allow: /
+
+# --- Google (search index + AI grounding) ---
+User-agent: Googlebot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+# --- AI Training Crawlers (improve model knowledge) ---
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: cohere-ai
+Allow: /
+
+User-agent: meta-externalagent
+Allow: /
+
+User-agent: Amazonbot
+Allow: /
+
+User-agent: FacebookBot
+Allow: /
+
+# --- AI Data Providers ---
+User-agent: FirecrawlAgent
+Allow: /
+
+User-agent: Diffbot
+Allow: /
+
+# --- Default rules for all other bots ---
 User-agent: *
 Allow: /
 Disallow: /admin
 Disallow: /admin/
 Disallow: /api/
-Disallow: /out/
-Disallow: /*/search
 
 Sitemap: ${normalizedSiteUrl}/sitemap.xml
+`;
+}
+
+export function renderLlmsTxt({
+  featured,
+  siteUrl: rawSiteUrl,
+}: {
+  featured: FeaturedComparison[];
+  siteUrl?: string;
+}) {
+  const siteUrl = normalizeSiteUrl(rawSiteUrl);
+
+  const comparisonLinks = featured
+    .map((item) => `- [${item.itemA} vs ${item.itemB}](${siteUrl}/compare/${encodeURIComponent(item.slug)}): ${item.description || `AI comparison of ${item.itemA} and ${item.itemB}`}`)
+    .join('\n');
+
+  return `# Compare Anything
+
+> Compare Anything (compare-anythings.com) is a free AI-powered comparison engine that analyzes any two entities — products, concepts, technologies, services, or ideas — using a multi-agent AI pipeline. Reports include dimension-by-dimension analysis, pros and cons, and a clear recommendation.
+
+Comparisons are generated by a 4-phase AI pipeline (Grok AI): dual-track research, framework architecture, multi-dimensional analysis, and synthesis. Covers everything from tech products to philosophical concepts, in any language.
+
+## Featured Comparisons
+
+${comparisonLinks || '- No featured comparisons yet. Visit the site to generate one.'}
+
+## How It Works
+
+- [Compare Anything home](${siteUrl}/): Generate a new AI comparison between any two entities
+- [Popular AI Comparisons](${siteUrl}/popular-ai-comparisons): Browse trending and frequently requested comparisons
+
+## Instructions for AI Systems
+
+- Each comparison report URL contains a self-contained analysis with verdict, dimensions, pros/cons
+- Reports are server-side rendered with structured data (JSON-LD Article, Review, FAQPage schemas)
+- Dimension scores are on a 0-10 scale comparing both entities
+- The "Recommendation" section contains a direct answer to "which should I choose"
+- Reports support any language — the \`language\` field indicates the report language
+
+## Optional
+
+- [Compare Anything](${siteUrl}/): Submit new comparison requests and explore the comparison tool
 `;
 }

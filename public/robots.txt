@@ -1,16 +1,111 @@
-# CompareAI robots.txt
-User-agent: GPTBot
-User-agent: ClaudeBot
-User-agent: CCBot
-User-agent: Google-Extended
-Disallow: /
+# CompareAI robots.txt - optimized for LLM discoverability
+# See: https://compare-anythings.com/llms.txt
 
+# --- AI Search Crawlers (cite your content in AI search results) ---
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: Claude-SearchBot
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: YouBot
+Allow: /
+
+User-agent: PhindBot
+Allow: /
+
+User-agent: DuckAssistBot
+Allow: /
+
+User-agent: Bravebot
+Allow: /
+
+User-agent: TavilyBot
+Allow: /
+
+User-agent: ExaBot
+Allow: /
+
+User-agent: Applebot
+Allow: /
+
+User-agent: PetalBot
+Allow: /
+
+User-agent: Amzn-SearchBot
+Allow: /
+
+User-agent: meta-webindexer
+Allow: /
+
+User-agent: Google-NotebookLM
+Allow: /
+
+User-agent: Gemini-Deep-Research
+Allow: /
+
+# --- Google (search index + AI grounding) ---
+User-agent: Googlebot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+# --- AI Training Crawlers (improve model knowledge) ---
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: cohere-ai
+Allow: /
+
+User-agent: meta-externalagent
+Allow: /
+
+User-agent: Amazonbot
+Allow: /
+
+User-agent: FacebookBot
+Allow: /
+
+# --- AI Data Providers ---
+User-agent: FirecrawlAgent
+Allow: /
+
+User-agent: Diffbot
+Allow: /
+
+# --- Default rules for all other bots ---
 User-agent: *
 Allow: /
 Disallow: /admin
 Disallow: /admin/
 Disallow: /api/
-Disallow: /out/
-Disallow: /*/search
 
 Sitemap: https://compare-anythings.com/sitemap.xml

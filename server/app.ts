@@ -14,6 +14,8 @@ import type { createAnalyticsStore } from './analytics';
 import type { createFeaturedStore } from './featured';
 import type { createReportStore } from './reports';
 import {
+  renderLlmsTxt,
+  renderPopularComparisonsHtml,
   renderReportNotFoundHtml,
   renderReportSeoHtml,
   renderRobotsTxt,
@@ -113,6 +115,27 @@ export function createApp({
     res.type('application/xml').send(renderSitemapXml(reports, siteUrl));
   });
 
+  app.get('/llms.txt', (_req, res) => {
+    const featured = featuredStore.listFeatured();
+    res.type('text/plain').send(renderLlmsTxt({ featured, siteUrl }));
+  });
+
+  const listPublicFeaturedComparisons = (language = 'en') =>
+    featuredStore
+      .listFeatured(language)
+      .filter((item) => item.reportId && item.slug);
+
+  app.get('/popular-ai-comparisons', (_req, res) => {
+    const indexHtml = readClientIndexHtml();
+    res.type('text/html').send(
+      renderPopularComparisonsHtml({
+        comparisons: listPublicFeaturedComparisons('en'),
+        indexHtml,
+        siteUrl,
+      }),
+    );
+  });
+
   app.get('/compare/:slug', (req, res) => {
     const indexHtml = readClientIndexHtml();
     const featured = featuredStore.getFeaturedBySlug(req.params.slug);
@@ -129,6 +152,9 @@ export function createApp({
         featured,
         indexHtml,
         siteUrl,
+        relatedComparisons: listPublicFeaturedComparisons(report.language || featured.language || 'en')
+          .filter((item) => item.slug !== featured.slug)
+          .slice(0, 6),
       }),
     );
   });
@@ -229,6 +255,15 @@ export function createApp({
       res.json({ featured, recent });
     } catch {
       res.json({ featured: [], recent: [] });
+    }
+  });
+
+  app.get('/api/popular-comparisons', (req, res) => {
+    try {
+      const lang = typeof req.query.lang === 'string' ? req.query.lang : 'en';
+      res.json({ items: listPublicFeaturedComparisons(lang) });
+    } catch {
+      res.json({ items: [] });
     }
   });
 
