@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 interface ComparisonSuggestion {
@@ -42,11 +42,8 @@ export function saveRecentComparison(itemA: string, itemB: string) {
 export default function ComparisonSuggestions({ onSelect, visible }: ComparisonSuggestionsProps) {
   const { t } = useTranslation();
   const [communityRecent, setCommunityRecent] = useState<ComparisonSuggestion[]>([]);
-  const [recent, setRecent] = useState<ComparisonSuggestion[]>([]);
 
   useEffect(() => {
-    setRecent(getRecentComparisons());
-
     fetch('/api/suggestions')
       .then((res) => res.json())
       .then((data) => {
@@ -56,7 +53,7 @@ export default function ComparisonSuggestions({ onSelect, visible }: ComparisonS
   }, []);
 
   if (!visible) return null;
-  if (recent.length === 0 && communityRecent.length === 0) return null;
+  if (communityRecent.length === 0) return null;
 
   return (
     <AnimatePresence>
@@ -68,33 +65,6 @@ export default function ComparisonSuggestions({ onSelect, visible }: ComparisonS
         className="absolute top-full left-0 right-0 mt-2 z-40"
       >
         <div className="bg-neutral-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden max-w-3xl mx-auto">
-          {recent.length > 0 && (
-            <div className="p-3">
-              <div className="flex items-center gap-2 px-2 py-1.5 text-xs font-bold text-neutral-500 uppercase tracking-wider">
-                <Clock size={14} />
-                <span>{t('hero.recentComparisons', 'Recent')}</span>
-              </div>
-              <div className="space-y-1">
-                {recent.map((item, i) => (
-                  <button
-                    key={`r-${i}`}
-                    type="button"
-                    onClick={() => onSelect(item.itemA, item.itemB)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-neutral-300 hover:bg-white/5 hover:text-white transition-colors text-left"
-                  >
-                    <span className="font-medium">{item.itemA}</span>
-                    <span className="text-neutral-600 text-xs font-mono">vs</span>
-                    <span className="font-medium">{item.itemB}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {communityRecent.length > 0 && recent.length > 0 && (
-            <div className="border-t border-white/5" />
-          )}
-
           {communityRecent.length > 0 && (
             <div className="p-3">
               <div className="flex items-center gap-2 px-2 py-1.5 text-xs font-bold text-neutral-500 uppercase tracking-wider">
