@@ -10,6 +10,8 @@ type ProviderOptions = {
   minimaxClient?: OpenAI;
   minimaxSearchApiKey?: string;
   minimaxBaseUrl?: string;
+  deepseekClient?: OpenAI;
+  deepseekModel?: string;
 };
 
 export function createProvider(
@@ -24,7 +26,11 @@ export function createProvider(
     case 'minimax': {
       if (!options.minimaxClient) throw new Error('minimaxClient is required for MiniMax provider');
       if (!options.minimaxSearchApiKey) throw new Error('minimaxSearchApiKey is required for MiniMax provider');
-      return new MinimaxProvider(options.minimaxClient, options.minimaxSearchApiKey, options.minimaxBaseUrl);
+      return new MinimaxProvider(options.minimaxClient, options.minimaxSearchApiKey, {
+        searchBaseUrl: options.minimaxBaseUrl,
+        chatClient: options.deepseekClient,
+        chatModel: options.deepseekModel,
+      });
     }
     default:
       throw new Error(`Unknown AI provider: ${name}`);

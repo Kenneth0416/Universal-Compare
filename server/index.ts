@@ -25,11 +25,17 @@ const minimaxClient = process.env.MINIMAX_API_KEY
   ? new OpenAI({ apiKey: process.env.MINIMAX_API_KEY, baseURL: minimaxBaseUrl })
   : undefined;
 
+const deepseekClient = process.env.DEEPSEEK_API_KEY
+  ? new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' })
+  : undefined;
+
 const provider = createProvider(AI_PROVIDER, {
   grokClient,
   minimaxClient,
   minimaxSearchApiKey: process.env.MINIMAX_API_KEY,
   minimaxBaseUrl: minimaxBaseUrl.replace('/v1', ''),
+  deepseekClient,
+  deepseekModel: process.env.DEEPSEEK_MODEL,
 });
 
 const analyticsDbPath =

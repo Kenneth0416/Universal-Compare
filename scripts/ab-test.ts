@@ -329,19 +329,28 @@ async function main() {
     console.error('Missing MINIMAX_API_KEY in .env.local');
     process.exit(1);
   }
+  if (!process.env.DEEPSEEK_API_KEY) {
+    console.error('Missing DEEPSEEK_API_KEY in .env.local');
+    process.exit(1);
+  }
 
   const minimaxBaseUrl = process.env.MINIMAX_BASE_URL || 'https://api.minimaxi.com/v1';
+  const deepseekModel = process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro';
 
   const grokClient = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1' });
   const minimaxClient = new OpenAI({ apiKey: process.env.MINIMAX_API_KEY, baseURL: minimaxBaseUrl });
+  const deepseekClient = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' });
 
   const grokProvider = createProvider('grok', { grokClient });
   const minimaxProvider = createProvider('minimax', {
     minimaxClient,
     minimaxSearchApiKey: process.env.MINIMAX_API_KEY,
     minimaxBaseUrl: minimaxBaseUrl.replace('/v1', ''),
+    deepseekClient,
+    deepseekModel,
   });
 
+  // Validate API keys
   console.log('Validating MiniMax API key...');
   try {
     await minimaxClient.chat.completions.create({
@@ -352,7 +361,19 @@ async function main() {
     console.log('MiniMax API key valid.');
   } catch (err) {
     console.error(`MiniMax API key validation failed: ${(err as Error).message}`);
-    console.error('Your JWT token may not be compatible. Try getting an sk- format key from the MiniMax platform.');
+    process.exit(1);
+  }
+
+  console.log(`Validating DeepSeek API key (model: ${deepseekModel})...`);
+  try {
+    await deepseekClient.chat.completions.create({
+      model: deepseekModel,
+      messages: [{ role: 'user', content: 'Say "hello" in one word.' }],
+      max_tokens: 10,
+    });
+    console.log('DeepSeek API key valid.');
+  } catch (err) {
+    console.error(`DeepSeek API key validation failed: ${(err as Error).message}`);
     process.exit(1);
   }
 
@@ -369,7 +390,7 @@ async function main() {
     console.log('\n--- Grok ---');
     const grok = await runPipeline(grokProvider, itemA, itemB);
 
-    console.log('\n--- MiniMax ---');
+    console.log(`\n--- MiniMax+DeepSeek (${deepseekModel}) ---`);
     const minimax = await runPipeline(minimaxProvider, itemA, itemB);
 
     writeFileSync(path.join(outDir, 'grok-result.json'), JSON.stringify(grok, null, 2));

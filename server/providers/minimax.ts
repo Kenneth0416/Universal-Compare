@@ -3,6 +3,8 @@ import type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema, ResearchRawPar
 import { extractJson, validateRequiredFields } from './jsonExtractor';
 
 const MINIMAX_MODEL = 'MiniMax-M2.7';
+const DEEPSEEK_MODEL_PRO = 'deepseek-v4-pro';
+const DEEPSEEK_MODEL_FLASH = 'deepseek-v4-flash';
 const MAX_JSON_RETRIES = 2;
 
 const WEB_SEARCH_TOOL = {
@@ -83,13 +85,25 @@ async function callMinimaxSearch(
 export class MinimaxProvider implements AIProvider {
   readonly name = 'minimax';
   private client: OpenAI;
+  private chatClient: OpenAI;
+  private chatModel: string;
   private searchApiKey: string;
   private searchBaseUrl: string;
 
-  constructor(client: OpenAI, searchApiKey: string, searchBaseUrl?: string) {
+  constructor(
+    client: OpenAI,
+    searchApiKey: string,
+    options?: {
+      searchBaseUrl?: string;
+      chatClient?: OpenAI;
+      chatModel?: string;
+    },
+  ) {
     this.client = client;
     this.searchApiKey = searchApiKey;
-    this.searchBaseUrl = searchBaseUrl || 'https://api.minimaxi.com';
+    this.searchBaseUrl = options?.searchBaseUrl || 'https://api.minimaxi.com';
+    this.chatClient = options?.chatClient || client;
+    this.chatModel = options?.chatModel || DEEPSEEK_MODEL_PRO;
   }
 
   async research(
@@ -221,6 +235,7 @@ Provide detailed, factual information with sources.`,
     schemaName: string;
     temperature?: number;
   }): Promise<{ json: string; metrics: AiCallMetrics }> {
+    const model = this.chatModel;
     const start = Date.now();
     let totalPromptTokens = 0;
     let totalCompletionTokens = 0;
@@ -237,19 +252,19 @@ ${JSON.stringify(params.schema, null, 2)}`;
     ];
 
     for (let attempt = 0; attempt <= MAX_JSON_RETRIES; attempt++) {
-      const response = await this.client.chat.completions.create({
-        model: MINIMAX_MODEL,
+      const response = await this.chatClient.chat.completions.create({
+        model,
         messages,
         temperature: params.temperature ?? 0.2,
+        response_format: { type: 'json_object' },
       } as any);
 
       const usage = (response as any).usage || {};
-      totalPromptTokens += usage.prompt_tokens || 0;
-      totalCompletionTokens += usage.completion_tokens || 0;
+      totalPromptTokens += usage.prompt_tokens || usage.input_tokens || 0;
+      totalCompletionTokens += usage.completion_tokens || usage.output_tokens || 0;
       totalTokens += usage.total_tokens || 0;
 
-      const content =
-        (response as any).choices?.[0]?.message?.content || '';
+      const content = (response as any).choices?.[0]?.message?.content || '';
 
       try {
         const parsed = extractJson(content);
@@ -257,7 +272,7 @@ ${JSON.stringify(params.schema, null, 2)}`;
         return {
           json: JSON.stringify(parsed),
           metrics: {
-            model: MINIMAX_MODEL,
+            model,
             promptTokens: totalPromptTokens,
             completionTokens: totalCompletionTokens,
             totalTokens,
@@ -267,19 +282,19 @@ ${JSON.stringify(params.schema, null, 2)}`;
       } catch (err) {
         if (attempt === MAX_JSON_RETRIES) {
           throw new Error(
-            `MiniMax JSON extraction failed after ${MAX_JSON_RETRIES + 1} attempts: ${(err as Error).message}`,
+            `DeepSeek JSON extraction failed after ${MAX_JSON_RETRIES + 1} attempts: ${(err as Error).message}`,
           );
         }
         messages.push(
           { role: 'assistant', content },
           {
             role: 'user',
-            content: `Your previous response was not valid JSON or was missing required fields. Error: ${(err as Error).message}\n\nPlease try again. Respond with ONLY the raw JSON object, no markdown, no explanation.`,
+            content: `Your previous response was not valid JSON or was missing required fields. Error: ${(err as Error).message}\n\nPlease try again. Respond with ONLY the raw JSON object.`,
           },
         );
       }
     }
 
-    throw new Error('MiniMax JSON extraction failed');
+    throw new Error('DeepSeek JSON extraction failed');
   }
 }

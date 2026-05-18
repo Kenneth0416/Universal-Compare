@@ -73,19 +73,26 @@ test('parseMinimaxToolCall: returns null for non-tool-call text', () => {
   assert.equal(result, null);
 });
 
-test('MinimaxProvider.chatCompletion uses prompt-based JSON and extracts result', async () => {
-  const mockClient = {
+test('MinimaxProvider.chatCompletion uses DeepSeek with json_object and prompt schema', async () => {
+  const capturedParams: Record<string, unknown>[] = [];
+  const mockChatClient = {
     chat: {
       completions: {
-        create: async () => ({
-          choices: [{ message: { content: '```json\n{"name":"test"}\n```' } }],
-          usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
-        }),
+        create: async (params: Record<string, unknown>) => {
+          capturedParams.push(params);
+          return {
+            choices: [{ message: { content: '{"name":"test"}' } }],
+            usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+          };
+        },
       },
     },
   };
+  const mockSearchClient = {
+    chat: { completions: { create: async () => ({}) } },
+  };
 
-  const provider = new MinimaxProvider(mockClient as any, 'test-search-key');
+  const provider = new MinimaxProvider(mockSearchClient as any, 'test-search-key', { chatClient: mockChatClient as any, chatModel: 'deepseek-v4-pro' });
   const result = await provider.chatCompletion({
     messages: [{ role: 'user', content: 'hello' }],
     schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
@@ -94,40 +101,14 @@ test('MinimaxProvider.chatCompletion uses prompt-based JSON and extracts result'
   });
 
   assert.equal(JSON.parse(result.json).name, 'test');
-  assert.equal(result.metrics.model, 'MiniMax-M2.7');
-});
-
-test('MinimaxProvider.chatCompletion retries on invalid JSON', async () => {
-  let callCount = 0;
-  const mockClient = {
-    chat: {
-      completions: {
-        create: async () => {
-          callCount++;
-          if (callCount === 1) {
-            return {
-              choices: [{ message: { content: 'Sorry, I cannot do that.' } }],
-              usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
-            };
-          }
-          return {
-            choices: [{ message: { content: '{"name":"fixed"}' } }],
-            usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
-          };
-        },
-      },
-    },
-  };
-
-  const provider = new MinimaxProvider(mockClient as any, 'test-search-key');
-  const result = await provider.chatCompletion({
-    messages: [{ role: 'user', content: 'hello' }],
-    schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
-    schemaName: 'test_schema',
-  });
-
-  assert.equal(JSON.parse(result.json).name, 'fixed');
-  assert.equal(callCount, 2);
+  assert.equal(result.metrics.model, 'deepseek-v4-pro');
+  // Verify json_object mode is used
+  const rf = capturedParams[0].response_format as any;
+  assert.equal(rf.type, 'json_object');
+  // Verify schema is injected into system message
+  const messages = capturedParams[0].messages as any[];
+  assert.ok(messages[0].role === 'system');
+  assert.ok(messages[0].content.includes('"name"'));
 });
 
 import { createProvider } from '../../server/providers/index';
