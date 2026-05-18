@@ -61,3 +61,22 @@ test('estimates cost for known xAI fast models when provider cost is absent', ()
   assert.equal(metrics.xSearchCount, 0);
   assert.equal(metrics.toolUsageJson, null);
 });
+
+test('estimates cost for MiniMax M2.7 model when provider cost is absent', () => {
+  const metrics = extractAiUsageMetrics(
+    {
+      usage: {
+        prompt_tokens: 1_000_000,
+        completion_tokens: 200_000,
+        total_tokens: 1_200_000,
+      },
+    },
+    'MiniMax-M2.7',
+  );
+
+  assert.equal(metrics.promptTokens, 1_000_000);
+  assert.equal(metrics.completionTokens, 200_000);
+  assert.equal(metrics.costSource, 'estimated');
+  // Cost: 1M input * $0.3/M + 200K output * $1.2/M = $0.3 + $0.24 = $0.54
+  assert.equal(metrics.costUsd, 0.54);
+});

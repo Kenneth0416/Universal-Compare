@@ -27,6 +27,12 @@ const XAI_FAST_PRICING: ModelPricing = {
   outputUsdPerMillion: 0.5,
 };
 
+const MINIMAX_M27_PRICING: ModelPricing = {
+  inputUsdPerMillion: 0.3,
+  cachedInputUsdPerMillion: 0.15,
+  outputUsdPerMillion: 1.2,
+};
+
 function emptyMetrics(): AiUsageMetrics {
   return {
     promptTokens: 0,
@@ -56,6 +62,9 @@ function getKnownPricing(model: string): ModelPricing | null {
   const normalized = model.toLowerCase();
   if (normalized.startsWith('grok-4-1-fast') || normalized.startsWith('grok-4-fast')) {
     return XAI_FAST_PRICING;
+  }
+  if (normalized.startsWith('minimax-m2')) {
+    return MINIMAX_M27_PRICING;
   }
   return null;
 }
