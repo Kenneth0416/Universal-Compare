@@ -330,11 +330,17 @@ async function main() {
     process.exit(1);
   }
 
+  const minimaxBaseUrl = process.env.MINIMAX_BASE_URL || 'https://api.minimaxi.com/v1';
+
   const grokClient = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1' });
-  const minimaxClient = new OpenAI({ apiKey: process.env.MINIMAX_API_KEY, baseURL: 'https://api.minimax.io/v1' });
+  const minimaxClient = new OpenAI({ apiKey: process.env.MINIMAX_API_KEY, baseURL: minimaxBaseUrl });
 
   const grokProvider = createProvider('grok', { grokClient });
-  const minimaxProvider = createProvider('minimax', { minimaxClient, minimaxSearchApiKey: process.env.MINIMAX_API_KEY });
+  const minimaxProvider = createProvider('minimax', {
+    minimaxClient,
+    minimaxSearchApiKey: process.env.MINIMAX_API_KEY,
+    minimaxBaseUrl: minimaxBaseUrl.replace('/v1', ''),
+  });
 
   console.log('Validating MiniMax API key...');
   try {

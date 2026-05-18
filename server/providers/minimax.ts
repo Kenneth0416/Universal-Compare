@@ -54,8 +54,9 @@ export function parseMinimaxToolCall(
 async function callMinimaxSearch(
   apiKey: string,
   query: string,
+  baseUrl = 'https://api.minimaxi.com',
 ): Promise<string> {
-  const response = await fetch('https://api.minimax.io/v1/coding_plan/search', {
+  const response = await fetch(`${baseUrl}/v1/coding_plan/search`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -83,10 +84,12 @@ export class MinimaxProvider implements AIProvider {
   readonly name = 'minimax';
   private client: OpenAI;
   private searchApiKey: string;
+  private searchBaseUrl: string;
 
-  constructor(client: OpenAI, searchApiKey: string) {
+  constructor(client: OpenAI, searchApiKey: string, searchBaseUrl?: string) {
     this.client = client;
     this.searchApiKey = searchApiKey;
+    this.searchBaseUrl = searchBaseUrl || 'https://api.minimaxi.com';
   }
 
   async research(
@@ -133,7 +136,7 @@ Provide detailed, factual information with sources.`,
     if (!toolCall) {
       let searchResults: string;
       try {
-        searchResults = await callMinimaxSearch(this.searchApiKey, query);
+        searchResults = await callMinimaxSearch(this.searchApiKey, query, this.searchBaseUrl);
       } catch {
         return {
           text: firstContent,
@@ -178,7 +181,7 @@ Provide detailed, factual information with sources.`,
     const queryList = (toolCall.arguments.query_list as string[]) || [query];
     const searchResultTexts = await Promise.all(
       queryList.map((q) =>
-        callMinimaxSearch(this.searchApiKey, q).catch(
+        callMinimaxSearch(this.searchApiKey, q, this.searchBaseUrl).catch(
           (err) => `Search failed for "${q}": ${err.message}`,
         ),
       ),

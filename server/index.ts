@@ -20,14 +20,16 @@ const grokClient = process.env.XAI_API_KEY
   ? new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1' })
   : undefined;
 
+const minimaxBaseUrl = process.env.MINIMAX_BASE_URL || 'https://api.minimaxi.com/v1';
 const minimaxClient = process.env.MINIMAX_API_KEY
-  ? new OpenAI({ apiKey: process.env.MINIMAX_API_KEY, baseURL: 'https://api.minimax.io/v1' })
+  ? new OpenAI({ apiKey: process.env.MINIMAX_API_KEY, baseURL: minimaxBaseUrl })
   : undefined;
 
 const provider = createProvider(AI_PROVIDER, {
   grokClient,
   minimaxClient,
   minimaxSearchApiKey: process.env.MINIMAX_API_KEY,
+  minimaxBaseUrl: minimaxBaseUrl.replace('/v1', ''),
 });
 
 const analyticsDbPath =
