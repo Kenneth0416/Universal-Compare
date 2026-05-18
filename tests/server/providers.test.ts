@@ -55,6 +55,81 @@ test('validateRequiredFields: throws listing missing fields', () => {
   assert.throws(() => validateRequiredFields(data, schema), /Missing required fields: value, extra/);
 });
 
+import { MinimaxProvider, parseMinimaxToolCall } from '../../server/providers/minimax';
+
+test('parseMinimaxToolCall: extracts function name and params from XML', () => {
+  const xml = `<minimax:tool_call>
+<invoke name="web_search">
+<parameter name="query_list">["cats", "cat breeds"]</parameter>
+</invoke>
+</minimax:tool_call>`;
+  const result = parseMinimaxToolCall(xml);
+  assert.equal(result?.name, 'web_search');
+  assert.deepEqual(result?.arguments, { query_list: ['cats', 'cat breeds'] });
+});
+
+test('parseMinimaxToolCall: returns null for non-tool-call text', () => {
+  const result = parseMinimaxToolCall('Just a normal response with no tool calls.');
+  assert.equal(result, null);
+});
+
+test('MinimaxProvider.chatCompletion uses prompt-based JSON and extracts result', async () => {
+  const mockClient = {
+    chat: {
+      completions: {
+        create: async () => ({
+          choices: [{ message: { content: '```json\n{"name":"test"}\n```' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        }),
+      },
+    },
+  };
+
+  const provider = new MinimaxProvider(mockClient as any, 'test-search-key');
+  const result = await provider.chatCompletion({
+    messages: [{ role: 'user', content: 'hello' }],
+    schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
+    schemaName: 'test_schema',
+    temperature: 0.2,
+  });
+
+  assert.equal(JSON.parse(result.json).name, 'test');
+  assert.equal(result.metrics.model, 'MiniMax-M2.7');
+});
+
+test('MinimaxProvider.chatCompletion retries on invalid JSON', async () => {
+  let callCount = 0;
+  const mockClient = {
+    chat: {
+      completions: {
+        create: async () => {
+          callCount++;
+          if (callCount === 1) {
+            return {
+              choices: [{ message: { content: 'Sorry, I cannot do that.' } }],
+              usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
+            };
+          }
+          return {
+            choices: [{ message: { content: '{"name":"fixed"}' } }],
+            usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+          };
+        },
+      },
+    },
+  };
+
+  const provider = new MinimaxProvider(mockClient as any, 'test-search-key');
+  const result = await provider.chatCompletion({
+    messages: [{ role: 'user', content: 'hello' }],
+    schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
+    schemaName: 'test_schema',
+  });
+
+  assert.equal(JSON.parse(result.json).name, 'fixed');
+  assert.equal(callCount, 2);
+});
+
 import { GrokProvider } from '../../server/providers/grok';
 
 test('GrokProvider.research calls responses.create and returns output_text', async () => {
