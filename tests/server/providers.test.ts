@@ -54,3 +54,53 @@ test('validateRequiredFields: throws listing missing fields', () => {
   const data = { name: 'test' };
   assert.throws(() => validateRequiredFields(data, schema), /Missing required fields: value, extra/);
 });
+
+import { GrokProvider } from '../../server/providers/grok';
+
+test('GrokProvider.research calls responses.create and returns output_text', async () => {
+  const mockOpenai = {
+    responses: {
+      create: async (params: Record<string, unknown>) => {
+        return { output_text: 'Research about cats', usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 } };
+      },
+    },
+    chat: { completions: { create: async () => ({}) } },
+  };
+
+  const provider = new GrokProvider(mockOpenai as any);
+  const result = await provider.research('cats');
+  assert.equal(result.text, 'Research about cats');
+  assert.equal(result.metrics.model, 'grok-4-1-fast-non-reasoning');
+});
+
+test('GrokProvider.chatCompletion calls chat.completions.create with json_schema', async () => {
+  const capturedParams: Record<string, unknown>[] = [];
+  const mockOpenai = {
+    responses: { create: async () => ({}) },
+    chat: {
+      completions: {
+        create: async (params: Record<string, unknown>) => {
+          capturedParams.push(params);
+          return {
+            choices: [{ message: { content: '{"name":"test"}' } }],
+            usage: { prompt_tokens: 5, completion_tokens: 10, total_tokens: 15 },
+          };
+        },
+      },
+    },
+  };
+
+  const provider = new GrokProvider(mockOpenai as any);
+  const result = await provider.chatCompletion({
+    messages: [{ role: 'user', content: 'hello' }],
+    schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
+    schemaName: 'test_schema',
+    temperature: 0.2,
+  });
+
+  assert.equal(result.json, '{"name":"test"}');
+  assert.equal(capturedParams[0].model, 'grok-4-1-fast-reasoning');
+  const rf = capturedParams[0].response_format as any;
+  assert.equal(rf.type, 'json_schema');
+  assert.equal(rf.json_schema.name, 'test_schema');
+});
