@@ -130,6 +130,32 @@ test('MinimaxProvider.chatCompletion retries on invalid JSON', async () => {
   assert.equal(callCount, 2);
 });
 
+import { createProvider } from '../../server/providers/index';
+
+test('createProvider returns GrokProvider for "grok"', () => {
+  const mockOpenai = {
+    responses: { create: async () => ({}) },
+    chat: { completions: { create: async () => ({}) } },
+  };
+  const provider = createProvider('grok', { grokClient: mockOpenai as any });
+  assert.equal(provider.name, 'grok');
+});
+
+test('createProvider returns MinimaxProvider for "minimax"', () => {
+  const mockClient = {
+    chat: { completions: { create: async () => ({}) } },
+  };
+  const provider = createProvider('minimax', {
+    minimaxClient: mockClient as any,
+    minimaxSearchApiKey: 'test-key',
+  });
+  assert.equal(provider.name, 'minimax');
+});
+
+test('createProvider throws for unknown provider', () => {
+  assert.throws(() => createProvider('unknown', {}), /Unknown AI provider: unknown/);
+});
+
 import { GrokProvider } from '../../server/providers/grok';
 
 test('GrokProvider.research calls responses.create and returns output_text', async () => {
