@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { generateComparison, ComparisonResult } from './services/geminiService';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Loader2, AlertCircle } from 'lucide-react';
 import { AILoadingState } from './components/AILoadingState';
 import ComparisonResultView from './components/ComparisonResultView';
-import ComparisonSuggestions, { saveRecentComparison } from './components/ComparisonSuggestions';
+
 import FeaturedShowcase from './components/FeaturedShowcase';
 import { finishComparisonRun, startComparisonRun } from './services/trackingService';
 import { saveReport } from './services/reportService';
@@ -28,25 +28,7 @@ export default function App() {
   const [showPartial, setShowPartial] = useState(false);
   const [error, setError] = useState('');
   const [reportUrl, setReportUrl] = useState<string | null>(null);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
-
-  // Close suggestions when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (formRef.current && !formRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const handleSuggestionSelect = (a: string, b: string) => {
-    setItemA(a);
-    setItemB(b);
-    setShowSuggestions(false);
-  };
 
   const handleShowcaseSelect = (a: string, b: string) => {
     setItemA(a);
@@ -104,7 +86,6 @@ export default function App() {
         runId
       );
       setResult(res);
-      saveRecentComparison(itemA, itemB);
 
       // Fire-and-forget: track completion + save report in parallel
       if (runId) {
@@ -227,10 +208,6 @@ export default function App() {
                 )}
               </button>
             </div>
-            <ComparisonSuggestions
-              onSelect={handleSuggestionSelect}
-              visible={showSuggestions && !loading && !result}
-            />
           </form>
         </motion.div>
       </header>
@@ -278,7 +255,23 @@ export default function App() {
           )}
 
           {!loading && !displayResult && !error && (
-            <FeaturedShowcase onSelect={handleShowcaseSelect} />
+            <motion.div
+              key="discovery"
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.45 }}
+            >
+              <FeaturedShowcase onSelect={handleShowcaseSelect} />
+              <div className="mt-8 flex justify-center">
+                <a
+                  href="/popular-ai-comparisons"
+                  className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-5 text-sm font-semibold text-indigo-300 transition-colors hover:border-indigo-500/40 hover:bg-white/[0.07]"
+                >
+                  Popular AI Comparisons
+                </a>
+              </div>
+            </motion.div>
           )}
         </AnimatePresence>
       </main>
