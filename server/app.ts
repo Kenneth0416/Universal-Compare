@@ -21,6 +21,7 @@ import {
   renderRobotsTxt,
   renderSitemapXml,
 } from './seo';
+import type { AIProvider } from './providers/types';
 
 const VISITOR_COOKIE = 'compareai_visitor_id';
 const VISITOR_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
@@ -28,17 +29,6 @@ const VISITOR_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
 type AnalyticsStore = ReturnType<typeof createAnalyticsStore>;
 type ReportStore = ReturnType<typeof createReportStore>;
 type FeaturedStore = ReturnType<typeof createFeaturedStore>;
-
-type AiClient = {
-  responses: {
-    create: (params: Record<string, unknown>) => Promise<unknown>;
-  };
-  chat: {
-    completions: {
-      create: (params: Record<string, unknown>) => Promise<unknown>;
-    };
-  };
-};
 
 type RequestWithVisitor = Request & {
   visitorId?: string;
@@ -48,13 +38,11 @@ type CreateAppOptions = {
   analyticsStore: AnalyticsStore;
   reportStore: ReportStore;
   featuredStore: FeaturedStore;
-  openai: AiClient;
+  provider: AIProvider;
   adminPassword?: string;
   adminSessionSecret: string;
   siteUrl?: string;
 };
-
-type ResponsesAPITool = { type: 'web_search' } | { type: 'x_search' };
 
 function getRequestIp(req: Request) {
   const forwarded = req.headers['x-forwarded-for'];
@@ -88,7 +76,7 @@ export function createApp({
   analyticsStore,
   reportStore,
   featuredStore,
-  openai,
+  provider,
   adminPassword,
   adminSessionSecret,
   siteUrl = process.env.SITE_URL || process.env.APP_URL,
@@ -130,6 +118,7 @@ export function createApp({
 
   app.get('/popular-ai-comparisons', (_req, res) => {
     const indexHtml = readClientIndexHtml();
+    res.set('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=3600');
     res.type('text/html').send(
       renderPopularComparisonsHtml({
         comparisons: listPublicFeaturedComparisons('en'),
@@ -145,10 +134,12 @@ export function createApp({
     const report = featured?.reportId ? reportStore.getReport(featured.reportId) : null;
 
     if (!featured || !report) {
+      res.set('Cache-Control', 'public, max-age=60, s-maxage=60');
       res.status(404).type('text/html').send(renderReportNotFoundHtml(indexHtml, siteUrl));
       return;
     }
 
+    res.set('Cache-Control', 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400');
     res.type('text/html').send(
       renderReportSeoHtml({
         report,
@@ -167,6 +158,7 @@ export function createApp({
     const report = reportStore.getReport(req.params.reportId);
 
     if (!report) {
+      res.set('Cache-Control', 'public, max-age=60, s-maxage=60');
       res.status(404).type('text/html').send(renderReportNotFoundHtml(indexHtml, siteUrl));
       return;
     }
@@ -177,6 +169,7 @@ export function createApp({
       return;
     }
 
+    res.set('Cache-Control', 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400');
     res.type('text/html').send(
       renderReportSeoHtml({
         report,
@@ -279,23 +272,43 @@ export function createApp({
     }
 
     const startedAt = Date.now();
-    const model = typeof params?.model === 'string' ? params.model : '';
     const resolvedRunId = typeof runId === 'string' ? runId : undefined;
 
     try {
-      let response;
+      let response: unknown;
+      let model = '';
 
       switch (callType) {
-        case 'responses':
-          response = await openai.responses.create({
-            ...params,
-            tools: params.tools as ResponsesAPITool[],
-          });
+        case 'responses': {
+          const input = params.input || [];
+          const query =
+            input.length > 0 && typeof input[0].content === 'string'
+              ? input[0].content
+              : '';
+          const result = await provider.research(query);
+          model = result.metrics.model;
+          response = { output_text: result.text };
           break;
+        }
 
-        case 'chat':
-          response = await openai.chat.completions.create(params);
+        case 'chat': {
+          const result = await provider.chatCompletion({
+            messages: params.messages || [],
+            schema: params.response_format?.json_schema?.schema || {},
+            schemaName: params.response_format?.json_schema?.name || 'response',
+            temperature: params.temperature,
+          });
+          model = result.metrics.model;
+          response = {
+            choices: [{ message: { content: result.json } }],
+            usage: {
+              prompt_tokens: result.metrics.promptTokens,
+              completion_tokens: result.metrics.completionTokens,
+              total_tokens: result.metrics.totalTokens,
+            },
+          };
           break;
+        }
 
         default:
           res.status(400).json({ error: `Unknown callType: ${callType}` });
@@ -321,7 +334,7 @@ export function createApp({
         runId: resolvedRunId,
         visitorId: req.visitorId,
         callType,
-        model,
+        model: '',
         status: 'error',
         statusCode: 500,
         durationMs: Date.now() - startedAt,

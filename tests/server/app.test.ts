@@ -24,30 +24,16 @@ function createTestApp() {
     featuredStore,
     adminPassword: 'admin-password',
     adminSessionSecret: 'session-secret',
-    openai: {
-      responses: {
-        create: async () => ({ output_text: 'ok' }),
-      },
-      chat: {
-        completions: {
-          create: async () => ({
-            id: 'chatcmpl_test',
-            choices: [],
-            usage: {
-              prompt_tokens: 100,
-              completion_tokens: 25,
-              total_tokens: 130,
-              prompt_tokens_details: { cached_tokens: 10 },
-              completion_tokens_details: { reasoning_tokens: 5 },
-              cost_in_usd_ticks: 2_500_000,
-              server_side_tool_usage_details: {
-                web_search_calls: 2,
-                x_search_calls: 1,
-              },
-            },
-          }),
-        },
-      },
+    provider: {
+      name: 'test',
+      research: async () => ({
+        text: 'ok',
+        metrics: { model: 'test-model', promptTokens: 100, completionTokens: 25, totalTokens: 130, durationMs: 50 },
+      }),
+      chatCompletion: async () => ({
+        json: '{}',
+        metrics: { model: 'test-model', promptTokens: 100, completionTokens: 25, totalTokens: 130, durationMs: 50 },
+      }),
     },
   });
 
@@ -150,24 +136,24 @@ test('tracks comparison runs and logs AI proxy calls', async () => {
   assert.equal(summary.today.promptTokens, 100);
   assert.equal(summary.today.completionTokens, 25);
   assert.equal(summary.today.totalTokens, 130);
-  assert.equal(summary.today.cachedTokens, 10);
-  assert.equal(summary.today.reasoningTokens, 5);
-  assert.equal(summary.today.aiCostUsd, 0.00025);
-  assert.equal(summary.today.webSearchCount, 2);
-  assert.equal(summary.today.xSearchCount, 1);
+  assert.equal(summary.today.cachedTokens, 0);
+  assert.equal(summary.today.reasoningTokens, 0);
+  assert.equal(summary.today.aiCostUsd, 0);
+  assert.equal(summary.today.webSearchCount, 0);
+  assert.equal(summary.today.xSearchCount, 0);
   assert.equal(summary.recentRuns[0].status, 'completed');
 
   const calls = analyticsStore.listCalls({ limit: 1 });
   assert.equal(calls.items[0].promptTokens, 100);
   assert.equal(calls.items[0].completionTokens, 25);
   assert.equal(calls.items[0].totalTokens, 130);
-  assert.equal(calls.items[0].cachedTokens, 10);
-  assert.equal(calls.items[0].reasoningTokens, 5);
-  assert.equal(calls.items[0].costUsd, 0.00025);
-  assert.equal(calls.items[0].costSource, 'provider');
-  assert.equal(calls.items[0].webSearchCount, 2);
-  assert.equal(calls.items[0].xSearchCount, 1);
-  assert.equal(calls.items[0].toolUsageJson, '{"web_search_calls":2,"x_search_calls":1}');
+  assert.equal(calls.items[0].cachedTokens, 0);
+  assert.equal(calls.items[0].reasoningTokens, 0);
+  assert.equal(calls.items[0].costUsd, 0);
+  assert.equal(calls.items[0].costSource, 'unavailable');
+  assert.equal(calls.items[0].webSearchCount, 0);
+  assert.equal(calls.items[0].xSearchCount, 0);
+  assert.equal(calls.items[0].toolUsageJson, null);
 });
 
 test('protects admin summary behind password login', async () => {
@@ -283,8 +269,62 @@ test('serves featured report pages at crawlable comparison slugs', async () => {
     assert.match(html, /Compare Claude and ChatGPT for AI writing, research, and reasoning workflows/);
     assert.match(html, /<h1>Claude <span>vs<\/span> ChatGPT<\/h1>/);
     assert.match(html, /Reasoning quality/);
+    assert.match(html, /href="\/"/);
+    assert.match(html, /Create your own comparison/);
     assert.match(html, /BreadcrumbList/);
     assert.match(html, /SearchAction/);
+  });
+});
+
+test('does not expose comparison request capture endpoints', async () => {
+  const { app } = createTestApp();
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/comparison-requests`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ itemA: 'Cursor', itemB: 'Windsurf' }),
+    });
+    assert.equal(response.status, 404);
+  });
+});
+
+test('serves related comparison links on report pages', async () => {
+  const { app, reportStore, featuredStore } = createTestApp();
+  const current = reportStore.saveReport({
+    itemA: 'Claude',
+    itemB: 'ChatGPT',
+    language: 'en',
+    result: createComparisonResult('Claude', 'ChatGPT'),
+  });
+  const related = reportStore.saveReport({
+    itemA: 'Perplexity',
+    itemB: 'ChatGPT',
+    language: 'en',
+    result: createComparisonResult('Perplexity', 'ChatGPT'),
+  });
+  assert.ok(current);
+  assert.ok(related);
+  featuredStore.addFeatured('Claude', 'ChatGPT', {
+    language: 'en',
+    description: 'Featured AI assistant comparison.',
+    reportId: current.reportId,
+  });
+  featuredStore.addFeatured('Perplexity', 'ChatGPT', {
+    language: 'en',
+    description: 'Compare AI search and general chat workflows.',
+    reportId: related.reportId,
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/compare/claude-vs-chatgpt`);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+
+    assert.match(html, /Related AI comparisons/);
+    assert.match(html, /href="\/compare\/perplexity-vs-chatgpt"/);
+    assert.match(html, /Perplexity <span>vs<\/span> ChatGPT/);
+    assert.doesNotMatch(html, /href="\/compare\/claude-vs-chatgpt"/);
   });
 });
 
@@ -360,9 +400,64 @@ test('serves a dynamic sitemap that includes only homepage and featured reports'
     const xml = await response.text();
 
     assert.match(xml, new RegExp(`<loc>${defaultSiteUrl}/</loc>`));
+    assert.match(xml, new RegExp(`<loc>${defaultSiteUrl}/popular-ai-comparisons</loc>`));
     assert.match(xml, new RegExp(`<loc>${defaultSiteUrl}/compare/claude-vs-chatgpt</loc>`));
     assert.doesNotMatch(xml, new RegExp(featured.reportId));
     assert.doesNotMatch(xml, new RegExp(privateReport.reportId));
+  });
+});
+
+test('serves a crawlable popular AI comparisons page', async () => {
+  const { app, reportStore, featuredStore } = createTestApp();
+  const claude = reportStore.saveReport({
+    itemA: 'Claude',
+    itemB: 'ChatGPT',
+    language: 'en',
+    result: createComparisonResult('Claude', 'ChatGPT'),
+  });
+  const cursor = reportStore.saveReport({
+    itemA: 'Cursor',
+    itemB: 'Windsurf',
+    language: 'en',
+    result: createComparisonResult('Cursor', 'Windsurf'),
+  });
+  assert.ok(claude);
+  assert.ok(cursor);
+  featuredStore.addFeatured('Claude', 'ChatGPT', {
+    language: 'en',
+    description: 'Compare AI assistants for writing, research, and coding.',
+    reportId: claude.reportId,
+  });
+  featuredStore.addFeatured('Cursor', 'Windsurf', {
+    language: 'en',
+    description: 'Compare AI coding editors for developer workflows.',
+    reportId: cursor.reportId,
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/popular-ai-comparisons`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') || '', /text\/html/);
+    const html = await response.text();
+
+    assert.match(html, /<title>Popular AI Comparisons \| CompareAI<\/title>/);
+    assert.match(html, /<link rel="canonical" href="https:\/\/compare-anythings\.com\/popular-ai-comparisons" \/>/);
+    assert.match(html, /<h1>Popular AI Comparisons<\/h1>/);
+    assert.match(html, /href="\/compare\/claude-vs-chatgpt"/);
+    assert.match(html, /href="\/compare\/cursor-vs-windsurf"/);
+  });
+});
+
+test('serves an empty state on the popular comparisons page before featured reports exist', async () => {
+  const { app } = createTestApp();
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/popular-ai-comparisons`);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+
+    assert.match(html, /<h1>Popular AI Comparisons<\/h1>/);
+    assert.match(html, /New public comparison reports will appear here soon/);
   });
 });
 

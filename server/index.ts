@@ -1,6 +1,6 @@
 /**
- * Grok API Proxy Server
- * Proxies AI calls from frontend to Grok API, keeping API key server-side.
+ * AI Comparison Server
+ * Supports Grok and MiniMax providers via AI_PROVIDER env var.
  */
 
 import dotenv from 'dotenv';
@@ -10,13 +10,24 @@ import OpenAI from 'openai';
 import { createAnalyticsStore } from './analytics';
 import { createFeaturedStore } from './featured';
 import { createReportStore } from './reports';
+import { createProvider } from './providers/index';
 import { createApp } from './app';
 
 const PORT = process.env.API_SERVER_PORT || 3001;
+const AI_PROVIDER = process.env.AI_PROVIDER || 'grok';
 
-const openai = new OpenAI({
-  apiKey: process.env.XAI_API_KEY,
-  baseURL: 'https://api.x.ai/v1',
+const grokClient = process.env.XAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1' })
+  : undefined;
+
+const minimaxClient = process.env.MINIMAX_API_KEY
+  ? new OpenAI({ apiKey: process.env.MINIMAX_API_KEY, baseURL: 'https://api.minimax.io/v1' })
+  : undefined;
+
+const provider = createProvider(AI_PROVIDER, {
+  grokClient,
+  minimaxClient,
+  minimaxSearchApiKey: process.env.MINIMAX_API_KEY,
 });
 
 const analyticsDbPath =
@@ -31,12 +42,12 @@ const app = createApp({
   analyticsStore,
   reportStore,
   featuredStore,
-  openai: openai as any,
+  provider,
   adminPassword: process.env.ADMIN_PASSWORD,
   adminSessionSecret,
   siteUrl: process.env.SITE_URL || process.env.APP_URL,
 });
 
 app.listen(PORT, () => {
-  console.log(`Grok API proxy server running on port ${PORT}`);
+  console.log(`AI comparison server running on port ${PORT} (provider: ${AI_PROVIDER})`);
 });
