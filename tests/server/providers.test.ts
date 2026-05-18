@@ -55,6 +55,24 @@ test('validateRequiredFields: throws listing missing fields', () => {
   assert.throws(() => validateRequiredFields(data, schema), /Missing required fields: value, extra/);
 });
 
+test('validateRequiredFields: throws on empty string values', () => {
+  const schema = {
+    required: ['name', 'definition'],
+    properties: { name: { type: 'string' }, definition: { type: 'string' } },
+  };
+  const data = { name: 'test', definition: '   ' };
+  assert.throws(() => validateRequiredFields(data, schema), /Required fields have empty values: definition/);
+});
+
+test('validateRequiredFields: passes when string values are non-empty', () => {
+  const schema = {
+    required: ['name', 'definition'],
+    properties: { name: { type: 'string' }, definition: { type: 'string' } },
+  };
+  const data = { name: 'test', definition: 'A description' };
+  assert.doesNotThrow(() => validateRequiredFields(data, schema));
+});
+
 import { MinimaxProvider, parseMinimaxToolCall } from '../../server/providers/minimax';
 
 test('parseMinimaxToolCall: extracts function name and params from XML', () => {

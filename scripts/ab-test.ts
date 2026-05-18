@@ -104,11 +104,23 @@ type PhaseResult = {
   data: unknown;
 };
 
+function langSuffix(lang: string): string {
+  switch (lang) {
+    case 'zh-CN': return '\n\nIMPORTANT: All text fields in your JSON response MUST be in Simplified Chinese (简体中文).';
+    case 'zh-TW': return '\n\nIMPORTANT: All text fields in your JSON response MUST be in Traditional Chinese (繁體中文).';
+    default: return '';
+  }
+}
+
 async function runPipeline(
   provider: AIProvider,
   itemA: string,
   itemB: string,
+  options?: { enableThinking?: boolean; lang?: string },
 ): Promise<{ result: Record<string, unknown> | null; phases: PhaseResult[] }> {
+  const thinking = options?.enableThinking ?? false;
+  const lang = options?.lang || 'en';
+  const lsuffix = langSuffix(lang);
   const phases: PhaseResult[] = [];
 
   console.log(`  [${provider.name}] Phase 1: Researching ${itemA} and ${itemB}...`);
@@ -125,7 +137,7 @@ async function runPipeline(
     const profA = await provider.chatCompletion({
       messages: [{
         role: 'user',
-        content: `Based on the following research information, create a structured profile for "${itemA}":\n\nRESEARCH RESULTS:\n${researchA.text}\n\nExtract: normalized name, category, subcategory, domain, definition, key attributes.`,
+        content: `Based on the following research information, create a structured profile for "${itemA}":\n\nRESEARCH RESULTS:\n${researchA.text}\n\nExtract: normalized name, category, subcategory, domain, definition, key attributes.${lsuffix}`,
       }],
       schema: entitySchema,
       schemaName: 'entity_response',
@@ -135,7 +147,7 @@ async function runPipeline(
     const profB = await provider.chatCompletion({
       messages: [{
         role: 'user',
-        content: `Based on the following research information, create a structured profile for "${itemB}":\n\nRESEARCH RESULTS:\n${researchB.text}\n\nExtract: normalized name, category, subcategory, domain, definition, key attributes.`,
+        content: `Based on the following research information, create a structured profile for "${itemB}":\n\nRESEARCH RESULTS:\n${researchB.text}\n\nExtract: normalized name, category, subcategory, domain, definition, key attributes.${lsuffix}`,
       }],
       schema: entitySchema,
       schemaName: 'entity_response',
@@ -170,7 +182,7 @@ async function runPipeline(
     const fw = await provider.chatCompletion({
       messages: [{
         role: 'user',
-        content: `You are an Architect Agent. Based on the following entity profiles, determine their relationship and generate 4 to 6 key dimensions to compare them on.\n\nFirst entity: ${JSON.stringify(profileA)}\nSecond entity: ${JSON.stringify(profileB)}\n\nAnalyze their nature and generate dimensions specifically tailored to these entities. Always refer to them by name ("${profileA.name}" and "${profileB.name}").`,
+        content: `You are an Architect Agent. Based on the following entity profiles, determine their relationship and generate 4 to 6 key dimensions to compare them on.\n\nFirst entity: ${JSON.stringify(profileA)}\nSecond entity: ${JSON.stringify(profileB)}\n\nAnalyze their nature and generate dimensions specifically tailored to these entities. Always refer to them by name ("${profileA.name}" and "${profileB.name}").${lsuffix}`,
       }],
       schema: frameworkSchema,
       schemaName: 'framework_response',
@@ -193,11 +205,12 @@ async function runPipeline(
       const an = await provider.chatCompletion({
         messages: [{
           role: 'user',
-          content: `You are an Analyst Agent. Compare "${profileA.name}" and "${profileB.name}" on dimension: "${dim.label}".\n\n${profileA.name}: ${profileA.short_definition}\n${profileB.name}: ${profileB.short_definition}\nDimension Context: ${dim.why_it_matters}\nComparison Angle: ${dim.comparison_angle}\n\nProvide scores out of 10 where higher = more favorable.`,
+          content: `You are an Analyst Agent. Compare "${profileA.name}" and "${profileB.name}" on dimension: "${dim.label}".\n\n${profileA.name}: ${profileA.short_definition}\n${profileB.name}: ${profileB.short_definition}\nDimension Context: ${dim.why_it_matters}\nComparison Angle: ${dim.comparison_angle}\n\nProvide scores out of 10 where higher = more favorable.${lsuffix}`,
         }],
         schema: analysisSchema,
         schemaName: 'analysis_response',
         temperature: 0.2,
+        enableThinking: thinking,
       });
       analyzedDimensions.push({ ...dim, analysis: JSON.parse(an.json) });
       totalMetrics.promptTokens += an.metrics.promptTokens;
@@ -217,20 +230,22 @@ async function runPipeline(
       provider.chatCompletion({
         messages: [{
           role: 'user',
-          content: `You are a Judge Agent. Extract key strengths and weaknesses for both entities.\n\n${profileA.name}: ${profileA.short_definition}\n${profileB.name}: ${profileB.short_definition}\nAnalysis: ${JSON.stringify(analyzedDimensions)}\n\nAlways refer to entities by name.`,
+          content: `You are a Judge Agent. Extract key strengths and weaknesses for both entities.\n\n${profileA.name}: ${profileA.short_definition}\n${profileB.name}: ${profileB.short_definition}\nAnalysis: ${JSON.stringify(analyzedDimensions)}\n\nAlways refer to entities by name.${lsuffix}`,
         }],
         schema: prosConsSchema,
         schemaName: 'proscons_response',
         temperature: 0.2,
+        enableThinking: thinking,
       }),
       provider.chatCompletion({
         messages: [{
           role: 'user',
-          content: `You are a Judge Agent. Provide a final verdict and recommendation.\n\n${profileA.name}: ${profileA.short_definition}\n${profileB.name}: ${profileB.short_definition}\nAnalysis: ${JSON.stringify(analyzedDimensions)}\n\nAlways refer to entities by name.`,
+          content: `You are a Judge Agent. Provide a final verdict and recommendation.\n\n${profileA.name}: ${profileA.short_definition}\n${profileB.name}: ${profileB.short_definition}\nAnalysis: ${JSON.stringify(analyzedDimensions)}\n\nAlways refer to entities by name.${lsuffix}`,
         }],
         schema: recommendationSchema,
         schemaName: 'recommendation_response',
         temperature: 0.2,
+        enableThinking: thinking,
       }),
     ]);
 
@@ -312,7 +327,15 @@ async function main() {
     process.exit(1);
   }
 
-  const pairs = args.slice(itemsIndex + 1).map((pair) => {
+  const langIndex = args.indexOf('--lang');
+  const lang = langIndex !== -1 && langIndex + 1 < args.length ? args[langIndex + 1] : 'en';
+  if (!['en', 'zh-CN', 'zh-TW'].includes(lang)) {
+    console.error(`Invalid language: "${lang}". Use "en", "zh-CN", or "zh-TW"`);
+    process.exit(1);
+  }
+  console.log(`Language: ${lang}`);
+
+  const pairs = args.slice(itemsIndex + 1).filter(a => a !== '--lang' && a !== lang && a !== '--thinking-test').map((pair) => {
     const [a, b] = pair.split(',').map((s) => s.trim());
     if (!a || !b) {
       console.error(`Invalid pair format: "${pair}". Use "ItemA,ItemB"`);
@@ -380,24 +403,42 @@ async function main() {
   const resultsBase = path.resolve(process.cwd(), 'scripts', 'ab-results');
   mkdirSync(resultsBase, { recursive: true });
 
+  const thinkingTest = args.includes('--thinking-test');
+
   for (const { itemA, itemB } of pairs) {
-    const slug = `${new Date().toISOString().slice(0, 10)}-${itemA.toLowerCase().replace(/\s+/g, '-')}-vs-${itemB.toLowerCase().replace(/\s+/g, '-')}`;
+    const langSlug = lang === 'en' ? '' : `-${lang}`;
+    const slug = `${new Date().toISOString().slice(0, 10)}-${itemA.toLowerCase().replace(/\s+/g, '-')}-vs-${itemB.toLowerCase().replace(/\s+/g, '-')}${langSlug}`;
     const outDir = path.join(resultsBase, slug);
     mkdirSync(outDir, { recursive: true });
 
     console.log(`\n=== Testing: ${itemA} vs ${itemB} ===`);
 
-    console.log('\n--- Grok ---');
-    const grok = await runPipeline(grokProvider, itemA, itemB);
+    if (thinkingTest) {
+      console.log(`\n--- MiniMax+DeepSeek (${deepseekModel}) thinking=OFF ---`);
+      const noThinking = await runPipeline(minimaxProvider, itemA, itemB, { enableThinking: false, lang });
 
-    console.log(`\n--- MiniMax+DeepSeek (${deepseekModel}) ---`);
-    const minimax = await runPipeline(minimaxProvider, itemA, itemB);
+      console.log(`\n--- MiniMax+DeepSeek (${deepseekModel}) thinking=ON (analysis+synthesis) ---`);
+      const withThinking = await runPipeline(minimaxProvider, itemA, itemB, { enableThinking: true, lang });
 
-    writeFileSync(path.join(outDir, 'grok-result.json'), JSON.stringify(grok, null, 2));
-    writeFileSync(path.join(outDir, 'minimax-result.json'), JSON.stringify(minimax, null, 2));
-    writeFileSync(path.join(outDir, 'comparison.md'), generateComparisonMd(itemA, itemB, grok.phases, minimax.phases));
+      writeFileSync(path.join(outDir, 'thinking-off-result.json'), JSON.stringify(noThinking, null, 2));
+      writeFileSync(path.join(outDir, 'thinking-on-result.json'), JSON.stringify(withThinking, null, 2));
+      writeFileSync(path.join(outDir, 'thinking-comparison.md'), generateComparisonMd(itemA, itemB, noThinking.phases, withThinking.phases)
+        .replace('Grok', 'ThinkOFF').replace('MiniMax', 'ThinkON'));
 
-    console.log(`\nResults written to ${outDir}/`);
+      console.log(`\nResults written to ${outDir}/`);
+    } else {
+      console.log('\n--- Grok ---');
+      const grok = await runPipeline(grokProvider, itemA, itemB, { lang });
+
+      console.log(`\n--- MiniMax+DeepSeek (${deepseekModel}) ---`);
+      const minimax = await runPipeline(minimaxProvider, itemA, itemB, { lang });
+
+      writeFileSync(path.join(outDir, 'grok-result.json'), JSON.stringify(grok, null, 2));
+      writeFileSync(path.join(outDir, 'minimax-result.json'), JSON.stringify(minimax, null, 2));
+      writeFileSync(path.join(outDir, 'comparison.md'), generateComparisonMd(itemA, itemB, grok.phases, minimax.phases));
+
+      console.log(`\nResults written to ${outDir}/`);
+    }
   }
 
   console.log('\nA/B test complete.');

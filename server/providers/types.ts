@@ -34,5 +34,7 @@ export interface AIProvider {
     schema: JsonSchema;
     schemaName: string;
     temperature?: number;
+    /** Enable model thinking/reasoning for complex tasks (analysis, synthesis). */
+    enableThinking?: boolean;
   }): Promise<{ json: string; metrics: AiCallMetrics }>;
 }

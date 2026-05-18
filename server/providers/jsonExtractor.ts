@@ -39,4 +39,11 @@ export function validateRequiredFields(
   if (missing.length > 0) {
     throw new Error(`Missing required fields: ${missing.join(', ')}`);
   }
+
+  const empty = required.filter(
+    (field: string) => typeof data[field] === 'string' && (data[field] as string).trim() === '',
+  );
+  if (empty.length > 0) {
+    throw new Error(`Required fields have empty values: ${empty.join(', ')}`);
+  }
 }

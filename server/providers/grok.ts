@@ -1,6 +1,8 @@
 import type OpenAI from 'openai';
 import type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema, ResearchRawParams } from './types';
 
+const LLM_TIMEOUT_MS = 120_000;
+
 export class GrokProvider implements AIProvider {
   readonly name = 'grok';
   private client: OpenAI;
@@ -41,7 +43,7 @@ Provide detailed, factual information with sources.`,
           tool_choice: 'auto',
         };
 
-    const response = await this.client.responses.create(requestParams as any);
+    const response = await this.client.responses.create(requestParams as any, { timeout: LLM_TIMEOUT_MS });
 
     const text = (response as any).output_text || '';
     const usage = (response as any).usage || {};
@@ -79,7 +81,7 @@ Provide detailed, factual information with sources.`,
           schema: params.schema,
         },
       },
-    } as any);
+    } as any, { timeout: LLM_TIMEOUT_MS });
 
     const content = (response as any).choices?.[0]?.message?.content || '{}';
     const usage = (response as any).usage || {};
