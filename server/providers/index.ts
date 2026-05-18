@@ -3,7 +3,7 @@ import type { AIProvider } from './types';
 import { GrokProvider } from './grok';
 import { MinimaxProvider } from './minimax';
 
-export type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema } from './types';
+export type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema, ResearchRawParams } from './types';
 
 type ProviderOptions = {
   grokClient?: OpenAI;

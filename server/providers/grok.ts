@@ -1,5 +1,5 @@
 import type OpenAI from 'openai';
-import type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema } from './types';
+import type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema, ResearchRawParams } from './types';
 
 export class GrokProvider implements AIProvider {
   readonly name = 'grok';
@@ -9,16 +9,21 @@ export class GrokProvider implements AIProvider {
     this.client = client;
   }
 
-  async research(query: string): Promise<{ text: string; metrics: AiCallMetrics }> {
+  async research(query: string, rawParams?: ResearchRawParams): Promise<{ text: string; metrics: AiCallMetrics }> {
     const model = 'grok-4-1-fast-non-reasoning';
     const start = Date.now();
 
-    const response = await this.client.responses.create({
-      model,
-      input: [
-        {
-          role: 'user',
-          content: `Research comprehensive information about "${query}".
+    // When rawParams are provided (from server route), pass them through directly.
+    // This preserves the frontend's researchConfig behavior (X Search mode, etc.).
+    // When not provided (e.g. A/B test script), build a default prompt.
+    const requestParams = rawParams
+      ? { model, ...rawParams }
+      : {
+          model,
+          input: [
+            {
+              role: 'user',
+              content: `Research comprehensive information about "${query}".
 
 Use Web Search for authoritative and factual sources:
 - Key characteristics and defining attributes
@@ -30,11 +35,13 @@ Use Web Search for authoritative and factual sources:
 Use X Search only if recent public sentiment, controversy, launch reactions, creator/community discussion, or fast-moving social context would materially improve the comparison. Skip X Search for stable reference facts, mature products with well-covered reviews, historical topics, or subjects where social posts are unlikely to add decision-relevant evidence.
 
 Provide detailed, factual information with sources.`,
-        },
-      ],
-      tools: [{ type: 'web_search' }, { type: 'x_search' }],
-      tool_choice: 'auto',
-    } as any);
+            },
+          ],
+          tools: [{ type: 'web_search' }, { type: 'x_search' }],
+          tool_choice: 'auto',
+        };
+
+    const response = await this.client.responses.create(requestParams as any);
 
     const text = (response as any).output_text || '';
     const usage = (response as any).usage || {};

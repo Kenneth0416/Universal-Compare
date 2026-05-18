@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { AIProvider, ChatMessage, AiCallMetrics } from '../../server/providers/types';
+import type { AIProvider, ChatMessage, AiCallMetrics, ResearchRawParams } from '../../server/providers/types';
 
 test('AIProvider types are importable', () => {
   const mockProvider: AIProvider = {
     name: 'test',
-    research: async () => ({ text: 'result', metrics: { model: 'test', promptTokens: 0, completionTokens: 0, totalTokens: 0, durationMs: 0 } }),
+    research: async (_query, _rawParams?) => ({ text: 'result', metrics: { model: 'test', promptTokens: 0, completionTokens: 0, totalTokens: 0, durationMs: 0 } }),
     chatCompletion: async () => ({ json: '{}', metrics: { model: 'test', promptTokens: 0, completionTokens: 0, totalTokens: 0, durationMs: 0 } }),
   };
   assert.equal(mockProvider.name, 'test');
@@ -158,10 +158,12 @@ test('createProvider throws for unknown provider', () => {
 
 import { GrokProvider } from '../../server/providers/grok';
 
-test('GrokProvider.research calls responses.create and returns output_text', async () => {
+test('GrokProvider.research builds default prompt when no rawParams', async () => {
+  const capturedParams: Record<string, unknown>[] = [];
   const mockOpenai = {
     responses: {
       create: async (params: Record<string, unknown>) => {
+        capturedParams.push(params);
         return { output_text: 'Research about cats', usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 } };
       },
     },
@@ -172,6 +174,40 @@ test('GrokProvider.research calls responses.create and returns output_text', asy
   const result = await provider.research('cats');
   assert.equal(result.text, 'Research about cats');
   assert.equal(result.metrics.model, 'grok-4-1-fast-non-reasoning');
+  // Should build its own prompt containing the query
+  const input = capturedParams[0].input as any[];
+  assert.ok(input[0].content.includes('"cats"'));
+});
+
+test('GrokProvider.research passes rawParams through when provided', async () => {
+  const capturedParams: Record<string, unknown>[] = [];
+  const mockOpenai = {
+    responses: {
+      create: async (params: Record<string, unknown>) => {
+        capturedParams.push(params);
+        return { output_text: 'Custom research', usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 } };
+      },
+    },
+    chat: { completions: { create: async () => ({}) } },
+  };
+
+  const customInput = [{ role: 'user', content: 'Custom research prompt about cats with X Search disabled' }];
+  const customTools = [{ type: 'web_search' }];
+
+  const provider = new GrokProvider(mockOpenai as any);
+  const result = await provider.research('cats', {
+    input: customInput,
+    tools: customTools,
+    tool_choice: 'auto',
+  });
+
+  assert.equal(result.text, 'Custom research');
+  // Should pass through the raw params, not build its own prompt
+  const input = capturedParams[0].input as any[];
+  assert.equal(input[0].content, 'Custom research prompt about cats with X Search disabled');
+  const tools = capturedParams[0].tools as any[];
+  assert.equal(tools.length, 1);
+  assert.equal(tools[0].type, 'web_search');
 });
 
 test('GrokProvider.chatCompletion calls chat.completions.create with json_schema', async () => {

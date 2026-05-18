@@ -281,11 +281,12 @@ export function createApp({
       switch (callType) {
         case 'responses': {
           const input = params.input || [];
-          const query =
-            input.length > 0 && typeof input[0].content === 'string'
-              ? input[0].content
-              : '';
-          const result = await provider.research(query);
+          const tools = params.tools || [];
+          const result = await provider.research('', {
+            input,
+            tools,
+            tool_choice: params.tool_choice,
+          });
           model = result.metrics.model;
           response = { output_text: result.text };
           break;

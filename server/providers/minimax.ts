@@ -1,5 +1,5 @@
 import type OpenAI from 'openai';
-import type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema } from './types';
+import type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema, ResearchRawParams } from './types';
 import { extractJson, validateRequiredFields } from './jsonExtractor';
 
 const MINIMAX_MODEL = 'MiniMax-M2.7';
@@ -91,6 +91,7 @@ export class MinimaxProvider implements AIProvider {
 
   async research(
     query: string,
+    _rawParams?: ResearchRawParams,
   ): Promise<{ text: string; metrics: AiCallMetrics }> {
     const start = Date.now();
     let totalPromptTokens = 0;
