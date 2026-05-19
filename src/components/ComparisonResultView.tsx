@@ -173,7 +173,7 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
                 {/* Citations */}
                 {Array.isArray((dim.analysis as any)?.citations) && (dim.analysis as any).citations.length > 0 && (
                   <div className="text-[10px] text-neutral-500 mt-2 pt-2 border-t border-white/5">
-                    Sources:{' '}
+                    {t('result.sourcesLabel')}{' '}
                     {((dim.analysis as any).citations as Array<{ url: string; title: string }>)
                       .map((c, ci) => (
                         <span key={ci}>
@@ -369,8 +369,8 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
       {showShare && (
         <section className="flex flex-col items-center gap-4 py-8">
           <div className="text-center mb-2">
-            <h3 className="text-xl font-bold text-white mb-2">分享你的对比结果</h3>
-            <p className="text-sm text-neutral-400">生成精美海报，分享到小红书</p>
+            <h3 className="text-xl font-bold text-white mb-2">{t('report.shareTitle')}</h3>
+            <p className="text-sm text-neutral-400">{t('report.shareSubtitle')}</p>
           </div>
           <ShareButton result={result} reportUrl={reportUrl} />
         </section>
@@ -380,7 +380,7 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
       {Array.isArray(result.sources) && result.sources.length > 0 && (
         <section className="bg-white/5 backdrop-blur-xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/10">
           <h3 className="text-lg font-bold text-white mb-4">
-            Sources ({result.sources.length})
+            {t('result.sources')} ({result.sources.length})
           </h3>
           <ol className="space-y-1.5 list-decimal list-inside">
             {result.sources.map((source, i) => (

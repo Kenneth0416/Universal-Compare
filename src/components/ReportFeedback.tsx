@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ThumbsUp, ThumbsDown } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface FeedbackStats {
   helpful: number;
@@ -7,6 +8,7 @@ interface FeedbackStats {
 }
 
 export default function ReportFeedback({ reportId }: { reportId: string }) {
+  const { t } = useTranslation();
   const [stats, setStats] = useState<FeedbackStats | null>(null);
   const [voted, setVoted] = useState<boolean | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -51,7 +53,7 @@ export default function ReportFeedback({ reportId }: { reportId: string }) {
 
   return (
     <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 text-center">
-      <p className="text-sm text-neutral-300 mb-3">Was this comparison helpful?</p>
+      <p className="text-sm text-neutral-300 mb-3">{t('feedback.question')}</p>
       <div className="flex justify-center gap-3 mb-3">
         <button
           onClick={() => submit(true)}
@@ -64,7 +66,7 @@ export default function ReportFeedback({ reportId }: { reportId: string }) {
                 : 'bg-white/10 text-white hover:bg-emerald-500/20 hover:text-emerald-400 border border-white/10'
           }`}
         >
-          <ThumbsUp size={14} /> Yes
+          <ThumbsUp size={14} /> {t('feedback.yes')}
         </button>
         <button
           onClick={() => submit(false)}
@@ -77,15 +79,15 @@ export default function ReportFeedback({ reportId }: { reportId: string }) {
                 : 'bg-white/10 text-white hover:bg-rose-500/20 hover:text-rose-400 border border-white/10'
           }`}
         >
-          <ThumbsDown size={14} /> No
+          <ThumbsDown size={14} /> {t('feedback.no')}
         </button>
       </div>
       {voted !== null && (
-        <p className="text-xs text-neutral-500">Thanks for your feedback!</p>
+        <p className="text-xs text-neutral-500">{t('feedback.thanks')}</p>
       )}
       {pct !== null && (
         <p className="text-xs text-neutral-500 mt-1">
-          {pct}% of readers found this helpful ({stats!.total} votes)
+          {t('feedback.stats', { pct, total: stats!.total })}
         </p>
       )}
     </div>

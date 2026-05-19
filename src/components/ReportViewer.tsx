@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 import { Loader2, AlertCircle, ArrowLeft, Search } from 'lucide-react';
 import ComparisonResultView from './ComparisonResultView';
 import MinimalGrid from './react-bits/MinimalGrid';
@@ -9,6 +10,7 @@ import { getReport, getReportBySlug, type ReportData } from '../services/reportS
 import type { ComparisonResult } from '../services/geminiService';
 
 export default function ReportViewer() {
+  const { t } = useTranslation();
   const pathname = window.location.pathname;
   const isCompareUrl = pathname.startsWith('/compare/');
   const reportKey = pathname.replace(isCompareUrl ? '/compare/' : '/r/', '');
@@ -18,7 +20,7 @@ export default function ReportViewer() {
 
   useEffect(() => {
     if (!reportKey) {
-      setError('Invalid report URL');
+      setError(t('report.invalidUrl'));
       setLoading(false);
       return;
     }
@@ -32,8 +34,8 @@ export default function ReportViewer() {
       })
       .catch((err) => {
         setError(err.message === 'Report not found'
-          ? 'Report not found. It may have been deleted.'
-          : 'Failed to load report. Please try again.');
+          ? t('report.notFound')
+          : t('report.loadFailed'));
       })
       .finally(() => setLoading(false));
   }, [isCompareUrl, reportKey]);
@@ -47,7 +49,7 @@ export default function ReportViewer() {
           className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 backdrop-blur-md border border-white/10 text-sm text-neutral-400 hover:text-white transition-all"
         >
           <ArrowLeft size={16} />
-          Home
+          {t('nav.home')}
         </a>
       </div>
 
@@ -57,7 +59,7 @@ export default function ReportViewer() {
         {loading && (
           <div className="flex flex-col items-center justify-center gap-4 py-32">
             <Loader2 className="animate-spin text-indigo-400" size={32} />
-            <p className="text-neutral-400">Loading report...</p>
+            <p className="text-neutral-400">{t('report.loading')}</p>
           </div>
         )}
 
@@ -67,7 +69,7 @@ export default function ReportViewer() {
               <AlertCircle size={24} />
               <p className="font-medium">{error}</p>
               <a href="/" className="text-sm text-indigo-400 hover:text-indigo-300 underline underline-offset-4">
-                Go back to CompareAI
+                {t('report.goBack')}
               </a>
             </div>
           </div>
@@ -102,7 +104,7 @@ export default function ReportViewer() {
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition-colors hover:bg-indigo-500"
               >
                 <Search size={18} />
-                <span>Create your own comparison</span>
+                <span>{t('nav.createComparison')}</span>
               </a>
             </section>
             <RelatedComparisons
