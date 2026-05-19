@@ -1,5 +1,5 @@
 import type OpenAI from 'openai';
-import type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema, ResearchRawParams } from './types';
+import type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema, ResearchRawParams, Source } from './types';
 import { extractJson, validateRequiredFields } from './jsonExtractor';
 
 const DEEPSEEK_MODEL_DEFAULT = 'deepseek-v4-flash';
@@ -38,7 +38,7 @@ async function callMinimaxSearch(
   apiKey: string,
   query: string,
   baseUrl = 'https://api.minimaxi.com',
-): Promise<string> {
+): Promise<{ text: string; sources: Source[] }> {
   const response = await fetch(`${baseUrl}/v1/coding_plan/search`, {
     method: 'POST',
     headers: {
@@ -56,12 +56,28 @@ async function callMinimaxSearch(
 
   const data = await response.json();
   const results = (data as any).organic || (data as any).results || [];
-  return results
+  const sources: Source[] = results.map((r: any) => ({
+    url: r.link || r.url,
+    title: r.title,
+    snippet: r.snippet || '',
+  }));
+  const text = results
     .map(
       (r: any, i: number) =>
         `[${i + 1}] ${r.title}\n${r.link || r.url}\n${r.snippet || ''}`,
     )
     .join('\n\n');
+  return { text, sources };
+}
+
+function deduplicateSourcesByUrl(sources: Source[]): Source[] {
+  const seen = new Set<string>();
+  return sources.filter((s) => {
+    const normalized = (s.url || '').toLowerCase().replace(/\/$/, '');
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
 }
 
 export class MinimaxProvider implements AIProvider {
@@ -91,7 +107,7 @@ export class MinimaxProvider implements AIProvider {
   async research(
     query: string,
     _rawParams?: ResearchRawParams,
-  ): Promise<{ text: string; metrics: AiCallMetrics }> {
+  ): Promise<{ text: string; sources: Source[]; metrics: AiCallMetrics }> {
     const start = Date.now();
     let totalPromptTokens = 0;
     let totalCompletionTokens = 0;
@@ -142,12 +158,13 @@ Respond with ONLY a JSON object: {"queries": ["query1", "query2", ...]}`,
     const searchResults = await Promise.all(
       queries.map((q) =>
         callMinimaxSearch(this.searchApiKey, q, this.searchBaseUrl).catch(
-          (err) => `Search failed for "${q}": ${err.message}`,
+          (err) => ({ text: `Search failed for "${q}": ${err.message}`, sources: [] as Source[] }),
         ),
       ),
     );
+    const allSources = deduplicateSourcesByUrl(searchResults.flatMap((r) => r.sources));
     const combinedResults = queries
-      .map((q, i) => `### Search: "${q}"\n${searchResults[i]}`)
+      .map((q, i) => `### Search: "${q}"\n${searchResults[i].text}`)
       .join('\n\n---\n\n');
 
     // Step 3: DeepSeek synthesizes all results
@@ -174,6 +191,7 @@ Respond with ONLY a JSON object: {"queries": ["query1", "query2", ...]}`,
 
     return {
       text: (synthResponse as any).choices?.[0]?.message?.content || '',
+      sources: allSources,
       metrics: {
         model: this.chatModel,
         promptTokens: totalPromptTokens,
