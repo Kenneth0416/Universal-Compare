@@ -161,6 +161,7 @@ export function createApp({
       return;
     }
 
+    const feedbackStats = reportStore.getFeedbackStats(report.reportId);
     res.set('Cache-Control', 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400');
     res.type('text/html').send(
       renderReportSeoHtml({
@@ -168,6 +169,7 @@ export function createApp({
         featured,
         indexHtml,
         siteUrl,
+        feedbackStats,
         relatedComparisons: listPublicFeaturedComparisons(report.language || featured.language || 'en')
           .filter((item) => item.slug !== featured.slug)
           .slice(0, 6),
@@ -191,6 +193,7 @@ export function createApp({
       return;
     }
 
+    const feedbackStats = reportStore.getFeedbackStats(report.reportId);
     res.set('Cache-Control', 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400');
     res.type('text/html').send(
       renderReportSeoHtml({
@@ -198,6 +201,7 @@ export function createApp({
         featured,
         indexHtml,
         siteUrl,
+        feedbackStats,
       }),
     );
   });
@@ -552,6 +556,24 @@ export function createApp({
     reportStore.incrementViewCount(req.params.reportId);
 
     res.json(report);
+  });
+
+  app.get('/api/reports/:reportId/feedback', (req, res) => {
+    res.json(reportStore.getFeedbackStats(req.params.reportId));
+  });
+
+  app.post('/api/reports/:reportId/feedback', (req: RequestWithVisitor, res) => {
+    const { helpful } = req.body || {};
+    if (typeof helpful !== 'boolean') {
+      res.status(400).json({ error: 'Missing helpful (boolean)' });
+      return;
+    }
+    const visitorId = req.visitorId || '';
+    if (!visitorId) {
+      res.status(400).json({ error: 'Missing visitor identity' });
+      return;
+    }
+    res.json(reportStore.submitFeedback(req.params.reportId, visitorId, helpful));
   });
 
   app.get('/api/admin/reports', (req, res) => {

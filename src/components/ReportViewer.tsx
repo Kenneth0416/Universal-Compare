@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
+import { Loader2, AlertCircle, ArrowLeft, Search } from 'lucide-react';
 import ComparisonResultView from './ComparisonResultView';
 import MinimalGrid from './react-bits/MinimalGrid';
+import RelatedComparisons from './RelatedComparisons';
+import ReportFeedback from './ReportFeedback';
 import { getReport, getReportBySlug, type ReportData } from '../services/reportService';
 import type { ComparisonResult } from '../services/geminiService';
 
@@ -90,6 +92,22 @@ export default function ReportViewer() {
             <ComparisonResultView
               result={report.result as ComparisonResult}
               showShare={true}
+            />
+            <div className="mt-8 max-w-sm mx-auto">
+              <ReportFeedback reportId={report.reportId} />
+            </div>
+            <section className="mt-12 flex justify-center">
+              <a
+                href="/"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition-colors hover:bg-indigo-500"
+              >
+                <Search size={18} />
+                <span>Create your own comparison</span>
+              </a>
+            </section>
+            <RelatedComparisons
+              currentSlug={isCompareUrl ? reportKey : undefined}
+              language={report.language || 'en'}
             />
           </motion.div>
         )}

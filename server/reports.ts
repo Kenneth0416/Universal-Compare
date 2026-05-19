@@ -88,6 +88,17 @@ function initializeSchema(db: DatabaseConnection) {
     CREATE INDEX IF NOT EXISTS idx_reports_run_id ON comparison_reports(run_id);
     CREATE INDEX IF NOT EXISTS idx_reports_created ON comparison_reports(created_at);
     CREATE INDEX IF NOT EXISTS idx_reports_visitor ON comparison_reports(visitor_id);
+
+    CREATE TABLE IF NOT EXISTS report_feedback (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      report_id   TEXT    NOT NULL,
+      visitor_id  TEXT    NOT NULL,
+      helpful     INTEGER NOT NULL,
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(report_id, visitor_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_feedback_report ON report_feedback(report_id);
   `);
 }
 
@@ -195,11 +206,37 @@ export function createReportStore(db: DatabaseConnection) {
     return result.changes > 0;
   };
 
+  const getFeedbackStats = (reportId: string): { helpful: number; total: number } => {
+    const row = db.prepare(`
+      SELECT COUNT(*) as total, SUM(helpful) as helpful
+      FROM report_feedback WHERE report_id = ?
+    `).get(reportId) as any;
+    return { helpful: row?.helpful || 0, total: row?.total || 0 };
+  };
+
+  const submitFeedback = (reportId: string, visitorId: string, helpful: boolean): { helpful: number; total: number } => {
+    db.prepare(`
+      INSERT INTO report_feedback (report_id, visitor_id, helpful)
+      VALUES (?, ?, ?)
+      ON CONFLICT(report_id, visitor_id) DO UPDATE SET helpful = excluded.helpful
+    `).run(reportId, visitorId, helpful ? 1 : 0);
+    return getFeedbackStats(reportId);
+  };
+
+  const updateReportResult = (reportId: string, result: unknown): boolean => {
+    const r = db.prepare('UPDATE comparison_reports SET result_json = ? WHERE report_id = ?')
+      .run(JSON.stringify(result), reportId);
+    return r.changes > 0;
+  };
+
   return {
     saveReport,
     getReport,
     incrementViewCount,
     listReports,
     deleteReport,
+    submitFeedback,
+    getFeedbackStats,
+    updateReportResult,
   };
 }
