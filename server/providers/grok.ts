@@ -48,19 +48,24 @@ Provide detailed, factual information with sources.`,
     const text = (response as any).output_text || '';
     const usage = (response as any).usage || {};
 
-    // Extract source URLs from web_search_result items in the response output
+    // Extract source URLs from url_citation annotations in the response output
     const sources: Source[] = [];
     const seen = new Set<string>();
     const output = (response as any).output || [];
     for (const item of output) {
-      const results = item?.results || item?.search_results || [];
-      for (const r of results) {
-        const url = r?.url || r?.link || '';
-        const title = r?.title || '';
-        const normalized = url.replace(/\/+$/, '').toLowerCase();
-        if (url && title && !seen.has(normalized)) {
+      const contentItems = item?.content || [];
+      if (!Array.isArray(contentItems)) continue;
+      for (const ci of contentItems) {
+        const annotations = ci?.annotations || [];
+        for (const ann of annotations) {
+          if (ann?.type !== 'url_citation' || !ann?.url) continue;
+          const normalized = ann.url.replace(/\/+$/, '').toLowerCase();
+          if (seen.has(normalized)) continue;
           seen.add(normalized);
-          sources.push({ url, title, snippet: r?.snippet || '' });
+          // Extract domain as fallback title
+          let title = '';
+          try { title = new URL(ann.url).hostname.replace(/^www\./, ''); } catch { title = ann.url; }
+          sources.push({ url: ann.url, title, snippet: '' });
         }
       }
     }
