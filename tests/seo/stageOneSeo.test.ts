@@ -59,6 +59,7 @@ test('robots and sitemap expose only public crawl targets for phase one', () => 
   assert.match(robots, new RegExp(`Sitemap: ${siteUrl}/sitemap\\.xml`));
 
   assert.match(sitemap, new RegExp(`<loc>${siteUrl}/</loc>`));
+  assert.match(sitemap, new RegExp(`<loc>${siteUrl}/popular-ai-comparisons</loc>`));
   assert.match(sitemap, /<lastmod>2026-04-30<\/lastmod>/);
 });
 
@@ -68,4 +69,27 @@ test('featured reports use crawlable links instead of script-only navigation', (
   assert.match(source, /<a\s/);
   assert.match(source, /href=\{`\/compare\/\$\{item\.slug\}`\}/);
   assert.doesNotMatch(source, /window\.location\.href\s*=/);
+});
+
+test('homepage links the popular comparisons directory without a request form', () => {
+  const appSource = readProjectFile('src/App.tsx');
+  const mainSource = readProjectFile('src/main.tsx');
+
+  assert.match(appSource, /href="\/popular-ai-comparisons"/);
+  assert.doesNotMatch(appSource, /RequestComparisonForm/);
+  assert.match(mainSource, /popular-ai-comparisons/);
+});
+
+test('sitemap includes methodology and about pages', () => {
+  const seoSource = readProjectFile('server/seo.ts');
+  assert.match(seoSource, /methodology/);
+  assert.match(seoSource, /about/);
+});
+
+test('main.tsx routes methodology and about pages', () => {
+  const mainSource = readProjectFile('src/main.tsx');
+  assert.match(mainSource, /\/methodology/);
+  assert.match(mainSource, /\/about/);
+  assert.match(mainSource, /MethodologyPage/);
+  assert.match(mainSource, /AboutPage/);
 });
