@@ -11,6 +11,13 @@
     "featuredTitle": "试试这些对比",
     "viewReport": "查看报告"
   },
+  "nav": {
+    "home": "首页",
+    "about": "关于",
+    "methodology": "方法论",
+    "popularComparisons": "热门对比",
+    "createComparison": "创建你自己的对比"
+  },
   "result": {
     "relationship": "关系类型",
     "comparisonGoal": "比较目标",
@@ -20,7 +27,72 @@
     "whoShouldChoose": "谁应该选择哪个？",
     "defaultChoice": "默认选择",
     "keyDifference": "主要差异：",
-    "winner": "胜出："
+    "winner": "胜出：",
+    "sources": "来源",
+    "sourcesLabel": "来源："
+  },
+  "methodology": {
+    "label": "方法论",
+    "title": "我们如何生成对比报告",
+    "pipelineTitle": "四阶段 AI 研究流水线",
+    "pipelineDesc": "每次对比都经过严格的四阶段流程，旨在产出均衡且有据可依的分析。",
+    "phase1": "双轨研究",
+    "phase1Desc": "我们从 5-8 个不同角度对每个实体进行网络搜索，收集来自官方资料、评测、基准测试和专家分析的信息。",
+    "phase2": "框架架构",
+    "phase2Desc": "AI 架构师分析两个实体之间的关系，并生成 4-6 个专为它们量身定制的比较维度。不使用通用模板。",
+    "phase3": "多维度分析",
+    "phase3Desc": "每个维度独立分析，采用 0-10 分评分。每项分析引用 1-2 个直接支持其结论的网络来源。",
+    "phase4": "综合评定",
+    "phase4Desc": "最终阶段提取每个实体的优缺点，并给出带有明确结论的可操作建议。",
+    "dataSourcesTitle": "数据来源与验证",
+    "dataSource1": "通过多角度网络搜索，覆盖事实概述、技术规格、专家评测和最新动态",
+    "dataSource2": "分析中的每个论点都链接到其原始来源 URL，确保透明度",
+    "dataSource3": "评分基于公开可用的基准测试、评测和技术规格",
+    "scoringTitle": "评分方法",
+    "scoring1": "所有评分采用 0-10 分制，10 分代表最有利的结果",
+    "scoring2": "对于负面维度（如风险、成本），现实中越低的值获得越高的评分",
+    "scoring3": "评分在对比内部是相对的，不是绝对评级",
+    "editorialTitle": "编辑标准",
+    "editorial1": "对比由 AI 生成，经 CompareAI 编辑团队审核",
+    "editorial2": "精选对比在发布前经过质量审查",
+    "editorial3": "我们的方法论随 AI 能力的提升而持续更新",
+    "limitationsTitle": "局限性",
+    "limitation1": "AI 分析可能存在不准确之处——请务必以原始来源验证关键决策",
+    "limitation2": "评分在每次对比内是相对的，不应跨报告比较",
+    "limitation3": "数据时效性取决于生成时可用的网络来源"
+  },
+  "about": {
+    "label": "关于",
+    "title": "关于 CompareAI",
+    "whatWeDoTitle": "我们做什么",
+    "whatWeDoDesc": "CompareAI 是一款免费的 AI 对比引擎，可以分析任意两个实体——产品、概念、技术、服务或创意。我们的多智能体 AI 流水线使用网络研究来生成有事实依据、有来源支撑的对比报告，包含逐维度评分、优缺点和可操作的建议。",
+    "whyTitle": "为什么做这个",
+    "whyDesc": "对比搜索是网络上最常见的决策类查询之一。现有的对比工具往往缺乏深度、结构化分析和来源透明度。我们构建 CompareAI，旨在提供基于真实网络来源的 AI 对比——而不仅仅是大模型的主观观点。",
+    "teamTitle": "团队",
+    "teamDesc": "CompareAI 由 CompareAI 编辑团队构建和维护。我们将 AI 工程专业知识与编辑严谨性相结合，提供可靠的对比报告。",
+    "editorialTitle": "编辑政策",
+    "editorial1": "每个精选对比都经过准确性和完整性审查",
+    "editorial2": "来源自动从网络研究中收集并直接链接到报告中",
+    "editorial3": "我们优先呈现有事实依据的、可验证的论述，而非主观意见",
+    "editorial4": "当有重要新信息出现时，报告会被更新",
+    "contactTitle": "联系我们",
+    "contactDesc": "如有问题、反馈或合作咨询，请通过我们的网站联系。"
+  },
+  "feedback": {
+    "question": "这个对比对你有帮助吗？",
+    "yes": "有帮助",
+    "no": "没帮助",
+    "thanks": "感谢你的反馈！",
+    "stats": "{{pct}}% 的读者认为此对比有帮助（{{total}} 票）"
+  },
+  "report": {
+    "invalidUrl": "无效的报告链接",
+    "notFound": "未找到报告，可能已被删除。",
+    "loadFailed": "加载报告失败，请重试。",
+    "loading": "正在加载报告...",
+    "goBack": "返回 CompareAI",
+    "shareTitle": "分享你的对比结果",
+    "shareSubtitle": "生成精美海报，分享到社交媒体"
   },
   "loading": {
     "parsingInputs": "解析输入",

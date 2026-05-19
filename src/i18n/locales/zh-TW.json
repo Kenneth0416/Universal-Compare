@@ -11,6 +11,13 @@
     "featuredTitle": "試試這些對比",
     "viewReport": "查看報告"
   },
+  "nav": {
+    "home": "首頁",
+    "about": "關於",
+    "methodology": "方法論",
+    "popularComparisons": "熱門對比",
+    "createComparison": "建立你自己的對比"
+  },
   "result": {
     "relationship": "關係類型",
     "comparisonGoal": "比較目標",
@@ -20,7 +27,72 @@
     "whoShouldChoose": "誰應該選擇哪個？",
     "defaultChoice": "默認選擇",
     "keyDifference": "主要差異：",
-    "winner": "勝出："
+    "winner": "勝出：",
+    "sources": "來源",
+    "sourcesLabel": "來源："
+  },
+  "methodology": {
+    "label": "方法論",
+    "title": "我們如何生成對比報告",
+    "pipelineTitle": "四階段 AI 研究流水線",
+    "pipelineDesc": "每次對比都經過嚴格的四階段流程，旨在產出均衡且有據可依的分析。",
+    "phase1": "雙軌研究",
+    "phase1Desc": "我們從 5-8 個不同角度對每個實體進行網路搜尋，收集來自官方資料、評測、基準測試和專家分析的資訊。",
+    "phase2": "框架架構",
+    "phase2Desc": "AI 架構師分析兩個實體之間的關係，並生成 4-6 個專為它們量身打造的比較維度。不使用通用模板。",
+    "phase3": "多維度分析",
+    "phase3Desc": "每個維度獨立分析，採用 0-10 分評分。每項分析引用 1-2 個直接支持其結論的網路來源。",
+    "phase4": "綜合評定",
+    "phase4Desc": "最終階段提取每個實體的優缺點，並給出帶有明確結論的可操作建議。",
+    "dataSourcesTitle": "資料來源與驗證",
+    "dataSource1": "透過多角度網路搜尋，涵蓋事實概述、技術規格、專家評測和最新動態",
+    "dataSource2": "分析中的每個論點都連結到其原始來源 URL，確保透明度",
+    "dataSource3": "評分基於公開可用的基準測試、評測和技術規格",
+    "scoringTitle": "評分方法",
+    "scoring1": "所有評分採用 0-10 分制，10 分代表最有利的結果",
+    "scoring2": "對於負面維度（如風險、成本），現實中越低的值獲得越高的評分",
+    "scoring3": "評分在對比內部是相對的，不是絕對評級",
+    "editorialTitle": "編輯標準",
+    "editorial1": "對比由 AI 生成，經 CompareAI 編輯團隊審核",
+    "editorial2": "精選對比在發佈前經過品質審查",
+    "editorial3": "我們的方法論隨 AI 能力的提升而持續更新",
+    "limitationsTitle": "侷限性",
+    "limitation1": "AI 分析可能存在不準確之處——請務必以原始來源驗證關鍵決策",
+    "limitation2": "評分在每次對比內是相對的，不應跨報告比較",
+    "limitation3": "資料時效性取決於生成時可用的網路來源"
+  },
+  "about": {
+    "label": "關於",
+    "title": "關於 CompareAI",
+    "whatWeDoTitle": "我們做什麼",
+    "whatWeDoDesc": "CompareAI 是一款免費的 AI 對比引擎，可以分析任意兩個實體——產品、概念、技術、服務或創意。我們的多智能體 AI 流水線使用網路研究來生成有事實依據、有來源支撐的對比報告，包含逐維度評分、優缺點和可操作的建議。",
+    "whyTitle": "為什麼做這個",
+    "whyDesc": "對比搜尋是網路上最常見的決策類查詢之一。現有的對比工具往往缺乏深度、結構化分析和來源透明度。我們建構 CompareAI，旨在提供基於真實網路來源的 AI 對比——而不僅僅是大模型的主觀觀點。",
+    "teamTitle": "團隊",
+    "teamDesc": "CompareAI 由 CompareAI 編輯團隊建構和維護。我們將 AI 工程專業知識與編輯嚴謹性相結合，提供可靠的對比報告。",
+    "editorialTitle": "編輯政策",
+    "editorial1": "每個精選對比都經過準確性和完整性審查",
+    "editorial2": "來源自動從網路研究中收集並直接連結到報告中",
+    "editorial3": "我們優先呈現有事實依據的、可驗證的論述，而非主觀意見",
+    "editorial4": "當有重要新資訊出現時，報告會被更新",
+    "contactTitle": "聯繫我們",
+    "contactDesc": "如有問題、回饋或合作諮詢，請透過我們的網站聯繫。"
+  },
+  "feedback": {
+    "question": "這個對比對你有幫助嗎？",
+    "yes": "有幫助",
+    "no": "沒幫助",
+    "thanks": "感謝你的回饋！",
+    "stats": "{{pct}}% 的讀者認為此對比有幫助（{{total}} 票）"
+  },
+  "report": {
+    "invalidUrl": "無效的報告連結",
+    "notFound": "未找到報告，可能已被刪除。",
+    "loadFailed": "載入報告失敗，請重試。",
+    "loading": "正在載入報告...",
+    "goBack": "返回 CompareAI",
+    "shareTitle": "分享你的對比結果",
+    "shareSubtitle": "生成精美海報，分享到社群媒體"
   },
   "loading": {
     "parsingInputs": "解析輸入",
