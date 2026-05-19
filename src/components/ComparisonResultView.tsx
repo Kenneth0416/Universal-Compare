@@ -170,6 +170,26 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
                     </div>
                   )}
                 </div>
+                {/* Citations */}
+                {Array.isArray((dim.analysis as any)?.citations) && (dim.analysis as any).citations.length > 0 && (
+                  <div className="text-[10px] text-neutral-500 mt-2 pt-2 border-t border-white/5">
+                    Sources:{' '}
+                    {((dim.analysis as any).citations as Array<{ url: string; title: string }>)
+                      .map((c, ci) => (
+                        <span key={ci}>
+                          {ci > 0 && ', '}
+                          <a
+                            href={c.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-indigo-400/60 hover:text-indigo-300 transition-colors"
+                          >
+                            {c.title}
+                          </a>
+                        </span>
+                      ))}
+                  </div>
+                )}
               </ComparisonCard>
             );
           })}
@@ -353,6 +373,29 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
             <p className="text-sm text-neutral-400">生成精美海报，分享到小红书</p>
           </div>
           <ShareButton result={result} reportUrl={reportUrl} />
+        </section>
+      )}
+
+      {/* 6. Sources */}
+      {Array.isArray(result.sources) && result.sources.length > 0 && (
+        <section className="bg-white/5 backdrop-blur-xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/10">
+          <h3 className="text-lg font-bold text-white mb-4">
+            Sources ({result.sources.length})
+          </h3>
+          <ol className="space-y-1.5 list-decimal list-inside">
+            {result.sources.map((source, i) => (
+              <li key={i} className="text-sm text-neutral-400">
+                <a
+                  href={source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-indigo-400/80 hover:text-indigo-300 transition-colors"
+                >
+                  {source.title}
+                </a>
+              </li>
+            ))}
+          </ol>
         </section>
       )}
     </div>
