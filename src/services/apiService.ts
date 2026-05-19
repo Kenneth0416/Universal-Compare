@@ -57,6 +57,12 @@ interface RecommendationResult {
   long_verdict: string;
 }
 
+export interface Source {
+  url: string;
+  title: string;
+  snippet?: string;
+}
+
 // Shared type for comparison result
 export interface ComparisonResult {
   entityA: {
@@ -109,6 +115,7 @@ export interface ComparisonResult {
     short_verdict: string;
     long_verdict: string;
   };
+  sources?: Source[];
 }
 
 // --- Phase 1: Schema definitions (shared with geminiService) ---
@@ -220,16 +227,17 @@ async function callAI<T>(callType: 'responses' | 'chat', params: any, runId?: st
 
 // --- Agent Functions ---
 
-export async function runResearcherAgent(itemName: string, language?: string, runId?: string): Promise<EntityProfile> {
+export async function runResearcherAgent(itemName: string, language?: string, runId?: string): Promise<{ profile: EntityProfile; sources: Source[] }> {
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
   const xSearchMode = normalizeXSearchMode(env?.VITE_X_SEARCH_MODE);
   const researchRequest = buildResearchRequest(itemName, xSearchMode);
-  const researchResponse = await callAI<{ output_text: string }>('responses', {
+  const researchResponse = await callAI<{ output_text: string; sources?: Source[] }>('responses', {
     model: 'grok-4-1-fast-non-reasoning',
     ...researchRequest,
   }, runId);
 
   const researchResults = researchResponse.output_text || '';
+  const sources = researchResponse.sources || [];
 
   // Structured profiling via chat
   const structuredResponse = await callAI<{ choices: Array<{ message: { content: string } }> }>('chat', {
@@ -263,7 +271,8 @@ IMPORTANT: Respond in ${language === 'zh-CN' ? 'Simplified Chinese (简体中文
     temperature: 0.1
   }, runId);
 
-  return JSON.parse(structuredResponse.choices[0].message.content || '{}');
+  const parsedProfile: EntityProfile = JSON.parse(structuredResponse.choices[0].message.content || '{}');
+  return { profile: parsedProfile, sources };
 }
 
 export async function runArchitectAgent(profileA: any, profileB: any, language?: string, runId?: string): Promise<FrameworkResult> {
