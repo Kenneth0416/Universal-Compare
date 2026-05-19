@@ -25,10 +25,20 @@ export type ResearchRawParams = {
   tool_choice?: string;
 };
 
+export type Source = {
+  url: string;
+  title: string;
+  snippet?: string;
+};
+
 export interface AIProvider {
   readonly name: string;
   /** Phase 1: research with web search. rawParams allows pass-through of frontend-built requests. */
-  research(query: string, rawParams?: ResearchRawParams): Promise<{ text: string; metrics: AiCallMetrics }>;
+  research(query: string, rawParams?: ResearchRawParams): Promise<{
+    text: string;
+    sources?: Source[];
+    metrics: AiCallMetrics;
+  }>;
   chatCompletion(params: {
     messages: ChatMessage[];
     schema: JsonSchema;
