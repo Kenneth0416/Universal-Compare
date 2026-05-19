@@ -288,7 +288,7 @@ export function createApp({
             tool_choice: params.tool_choice,
           });
           model = result.metrics.model;
-          response = { output_text: result.text };
+          response = { output_text: result.text, sources: result.sources };
           break;
         }
 
