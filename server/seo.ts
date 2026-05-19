@@ -17,8 +17,10 @@ type SeoReportResult = {
       key_difference?: string;
       optional_score_a?: number;
       optional_score_b?: number;
+      citations?: Array<{ url?: string; title?: string }>;
     };
   }>;
+  sources?: Array<{ url?: string; title?: string; snippet?: string }>;
   prosCons?: {
     item_a_pros?: string[];
     item_a_cons?: string[];
@@ -126,15 +128,14 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
     inLanguage: language,
     author: {
       '@type': 'Organization',
-      name: 'CompareAI',
-      url: siteUrl,
-      logo: `${siteUrl}/logo.svg`,
+      name: 'CompareAI Editorial Team',
+      url: `${siteUrl}/about`,
     },
     publisher: {
       '@type': 'Organization',
       name: 'CompareAI',
       url: siteUrl,
-      logo: { '@type': 'ImageObject', url: `${siteUrl}/logo.svg` },
+      logo: { '@type': 'ImageObject', url: `${siteUrl}${OG_IMAGE_PATH}` },
     },
     mainEntityOfPage: { '@type': 'WebPage', '@id': url },
     about: [
@@ -146,6 +147,14 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
       cssSelector: ['.seo-description', '#seo-verdict', '.seo-kicker'],
     },
   };
+
+  const reportSources = result.sources || [];
+  const validReportSources = reportSources.filter((s) => s.url && s.title);
+  if (validReportSources.length > 0) {
+    (article as any).citation = validReportSources.map((s) => ({
+      '@type': 'WebPage', url: s.url, name: s.title,
+    }));
+  }
 
   // Per-dimension Review schemas - enables LLMs to extract individual comparisons
   const dimensions = result.dimensions || [];
@@ -166,7 +175,7 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
           { '@type': 'Thing', name: itemB },
         ],
         reviewBody,
-        author: { '@type': 'Organization', name: 'CompareAI' },
+        author: { '@type': 'Organization', name: 'CompareAI Editorial Team' },
       };
 
       if (typeof scoreA === 'number' || typeof scoreB === 'number') {
@@ -191,6 +200,14 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
         if (notes.length) {
           review.positiveNotes = { '@type': 'ItemList', itemListElement: notes };
         }
+      }
+
+      const dimCitations = (d.analysis as any)?.citations || [];
+      const validDimCitations = dimCitations.filter((c: any) => c?.url && c?.title);
+      if (validDimCitations.length > 0) {
+        review.citation = validDimCitations.map((c: any) => ({
+          '@type': 'WebPage', url: c.url, name: c.title,
+        }));
       }
 
       return review;
@@ -398,6 +415,15 @@ function renderDimensionSummary(report: ReportData) {
     }
     if (why && why !== keyDiff) parts.push(escapeHtml(why));
 
+    const citations = (dimension.analysis as any)?.citations || [];
+    const validCitations = citations.filter((c: any) => c?.url && c?.title);
+    if (validCitations.length > 0) {
+      const citationLinks = validCitations
+        .map((c: any) => `<a href="${escapeHtml(c.url)}" rel="noopener" target="_blank">${escapeHtml(c.title)}</a>`)
+        .join(', ');
+      parts.push(`<p class="seo-citations">Sources: ${citationLinks}</p>`);
+    }
+
     return `
       <li>
         <h3>${escapeHtml(label)}</h3>
@@ -479,22 +505,42 @@ function renderRecommendation(report: ReportData) {
   return `<section class="seo-section" id="recommendation"><h2>Recommendation</h2>${parts.join('')}</section>`;
 }
 
-function renderReportSummary(report: ReportData, featured: FeaturedComparison | null) {
+function renderSources(report: ReportData) {
+  const result = getReportResult(report);
+  const sources = result.sources || [];
+  const validSources = sources.filter((s) => s.url && s.title);
+  if (!validSources.length) return '';
+
+  const items = validSources
+    .map((s) => `<li><a href="${escapeHtml(s.url!)}" rel="noopener" target="_blank">${escapeHtml(s.title!)}</a></li>`)
+    .join('');
+
+  return `<section class="seo-section" id="sources"><h2>Sources</h2><ol>${items}</ol></section>`;
+}
+
+function renderReportSummary(report: ReportData, featured: FeaturedComparison | null, feedbackStats?: { helpful: number; total: number }) {
   const { itemA, itemB } = getEntityNames(report);
   const result = getReportResult(report);
   const description = getReportDescription(report, featured);
   const verdict = result.recommendation?.which_to_choose_first || result.recommendation?.short_verdict || '';
+  const publishDate = getIsoDate(report.createdAt);
+  const feedbackHtml = feedbackStats && feedbackStats.total >= 5
+    ? `<p class="seo-feedback">${Math.round((feedbackStats.helpful / feedbackStats.total) * 100)}% of readers found this comparison helpful (${feedbackStats.total} votes)</p>`
+    : '';
 
   return `
     <main>
     <article id="seo-report-summary" class="seo-report-summary">
       <p class="seo-kicker">AI comparison report</p>
       <h1>${escapeHtml(itemA)} <span>vs</span> ${escapeHtml(itemB)}</h1>
+      <p class="seo-byline">By <a href="/about">CompareAI Editorial Team</a> &middot; Published ${publishDate} &middot; <a href="/methodology">How we compare</a></p>
       <p class="seo-description">${escapeHtml(description)}</p>
       ${verdict ? `<section class="seo-section" id="quick-answer"><h2>Quick answer</h2><p id="seo-verdict">${escapeHtml(verdict)}</p></section>` : ''}
       ${renderRecommendation(report)}
       ${renderDimensionSummary(report)}
       ${renderProsCons(report)}
+      ${renderSources(report)}
+      ${feedbackHtml}
       <section class="seo-section"><p><a href="/">Create your own comparison</a></p></section>
     </article>
     </main>
@@ -556,12 +602,14 @@ export function renderReportSeoHtml({
   indexHtml,
   siteUrl: rawSiteUrl,
   relatedComparisons,
+  feedbackStats,
 }: {
   report: ReportData;
   featured: FeaturedComparison | null;
   indexHtml: string;
   siteUrl?: string;
   relatedComparisons?: SeoComparisonLink[];
+  feedbackStats?: { helpful: number; total: number };
 }) {
   const siteUrl = normalizeSiteUrl(rawSiteUrl);
   const { itemA, itemB } = getEntityNames(report);
@@ -599,7 +647,7 @@ export function renderReportSeoHtml({
   return injectSeoIntoHtml(
     indexHtml,
     head,
-    `${renderReportSummary(report, featured)}${renderComparisonLinks(relatedComparisons || [], 'Related AI comparisons')}`,
+    `${renderReportSummary(report, featured, feedbackStats)}${renderComparisonLinks(relatedComparisons || [], 'Related AI comparisons')}`,
   );
 }
 
