@@ -178,8 +178,20 @@ const analysisSchema = {
     better_for: { type: 'string', description: "'A', 'B', 'Both', or 'Neither'" },
     optional_score_a: { type: 'number' },
     optional_score_b: { type: 'number' },
+    citations: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          url: { type: 'string' },
+          title: { type: 'string' },
+        },
+        required: ['url', 'title'],
+      },
+    },
   },
-  required: ["item_a_summary", "item_b_summary", "key_difference", "better_for", "optional_score_a", "optional_score_b"]
+  required: ["item_a_summary", "item_b_summary", "key_difference", "better_for", "optional_score_a", "optional_score_b", "citations"]
 };
 
 const prosConsSchema = {
@@ -304,7 +316,7 @@ IMPORTANT: In all your outputs, always refer to entities by their actual names (
   return JSON.parse(response.choices[0].message.content || '{}');
 }
 
-export async function runAnalystAgent(profileA: any, profileB: any, dimension: any, language?: string, runId?: string): Promise<any> {
+export async function runAnalystAgent(profileA: any, profileB: any, dimension: any, sources: Source[] = [], language?: string, runId?: string): Promise<any> {
   const prompt = `You are an Analyst Agent. Compare the following two entities strictly on the dimension: "${dimension.label}".
 
 ${profileA.name}: ${profileA.short_definition}
@@ -318,8 +330,15 @@ SCORING RULE: Scores must always represent desirability or advantage (10 = best 
 
 IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders in your analysis text.`;
 
+  const sourcesPrompt = sources.length > 0
+    ? `\n\nAVAILABLE SOURCES (cite 1-2 most relevant in your "citations" array):
+${sources.slice(0, 20).map((s, i) => `[${i + 1}] ${s.title} — ${s.url}`).join('\n')}
+
+CITATION RULE: Include 1-2 sources from the list above that directly support your analysis for this dimension. Only cite genuinely relevant sources. If none are relevant, return an empty array.`
+    : '';
+
   const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh-CN' ? 'Simplified Chinese (简体中文)' : language === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
-  const fullPrompt = `${prompt}${languagePrompt}`;
+  const fullPrompt = `${prompt}${sourcesPrompt}${languagePrompt}`;
 
   const response = await callAI<{ choices: Array<{ message: { content: string } }> }>('chat', {
     model: 'grok-4-1-fast-non-reasoning',
