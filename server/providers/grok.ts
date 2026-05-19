@@ -1,5 +1,5 @@
 import type OpenAI from 'openai';
-import type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema, ResearchRawParams } from './types';
+import type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema, ResearchRawParams, Source } from './types';
 
 const LLM_TIMEOUT_MS = 120_000;
 
@@ -11,7 +11,7 @@ export class GrokProvider implements AIProvider {
     this.client = client;
   }
 
-  async research(query: string, rawParams?: ResearchRawParams): Promise<{ text: string; metrics: AiCallMetrics }> {
+  async research(query: string, rawParams?: ResearchRawParams): Promise<{ text: string; sources: Source[]; metrics: AiCallMetrics }> {
     const model = 'grok-4-1-fast-non-reasoning';
     const start = Date.now();
 
@@ -48,8 +48,26 @@ Provide detailed, factual information with sources.`,
     const text = (response as any).output_text || '';
     const usage = (response as any).usage || {};
 
+    // Extract source URLs from web_search_result items in the response output
+    const sources: Source[] = [];
+    const seen = new Set<string>();
+    const output = (response as any).output || [];
+    for (const item of output) {
+      const results = item?.results || item?.search_results || [];
+      for (const r of results) {
+        const url = r?.url || r?.link || '';
+        const title = r?.title || '';
+        const normalized = url.replace(/\/+$/, '').toLowerCase();
+        if (url && title && !seen.has(normalized)) {
+          seen.add(normalized);
+          sources.push({ url, title, snippet: r?.snippet || '' });
+        }
+      }
+    }
+
     return {
       text,
+      sources,
       metrics: {
         model,
         promptTokens: usage.prompt_tokens || usage.input_tokens || 0,
