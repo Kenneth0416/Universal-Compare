@@ -43,10 +43,18 @@ import {
   addAdminFeatured,
   deleteAdminFeatured,
   patchAdminFeatured,
+  backfillSources,
 } from './adminApi';
 import { generateComparison } from '../services/geminiService';
 import { saveReport } from '../services/reportService';
-import type { AdminSummary, CallListItem, FeaturedComparison, ReportListItem, RunListItem, UserListItem } from './types';
+import type {
+  AdminSummary,
+  CallListItem,
+  FeaturedComparison,
+  ReportListItem,
+  RunListItem,
+  UserListItem,
+} from './types';
 
 type AdminTab = 'overview' | 'runs' | 'calls' | 'users' | 'reports';
 
@@ -346,6 +354,7 @@ export default function AdminApp() {
   const [featured, setFeatured] = useState<FeaturedComparison[]>([]);
   const [generatingIds, setGeneratingIds] = useState<Set<number>>(new Set());
   const [generatingProgress, setGeneratingProgress] = useState<Record<number, string>>({});
+  const [backfillingId, setBackfillingId] = useState<number | null>(null);
   const [newItemA, setNewItemA] = useState('');
   const [newItemB, setNewItemB] = useState('');
   const [newLang, setNewLang] = useState('en');
@@ -788,15 +797,35 @@ export default function AdminApp() {
                                 {progress || 'Generating...'}
                               </span>
                             ) : item.reportId ? (
-                              <a
-                                href={`/compare/${item.slug}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300 transition hover:bg-emerald-500/20"
-                              >
-                                <Check size={10} />
-                                Report
-                              </a>
+                              <>
+                                <a
+                                  href={`/compare/${item.slug}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300 transition hover:bg-emerald-500/20"
+                                >
+                                  <Check size={10} />
+                                  Report
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setBackfillingId(item.id);
+                                    try {
+                                      const result = await backfillSources(item.reportId!);
+                                      alert(`Backfilled: ${result.sourcesCount} sources, ${result.dimensionsUpdated} dimensions`);
+                                    } catch (err: any) {
+                                      alert(`Failed: ${err.message}`);
+                                    } finally {
+                                      setBackfillingId(null);
+                                    }
+                                  }}
+                                  disabled={backfillingId === item.id}
+                                  className="text-xs text-blue-400 hover:text-blue-300 disabled:text-neutral-600"
+                                >
+                                  {backfillingId === item.id ? 'Backfilling...' : 'Backfill Sources'}
+                                </button>
+                              </>
                             ) : (
                               <button
                                 type="button"

@@ -494,6 +494,104 @@ export function createApp({
     res.json({ ok: true });
   });
 
+  app.post('/api/admin/reports/:reportId/backfill-sources', async (req, res) => {
+    const report = reportStore.getReport(req.params.reportId);
+    if (!report) {
+      res.status(404).json({ error: 'Report not found' });
+      return;
+    }
+
+    try {
+      const result = report.result as any;
+
+      // Research both items to get sources
+      const [resA, resB] = await Promise.all([
+        provider.research(report.itemA),
+        provider.research(report.itemB),
+      ]);
+
+      const allSourcesRaw = [...(resA.sources || []), ...(resB.sources || [])];
+      const seen = new Set<string>();
+      const allSources = allSourcesRaw.filter((s) => {
+        const norm = (s.url || '').replace(/\/+$/, '').toLowerCase();
+        if (!norm || seen.has(norm)) return false;
+        seen.add(norm);
+        return true;
+      }).slice(0, 20);
+
+      // For each dimension, match citations
+      const dimensions = result.dimensions || [];
+      let dimensionsUpdated = 0;
+
+      for (const dim of dimensions) {
+        if (!dim.analysis) continue;
+
+        const citationResult = await provider.chatCompletion({
+          messages: [
+            {
+              role: 'user',
+              content: `Given this analysis and available sources, pick 1-2 most relevant sources that directly support the analysis.
+
+Analysis dimension: ${dim.label || dim.key}
+Key difference: ${dim.analysis.key_difference || ''}
+Item A summary: ${dim.analysis.item_a_summary || ''}
+Item B summary: ${dim.analysis.item_b_summary || ''}
+
+Available sources:
+${allSources.map((s: any, i: number) => `[${i + 1}] ${s.title} — ${s.url}`).join('\n')}
+
+Return ONLY the citations array.`,
+            },
+          ],
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              citations: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    url: { type: 'string' },
+                    title: { type: 'string' },
+                  },
+                  required: ['url', 'title'],
+                },
+              },
+            },
+            required: ['citations'],
+          },
+          schemaName: 'citation_match',
+          temperature: 0.1,
+        });
+
+        try {
+          const parsed = JSON.parse(citationResult.json);
+          dim.analysis.citations = parsed.citations || [];
+          dimensionsUpdated++;
+        } catch {
+          dim.analysis.citations = [];
+        }
+      }
+
+      // Update report with sources and citations
+      result.sources = allSources;
+      reportStore.updateReportResult(report.reportId, result);
+
+      res.json({
+        success: true,
+        sourcesCount: allSources.length,
+        dimensionsUpdated,
+      });
+    } catch (error) {
+      console.error('Backfill failed:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Backfill failed',
+      });
+    }
+  });
+
   // --- Report endpoints ---
 
   app.post('/api/reports', (req: RequestWithVisitor, res) => {

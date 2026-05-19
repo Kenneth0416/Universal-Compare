@@ -1,4 +1,12 @@
-import type { AdminSummary, CallListItem, FeaturedComparison, ListResponse, ReportListItem, RunListItem, UserListItem } from './types';
+import type {
+  AdminSummary,
+  CallListItem,
+  FeaturedComparison,
+  ListResponse,
+  ReportListItem,
+  RunListItem,
+  UserListItem,
+} from './types';
 
 const API_BASE = '/api/admin';
 
@@ -83,4 +91,20 @@ export function patchAdminFeatured(id: number, reportId: string) {
     method: 'PATCH',
     body: JSON.stringify({ reportId }),
   });
+}
+
+export async function backfillSources(reportId: string): Promise<{
+  success: boolean;
+  sourcesCount: number;
+  dimensionsUpdated: number;
+}> {
+  const res = await fetch(`/api/admin/reports/${reportId}/backfill-sources`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Backfill failed' }));
+    throw new Error(err.error);
+  }
+  return res.json();
 }
