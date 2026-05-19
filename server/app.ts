@@ -14,7 +14,9 @@ import type { createAnalyticsStore } from './analytics';
 import type { createFeaturedStore } from './featured';
 import type { createReportStore } from './reports';
 import {
+  renderAboutHtml,
   renderLlmsTxt,
+  renderMethodologyHtml,
   renderPopularComparisonsHtml,
   renderReportNotFoundHtml,
   renderReportSeoHtml,
@@ -115,6 +117,26 @@ export function createApp({
     featuredStore
       .listFeatured(language)
       .filter((item) => item.reportId && item.slug);
+
+  app.get('/methodology', (_req, res) => {
+    const indexHtml = readClientIndexHtml();
+    const { total: totalReports } = reportStore.listReports({ limit: 1 });
+    const totalFeatured = featuredStore.listFeatured().length;
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('text/html').send(
+      renderMethodologyHtml({
+        indexHtml,
+        siteUrl,
+        stats: { totalReports, totalFeatured },
+      }),
+    );
+  });
+
+  app.get('/about', (_req, res) => {
+    const indexHtml = readClientIndexHtml();
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('text/html').send(renderAboutHtml({ indexHtml, siteUrl }));
+  });
 
   app.get('/popular-ai-comparisons', (_req, res) => {
     const indexHtml = readClientIndexHtml();

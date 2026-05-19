@@ -731,6 +731,176 @@ export function renderPopularComparisonsHtml({
   return injectSeoIntoHtml(indexHtml, head, renderPopularComparisonsBody(comparisons, description));
 }
 
+export function renderMethodologyHtml({
+  indexHtml,
+  siteUrl: rawSiteUrl,
+  stats,
+}: {
+  indexHtml: string;
+  siteUrl?: string;
+  stats?: { totalReports: number; totalFeatured: number };
+}) {
+  const siteUrl = normalizeSiteUrl(rawSiteUrl);
+  const url = `${siteUrl}/methodology`;
+  const title = 'How Our Comparisons Are Generated | CompareAI';
+  const description = "Learn about CompareAI's 4-phase AI research pipeline, scoring methodology, data sources, and editorial standards.";
+
+  const statsLine = stats
+    ? `<p class="seo-stats">${stats.totalReports.toLocaleString()}+ comparisons generated &middot; ${stats.totalFeatured} featured reports &middot; 30+ web sources per report</p>`
+    : '';
+
+  const structuredData = [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'TechArticle',
+      headline: title,
+      description,
+      url,
+      author: { '@type': 'Organization', name: 'CompareAI Editorial Team', url: `${siteUrl}/about` },
+      publisher: { '@type': 'Organization', name: 'CompareAI', url: siteUrl },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, item: { '@id': `${siteUrl}/`, name: 'Home' } },
+        { '@type': 'ListItem', position: 2, item: { '@id': url, name: 'Methodology' } },
+      ],
+    },
+  ];
+
+  const head = `
+    <title>${escapeHtml(title)}</title>
+    <meta name="title" content="${escapeHtml(title)}" />
+    <meta name="description" content="${escapeHtml(description)}" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="${escapeHtml(url)}" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="CompareAI" />
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:url" content="${escapeHtml(url)}" />
+    <meta property="og:image" content="${escapeHtml(`${siteUrl}${OG_IMAGE_PATH}`)}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    ${renderJsonLdBlocks(structuredData)}
+  `;
+
+  const body = `
+    <main class="seo-report-summary">
+      <p class="seo-kicker">Methodology</p>
+      <h1>How Our Comparisons Are Generated</h1>
+      ${statsLine}
+      <section class="seo-section"><h2>Our 4-Phase AI Research Pipeline</h2>
+        <ol>
+          <li><strong>Dual-Track Research</strong> &mdash; Web search across 5-8 angles per entity</li>
+          <li><strong>Framework Architecture</strong> &mdash; Relationship analysis with 4-6 tailored dimensions</li>
+          <li><strong>Multi-Dimensional Analysis</strong> &mdash; Scored 0-10 with cited sources</li>
+          <li><strong>Synthesis</strong> &mdash; Pros/cons extraction and final verdict</li>
+        </ol>
+      </section>
+      <section class="seo-section"><h2>Data Sources &amp; Verification</h2>
+        <p>Each comparison uses web search across multiple query angles. Claims are linked to original source URLs for transparency.</p>
+      </section>
+      <section class="seo-section"><h2>Scoring Methodology</h2>
+        <p>All scores use a 0-10 scale where 10 = most favorable. For negative dimensions, lower real-world values receive higher scores.</p>
+      </section>
+      <section class="seo-section"><h2>Editorial Standards</h2>
+        <p>AI-generated, reviewed by <a href="/about">CompareAI Editorial Team</a>. Featured comparisons undergo quality review.</p>
+      </section>
+      <section class="seo-section"><h2>Limitations</h2>
+        <p>AI analysis may contain inaccuracies. Scores are relative, not absolute. Data freshness depends on available web sources.</p>
+      </section>
+      <section class="seo-section"><p><a href="/">Create your own comparison</a> &middot; <a href="/about">About</a></p></section>
+    </main>
+  `;
+
+  return injectSeoIntoHtml(indexHtml, head, body);
+}
+
+export function renderAboutHtml({
+  indexHtml,
+  siteUrl: rawSiteUrl,
+}: {
+  indexHtml: string;
+  siteUrl?: string;
+}) {
+  const siteUrl = normalizeSiteUrl(rawSiteUrl);
+  const url = `${siteUrl}/about`;
+  const title = 'About CompareAI';
+  const description = 'Learn about CompareAI — a free AI-powered comparison engine with web-sourced analysis, editorial standards, and transparent methodology.';
+
+  const structuredData = [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'AboutPage',
+      name: title,
+      url,
+      description,
+      mainEntity: {
+        '@type': 'Organization',
+        name: 'CompareAI',
+        url: siteUrl,
+        logo: `${siteUrl}${OG_IMAGE_PATH}`,
+      },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, item: { '@id': `${siteUrl}/`, name: 'Home' } },
+        { '@type': 'ListItem', position: 2, item: { '@id': url, name: 'About' } },
+      ],
+    },
+  ];
+
+  const head = `
+    <title>${escapeHtml(title)}</title>
+    <meta name="title" content="${escapeHtml(title)}" />
+    <meta name="description" content="${escapeHtml(description)}" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="${escapeHtml(url)}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CompareAI" />
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:url" content="${escapeHtml(url)}" />
+    <meta property="og:image" content="${escapeHtml(`${siteUrl}${OG_IMAGE_PATH}`)}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    ${renderJsonLdBlocks(structuredData)}
+  `;
+
+  const body = `
+    <main class="seo-report-summary">
+      <p class="seo-kicker">About</p>
+      <h1>About CompareAI</h1>
+      <section class="seo-section"><h2>What We Do</h2>
+        <p>CompareAI is a free AI-powered comparison engine that analyzes any two entities using a multi-agent AI pipeline with web research. Reports include dimension-by-dimension scoring, pros and cons, and actionable recommendations.</p>
+      </section>
+      <section class="seo-section"><h2>Why We Built This</h2>
+        <p>Comparison searches are among the most common decision-making queries. We built CompareAI to provide AI comparisons backed by real web sources, not just LLM opinions.</p>
+      </section>
+      <section class="seo-section"><h2>The Team</h2>
+        <p>Built and maintained by the CompareAI Editorial Team.</p>
+      </section>
+      <section class="seo-section"><h2>Editorial Policy</h2>
+        <ul>
+          <li>Every featured comparison is reviewed for accuracy and completeness</li>
+          <li>Sources are automatically collected from web research and linked in reports</li>
+          <li>We prioritize factual claims over subjective opinions</li>
+          <li>Reports are updated when significant new information becomes available</li>
+        </ul>
+      </section>
+      <section class="seo-section"><p><a href="/">Create your own comparison</a> &middot; <a href="/methodology">Methodology</a></p></section>
+    </main>
+  `;
+
+  return injectSeoIntoHtml(indexHtml, head, body);
+}
+
 export function renderReportNotFoundHtml(indexHtml: string, siteUrl?: string) {
   const normalizedSiteUrl = normalizeSiteUrl(siteUrl);
   const head = `
@@ -762,6 +932,18 @@ export function renderSitemapXml(reports: SitemapReport[], siteUrl?: string) {
       lastmod: today,
       changefreq: 'weekly',
       priority: '0.8',
+    },
+    {
+      loc: `${normalizedSiteUrl}/methodology`,
+      lastmod: today,
+      changefreq: 'monthly',
+      priority: '0.6',
+    },
+    {
+      loc: `${normalizedSiteUrl}/about`,
+      lastmod: today,
+      changefreq: 'monthly',
+      priority: '0.5',
     },
     ...reports.map((report) => ({
       loc: `${normalizedSiteUrl}/compare/${encodeURIComponent(report.slug)}`,
