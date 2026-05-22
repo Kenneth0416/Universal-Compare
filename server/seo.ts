@@ -955,6 +955,105 @@ export function renderAboutHtml({
   return injectSeoIntoHtml(indexHtml, head, body);
 }
 
+export function renderHomepageHtml({
+  indexHtml,
+  siteUrl: rawSiteUrl,
+  featuredComparisons,
+}: {
+  indexHtml: string;
+  siteUrl?: string;
+  featuredComparisons?: SeoComparisonLink[];
+}) {
+  const siteUrl = normalizeSiteUrl(rawSiteUrl);
+  const title = 'CompareAI - AI Comparison Tool for Products, Apps, and Decisions';
+  const description = 'Compare products, apps, concepts, and everyday decisions with AI. Get clear pros and cons, key differences, and a smarter recommendation in seconds.';
+
+  const featuredLinks = (featuredComparisons || []).slice(0, 8);
+  const featuredHtml = featuredLinks.length > 0
+    ? `<section class="seo-section"><h2>Popular comparisons</h2><ul>${featuredLinks
+        .map((item) => `<li><a href="/compare/${escapeHtml(encodeURIComponent(item.slug))}">${escapeHtml(item.itemA)} vs ${escapeHtml(item.itemB)}</a>${item.description ? ` &mdash; ${escapeHtml(item.description)}` : ''}</li>`)
+        .join('')}</ul></section>`
+    : '';
+
+  const structuredData = [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'WebApplication',
+      name: 'CompareAI',
+      description,
+      url: `${siteUrl}/`,
+      applicationCategory: 'UtilityApplication',
+      operatingSystem: 'Web',
+      inLanguage: 'en',
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: 'CompareAI',
+      url: siteUrl,
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: { '@type': 'EntryPoint', urlTemplate: `${siteUrl}/?q={search_term_string}` },
+        'query-input': 'required name=search_term_string',
+      },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'Organization',
+      name: 'CompareAI',
+      url: siteUrl,
+      logo: `${siteUrl}${OG_IMAGE_PATH}`,
+    },
+  ];
+
+  const head = `
+    <title>${escapeHtml(title)}</title>
+    <meta name="title" content="${escapeHtml(title)}" />
+    <meta name="description" content="${escapeHtml(description)}" />
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" />
+    <link rel="canonical" href="${escapeHtml(siteUrl)}/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CompareAI" />
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:url" content="${escapeHtml(siteUrl)}/" />
+    <meta property="og:image" content="${escapeHtml(`${siteUrl}${OG_IMAGE_PATH}`)}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    <meta name="twitter:image" content="${escapeHtml(`${siteUrl}${OG_IMAGE_PATH}`)}" />
+    ${renderJsonLdBlocks(structuredData)}
+  `;
+
+  const body = `
+    <main class="seo-report-summary">
+      <h1>Compare Anything with AI</h1>
+      <p class="seo-description">${escapeHtml(description)}</p>
+      <section class="seo-section">
+        <h2>How it works</h2>
+        <ol>
+          <li>Enter any two entities &mdash; products, concepts, technologies, or ideas</li>
+          <li>Our AI pipeline researches both entities across 5-8 web sources</li>
+          <li>Get a detailed report with scores, pros/cons, and a clear recommendation</li>
+        </ol>
+      </section>
+      ${featuredHtml}
+      <nav class="seo-section">
+        <ul>
+          <li><a href="/popular-ai-comparisons">Browse all comparisons</a></li>
+          <li><a href="/methodology">How we compare</a></li>
+          <li><a href="/about">About CompareAI</a></li>
+        </ul>
+      </nav>
+    </main>
+  `;
+
+  return injectSeoIntoHtml(indexHtml, head, body);
+}
+
 export function renderReportNotFoundHtml(indexHtml: string, siteUrl?: string) {
   const normalizedSiteUrl = normalizeSiteUrl(siteUrl);
   const head = `

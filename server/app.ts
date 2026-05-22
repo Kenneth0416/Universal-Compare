@@ -15,6 +15,7 @@ import type { createFeaturedStore } from './featured';
 import type { createReportStore } from './reports';
 import {
   renderAboutHtml,
+  renderHomepageHtml,
   renderLlmsTxt,
   renderMethodologyHtml,
   renderPopularComparisonsHtml,
@@ -117,6 +118,18 @@ export function createApp({
     featuredStore
       .listFeatured(language)
       .filter((item) => item.reportId && item.slug);
+
+  app.get('/', (_req, res) => {
+    const indexHtml = readClientIndexHtml();
+    res.set('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=3600');
+    res.type('text/html').send(
+      renderHomepageHtml({
+        indexHtml,
+        siteUrl,
+        featuredComparisons: listPublicFeaturedComparisons('en').slice(0, 8),
+      }),
+    );
+  });
 
   app.get('/methodology', (_req, res) => {
     const indexHtml = readClientIndexHtml();
