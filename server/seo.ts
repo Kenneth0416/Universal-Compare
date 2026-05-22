@@ -387,6 +387,50 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
   return blocks;
 }
 
+function computeDimensionScores(report: ReportData) {
+  const result = getReportResult(report);
+  const dimensions = result.dimensions || [];
+  let sumA = 0, sumB = 0, countA = 0, countB = 0;
+  for (const d of dimensions) {
+    if (typeof d.analysis?.optional_score_a === 'number') { sumA += d.analysis.optional_score_a; countA++; }
+    if (typeof d.analysis?.optional_score_b === 'number') { sumB += d.analysis.optional_score_b; countB++; }
+  }
+  return {
+    avgA: countA > 0 ? (sumA / countA).toFixed(1) : null,
+    avgB: countB > 0 ? (sumB / countB).toFixed(1) : null,
+    hasScores: countA > 0 || countB > 0,
+  };
+}
+
+function renderComparisonTable(report: ReportData) {
+  const result = getReportResult(report);
+  const dimensions = result.dimensions || [];
+  const scored = dimensions.filter(
+    (d) => typeof d.analysis?.optional_score_a === 'number' || typeof d.analysis?.optional_score_b === 'number',
+  );
+  if (!scored.length) return '';
+
+  const { itemA, itemB } = getEntityNames(report);
+  const { avgA, avgB } = computeDimensionScores(report);
+
+  const rows = scored.map((d) => {
+    const label = d.label || d.key || 'Dimension';
+    const sA = typeof d.analysis?.optional_score_a === 'number' ? `${d.analysis.optional_score_a}/10` : '—';
+    const sB = typeof d.analysis?.optional_score_b === 'number' ? `${d.analysis.optional_score_b}/10` : '—';
+    return `<tr><td>${escapeHtml(label)}</td><td>${sA}</td><td>${sB}</td></tr>`;
+  }).join('');
+
+  const footerA = avgA ? `${avgA}/10` : '—';
+  const footerB = avgB ? `${avgB}/10` : '—';
+
+  return `
+    <table class="seo-comparison-table">
+      <thead><tr><th>Dimension</th><th>${escapeHtml(itemA)}</th><th>${escapeHtml(itemB)}</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><th>Overall</th><th>${footerA}</th><th>${footerB}</th></tr></tfoot>
+    </table>`;
+}
+
 function renderDimensionSummary(report: ReportData) {
   const result = getReportResult(report);
   const dimensions = result.dimensions || [];
@@ -431,7 +475,7 @@ function renderDimensionSummary(report: ReportData) {
       </li>`;
   });
 
-  return `<section class="seo-section" id="key-differences"><h2>Key differences</h2><ul>${items.join('')}</ul></section>`;
+  return `<section class="seo-section" id="key-differences"><h2>What are the key differences between ${escapeHtml(itemA)} and ${escapeHtml(itemB)}?</h2><ul>${items.join('')}</ul></section>`;
 }
 
 function renderProsCons(report: ReportData) {
@@ -465,7 +509,7 @@ function renderProsCons(report: ReportData) {
   }
 
   if (!sections.length) return '';
-  return `<section class="seo-section" id="pros-cons"><h2>Pros and cons</h2>${sections.join('')}</section>`;
+  return `<section class="seo-section" id="pros-cons"><h2>What are the pros and cons of ${escapeHtml(itemA)} vs ${escapeHtml(itemB)}?</h2>${sections.join('')}</section>`;
 }
 
 function renderRecommendation(report: ReportData) {
@@ -502,7 +546,7 @@ function renderRecommendation(report: ReportData) {
   }
 
   if (!parts.length) return '';
-  return `<section class="seo-section" id="recommendation"><h2>Recommendation</h2>${parts.join('')}</section>`;
+  return `<section class="seo-section" id="recommendation"><h2>Should I choose ${escapeHtml(itemA)} or ${escapeHtml(itemB)}?</h2>${parts.join('')}</section>`;
 }
 
 function renderSources(report: ReportData) {
@@ -515,7 +559,7 @@ function renderSources(report: ReportData) {
     .map((s) => `<li><a href="${escapeHtml(s.url!)}" rel="noopener" target="_blank">${escapeHtml(s.title!)}</a></li>`)
     .join('');
 
-  return `<section class="seo-section" id="sources"><h2>Sources</h2><ol>${items}</ol></section>`;
+  return `<section class="seo-section" id="sources"><h2>Where does this data come from?</h2><ol>${items}</ol></section>`;
 }
 
 function renderReportSummary(report: ReportData, featured: FeaturedComparison | null, feedbackStats?: { helpful: number; total: number }) {
@@ -528,6 +572,15 @@ function renderReportSummary(report: ReportData, featured: FeaturedComparison | 
     ? `<p class="seo-feedback">${Math.round((feedbackStats.helpful / feedbackStats.total) * 100)}% of readers found this comparison helpful (${feedbackStats.total} votes)</p>`
     : '';
 
+  // BLUF: data-rich conclusion sentence for AI extraction
+  const { avgA, avgB, hasScores } = computeDimensionScores(report);
+  const dimCount = (result.dimensions || []).length;
+  const srcCount = (result.sources || []).length;
+  const sourcesClause = srcCount > 0 ? ` with ${srcCount} sources` : '';
+  const blufSentence = hasScores && dimCount > 0
+    ? `Based on our analysis across ${dimCount} dimensions${sourcesClause}, ${escapeHtml(itemA)} scores ${avgA}/10 overall while ${escapeHtml(itemB)} scores ${avgB}/10.`
+    : '';
+
   return `
     <main>
     <article id="seo-report-summary" class="seo-report-summary">
@@ -535,7 +588,8 @@ function renderReportSummary(report: ReportData, featured: FeaturedComparison | 
       <h1>${escapeHtml(itemA)} <span>vs</span> ${escapeHtml(itemB)}</h1>
       <p class="seo-byline">By <a href="/about">CompareAI Editorial Team</a> &middot; Published ${publishDate} &middot; <a href="/methodology">How we compare</a></p>
       <p class="seo-description">${escapeHtml(description)}</p>
-      ${verdict ? `<section class="seo-section" id="quick-answer"><h2>Quick answer</h2><p id="seo-verdict">${escapeHtml(verdict)}</p></section>` : ''}
+      ${verdict ? `<section class="seo-section" id="quick-answer"><h2>Who wins: ${escapeHtml(itemA)} or ${escapeHtml(itemB)}?</h2><p id="seo-verdict">${escapeHtml(verdict)}</p>${blufSentence ? `<p class="seo-bluf">${blufSentence}</p>` : ''}</section>` : ''}
+      ${renderComparisonTable(report)}
       ${renderRecommendation(report)}
       ${renderDimensionSummary(report)}
       ${renderProsCons(report)}
