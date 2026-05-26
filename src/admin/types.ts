@@ -111,3 +111,21 @@ export type ListResponse<T> = {
   items: T[];
   total: number;
 };
+
+export type DemandSenseSignals = {
+  existing_articles_count: number;
+  has_reddit_discussion: boolean;
+  has_authoritative_source: boolean;
+  competition_level: 'low' | 'medium' | 'high';
+  freshness: 'stale' | 'recent' | 'fresh';
+};
+
+export type DemandSenseResult = {
+  score: number;
+  recommendation: 'skip' | 'consider' | 'good' | 'excellent';
+  signals: DemandSenseSignals;
+  reasoning: string;
+  topSources: Array<{ url: string; title: string }>;
+  partial: boolean;
+  metrics: { durationMs: number; totalTokens: number };
+};

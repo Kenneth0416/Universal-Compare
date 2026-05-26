@@ -1,6 +1,7 @@
 import type {
   AdminSummary,
   CallListItem,
+  DemandSenseResult,
   FeaturedComparison,
   ListResponse,
   ReportListItem,
@@ -107,4 +108,11 @@ export async function backfillSources(reportId: string): Promise<{
     throw new Error(err.error);
   }
   return res.json();
+}
+
+export function preflightFeatured(itemA: string, itemB: string, language: string) {
+  return request<DemandSenseResult>('/featured/preflight', {
+    method: 'POST',
+    body: JSON.stringify({ itemA, itemB, language }),
+  });
 }

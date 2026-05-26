@@ -8,6 +8,7 @@ import {
   Database,
   Eye,
   FileText,
+  Gauge,
   GitCompareArrows,
   Loader2,
   LogOut,
@@ -44,12 +45,14 @@ import {
   deleteAdminFeatured,
   patchAdminFeatured,
   backfillSources,
+  preflightFeatured,
 } from './adminApi';
 import { generateComparison } from '../services/geminiService';
 import { saveReport } from '../services/reportService';
 import type {
   AdminSummary,
   CallListItem,
+  DemandSenseResult,
   FeaturedComparison,
   ReportListItem,
   RunListItem,
@@ -359,6 +362,13 @@ export default function AdminApp() {
   const [newItemB, setNewItemB] = useState('');
   const [newLang, setNewLang] = useState('en');
   const [newDesc, setNewDesc] = useState('');
+
+  type PreflightState =
+    | { kind: 'idle' }
+    | { kind: 'loading' }
+    | { kind: 'success'; result: DemandSenseResult }
+    | { kind: 'error'; message: string };
+  const [preflightState, setPreflightState] = useState<PreflightState>({ kind: 'idle' });
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [periodDays, setPeriodDays] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -452,6 +462,20 @@ export default function AdminApp() {
     }
   };
 
+  const handleCheckDemand = async () => {
+    if (!newItemA.trim() || !newItemB.trim()) return;
+    setPreflightState({ kind: 'loading' });
+    try {
+      const result = await preflightFeatured(newItemA.trim(), newItemB.trim(), newLang);
+      setPreflightState({ kind: 'success', result });
+    } catch (err: any) {
+      setPreflightState({
+        kind: 'error',
+        message: err.message || 'Demand check failed',
+      });
+    }
+  };
+
   const handleAddFeatured = async (event: FormEvent) => {
     event.preventDefault();
     if (!newItemA.trim() || !newItemB.trim()) return;
@@ -465,6 +489,7 @@ export default function AdminApp() {
       setNewItemA('');
       setNewItemB('');
       setNewDesc('');
+      setPreflightState({ kind: 'idle' });
 
       // Auto-generate report in background
       generateReportForFeatured(created.id, itemA, itemB, lang);
@@ -760,6 +785,19 @@ export default function AdminApp() {
                     className="h-9 flex-1 rounded-lg border border-white/10 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-indigo-400"
                   />
                   <button
+                    type="button"
+                    onClick={handleCheckDemand}
+                    disabled={preflightState.kind === 'loading' || !newItemA.trim() || !newItemB.trim()}
+                    className="flex h-9 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 text-sm font-medium text-neutral-200 transition hover:bg-white/10 disabled:opacity-50"
+                  >
+                    {preflightState.kind === 'loading' ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Gauge size={14} />
+                    )}
+                    Check Demand
+                  </button>
+                  <button
                     type="submit"
                     className="flex h-9 items-center gap-1 rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white transition hover:bg-indigo-500"
                   >
@@ -767,6 +805,65 @@ export default function AdminApp() {
                     Add
                   </button>
                 </div>
+                {preflightState.kind === 'error' && (
+                  <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300">
+                    {preflightState.message}
+                  </div>
+                )}
+                {preflightState.kind === 'success' && (
+                  <div className="rounded-lg border border-white/10 bg-white/[0.04] p-3 text-xs text-neutral-300">
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`rounded-md px-2 py-0.5 font-mono text-sm font-semibold ${
+                            preflightState.result.score >= 8
+                              ? 'bg-green-500/20 text-green-300'
+                              : preflightState.result.score >= 6
+                              ? 'bg-indigo-500/20 text-indigo-300'
+                              : preflightState.result.score >= 4
+                              ? 'bg-amber-500/20 text-amber-300'
+                              : 'bg-red-500/20 text-red-300'
+                          }`}
+                        >
+                          {preflightState.result.score.toFixed(1)}/10
+                        </span>
+                        <span className="text-[10px] uppercase tracking-wide text-neutral-500">
+                          {preflightState.result.recommendation}
+                        </span>
+                        {preflightState.result.partial && (
+                          <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
+                            partial signal
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-neutral-500">
+                        {preflightState.result.metrics.durationMs}ms · {preflightState.result.metrics.totalTokens} tok
+                      </span>
+                    </div>
+                    <p className="mb-2 text-neutral-400">{preflightState.result.reasoning}</p>
+                    <ul className="mb-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-neutral-500">
+                      <li>Articles: <span className="text-neutral-300">{preflightState.result.signals.existing_articles_count}</span></li>
+                      <li>Reddit: <span className="text-neutral-300">{preflightState.result.signals.has_reddit_discussion ? 'yes' : 'no'}</span></li>
+                      <li>Authoritative: <span className="text-neutral-300">{preflightState.result.signals.has_authoritative_source ? 'yes' : 'no'}</span></li>
+                      <li>Competition: <span className="text-neutral-300">{preflightState.result.signals.competition_level}</span></li>
+                      <li>Freshness: <span className="text-neutral-300">{preflightState.result.signals.freshness}</span></li>
+                    </ul>
+                    {preflightState.result.topSources.length > 0 && (
+                      <div>
+                        <div className="mb-1 text-[10px] uppercase tracking-wide text-neutral-500">Top existing articles</div>
+                        <ul className="space-y-0.5 text-[11px]">
+                          {preflightState.result.topSources.map((s) => (
+                            <li key={s.url} className="truncate">
+                              <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-indigo-300 hover:underline">
+                                {s.title || s.url}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
               </form>
               {featured.length > 0 ? (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
