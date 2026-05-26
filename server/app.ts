@@ -631,6 +631,34 @@ export function createApp({
     res.json({ ok: true });
   });
 
+  app.post('/api/admin/candidates/sync', (req, res) => {
+    const { category } = req.body || {};
+    const result = candidateStore.syncFromEntityPool(
+      typeof category === 'string' && category.trim() ? category.trim() : undefined,
+    );
+    res.json(result);
+  });
+
+  app.get('/api/admin/candidates', (req, res) => {
+    const category = typeof req.query.category === 'string' ? req.query.category : undefined;
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const minScore = req.query.minScore != null ? Number(req.query.minScore) : undefined;
+    const limit = req.query.limit != null ? Math.min(Number(req.query.limit), 500) : 200;
+    const offset = req.query.offset != null ? Number(req.query.offset) : 0;
+
+    const allowedStatuses = ['pending', 'scored', 'promoted', 'rejected'];
+    const safeStatus = status && allowedStatuses.includes(status) ? (status as any) : undefined;
+
+    const result = candidateStore.listCandidates({
+      category,
+      status: safeStatus,
+      minScore: Number.isFinite(minScore) ? minScore : undefined,
+      limit: Number.isFinite(limit) ? limit : 200,
+      offset: Number.isFinite(offset) ? offset : 0,
+    });
+    res.json(result);
+  });
+
   app.post('/api/admin/reports/:reportId/backfill-sources', async (req, res) => {
     const report = reportStore.getReport(req.params.reportId);
     if (!report) {

@@ -682,3 +682,62 @@ test('DELETE /api/admin/entities/:id 200 on success, 404 missing', async () => {
     assert.equal(missing.status, 404);
   });
 });
+
+test('POST /api/admin/candidates/sync requires auth + creates pairs', async () => {
+  const { app, entityStore } = createTestApp();
+  entityStore.addEntity('A', 'X');
+  entityStore.addEntity('B', 'X');
+  await withServer(app, async (baseUrl) => {
+    const unauth = await fetch(`${baseUrl}/api/admin/candidates/sync`, { method: 'POST' });
+    assert.equal(unauth.status, 401);
+
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/candidates/sync`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({}),
+    });
+    assert.equal(resp.status, 200);
+    const body = (await resp.json()) as any;
+    assert.equal(body.created, 1);
+    assert.equal(body.total, 1);
+  });
+});
+
+test('GET /api/admin/candidates returns pairs with status/minScore filter', async () => {
+  const { app, entityStore, candidateStore } = createTestApp();
+  entityStore.addEntity('A', 'X');
+  entityStore.addEntity('B', 'X');
+  entityStore.addEntity('C', 'X');
+  candidateStore.syncFromEntityPool();
+  const items = candidateStore.listCandidates({}).items;
+  candidateStore.updateScore(items[0].id, {
+    score: 8, recommendation: 'good',
+    signals: { existing_articles_count: 5, has_reddit_discussion: true, has_authoritative_source: false, competition_level: 'medium', freshness: 'fresh' },
+    reasoning: 'x', topSources: [], partial: false,
+    metrics: { durationMs: 1, totalTokens: 1 },
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/candidates?status=scored&minScore=6`, { headers: { cookie } });
+    assert.equal(resp.status, 200);
+    const body = (await resp.json()) as any;
+    assert.equal(body.items.length, 1);
+    assert.equal(body.items[0].demandScore, 8);
+    assert.equal(body.total, 1);
+  });
+});
+
+test('GET /api/admin/candidates pagination via limit + offset', async () => {
+  const { app, entityStore, candidateStore } = createTestApp();
+  for (const n of ['A', 'B', 'C', 'D', 'E']) entityStore.addEntity(n, 'X');
+  candidateStore.syncFromEntityPool();
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/candidates?limit=3&offset=0`, { headers: { cookie } });
+    const body = (await resp.json()) as any;
+    assert.equal(body.items.length, 3);
+    assert.equal(body.total, 10);
+  });
+});
