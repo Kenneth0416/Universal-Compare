@@ -131,9 +131,31 @@ export class DemandSensingService {
     itemB: string,
     language = 'en',
   ): Promise<DemandSenseResult> {
+    if (
+      typeof itemA !== 'string' ||
+      typeof itemB !== 'string' ||
+      !itemA.trim() ||
+      !itemB.trim()
+    ) {
+      throw new DemandSensingError(
+        'itemA and itemB must be non-empty strings',
+        400,
+      );
+    }
+
+    const trimmedA = itemA.trim().slice(0, 200);
+    const trimmedB = itemB.trim().slice(0, 200);
+
+    if (trimmedA.toLowerCase() === trimmedB.toLowerCase()) {
+      throw new DemandSensingError(
+        'itemA and itemB must be different',
+        400,
+      );
+    }
+
     const start = Date.now();
-    const generalQuery = `${itemA} vs ${itemB}`;
-    const redditQuery = `${itemA} vs ${itemB} reddit`;
+    const generalQuery = `${trimmedA} vs ${trimmedB}`;
+    const redditQuery = `${trimmedA} vs ${trimmedB} reddit`;
 
     const [r1, r2] = await Promise.allSettled([
       this.searchFn(this.minimaxSearchApiKey, generalQuery, this.minimaxSearchBaseUrl),
@@ -148,7 +170,7 @@ export class DemandSensingService {
       throw new DemandSensingError('Both MiniMax searches failed', 502);
     }
 
-    const prompt = buildPrompt(itemA, itemB, language, search1, search2);
+    const prompt = buildPrompt(trimmedA, trimmedB, language, search1, search2);
 
     const response = await this.deepseekClient.chat.completions.create({
       model: this.deepseekModel,

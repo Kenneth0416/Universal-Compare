@@ -74,3 +74,72 @@ test('happy path: dual search succeeds, DeepSeek returns valid score', async () 
   assert.ok(result.metrics.durationMs >= 0);
   assert.ok(result.metrics.totalTokens > 0);
 });
+
+function makeService() {
+  return new DemandSensingService({
+    minimaxSearchApiKey: 'fake-key',
+    deepseekClient: makeMockDeepseekClient('{}') as any,
+    searchFn: async () => ({ text: '', sources: [] }),
+  });
+}
+
+test('rejects empty itemA', async () => {
+  const service = makeService();
+  await assert.rejects(
+    () => service.scorePair('', 'Claude', 'en'),
+    /itemA and itemB must be non-empty strings/,
+  );
+});
+
+test('rejects empty itemB', async () => {
+  const service = makeService();
+  await assert.rejects(
+    () => service.scorePair('ChatGPT', '   ', 'en'),
+    /itemA and itemB must be non-empty strings/,
+  );
+});
+
+test('rejects identical items after trim+lowercase', async () => {
+  const service = makeService();
+  await assert.rejects(
+    () => service.scorePair('  ChatGPT  ', 'chatgpt', 'en'),
+    /itemA and itemB must be different/,
+  );
+});
+
+test('truncates inputs longer than 200 chars', async () => {
+  const longA = 'A'.repeat(250);
+  const longB = 'B'.repeat(250);
+  const queries: string[] = [];
+
+  const service = new DemandSensingService({
+    minimaxSearchApiKey: 'fake-key',
+    deepseekClient: makeMockDeepseekClient(JSON.stringify({
+      score: 5,
+      recommendation: 'consider',
+      signals: {
+        existing_articles_count: 0,
+        has_reddit_discussion: false,
+        has_authoritative_source: false,
+        competition_level: 'low',
+        freshness: 'stale',
+      },
+      reasoning: 'Limited signal.',
+    })) as any,
+    searchFn: async (_key, query) => {
+      queries.push(query);
+      return { text: '', sources: [] };
+    },
+  });
+
+  await service.scorePair(longA, longB, 'en');
+
+  assert.equal(queries.length, 2);
+  queries.forEach((q) => {
+    assert.match(
+      q,
+      /^A{200} vs B{200}( reddit)?$/,
+      `Expected truncated query, got: ${q.slice(0, 80)}...`,
+    );
+  });
+});
