@@ -129,3 +129,42 @@ export type DemandSenseResult = {
   partial: boolean;
   metrics: { durationMs: number; totalTokens: number };
 };
+
+export type Entity = {
+  id: number;
+  name: string;
+  category: string;
+  createdAt: string;
+};
+
+export type CandidatePairStatus = 'pending' | 'scored' | 'promoted' | 'rejected';
+
+export type CandidatePair = {
+  id: number;
+  entityAId: number;
+  entityBId: number;
+  itemAName: string;
+  itemBName: string;
+  category: string;
+  status: CandidatePairStatus;
+  demandScore: number | null;
+  recommendation: string | null;
+  signalsJson: string | null;
+  reasoning: string | null;
+  topSourcesJson: string | null;
+  partial: boolean;
+  lastScoredAt: string | null;
+  createdAt: string;
+};
+
+export type BulkPreflightItemResult =
+  | { id: number; status: 'scored'; result: DemandSenseResult }
+  | { id: number; status: 'error'; error: string };
+
+export type BulkPromoteResult = {
+  promoted: FeaturedComparison[];
+  skipped: Array<{
+    candidateId: number;
+    reason: 'already_promoted' | 'not_found' | 'create_failed';
+  }>;
+};

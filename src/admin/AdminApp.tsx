@@ -10,6 +10,7 @@ import {
   FileText,
   Gauge,
   GitCompareArrows,
+  Layers,
   Loader2,
   LogOut,
   Plus,
@@ -17,6 +18,7 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  Upload,
   Users,
 } from 'lucide-react';
 import {
@@ -46,20 +48,31 @@ import {
   patchAdminFeatured,
   backfillSources,
   preflightFeatured,
+  getEntities,
+  addEntity,
+  bulkAddEntities,
+  deleteEntity,
+  syncCandidates,
+  listCandidates,
+  bulkPreflightCandidates,
+  bulkPromoteCandidates,
 } from './adminApi';
 import { generateComparison } from '../services/geminiService';
 import { saveReport } from '../services/reportService';
 import type {
   AdminSummary,
   CallListItem,
+  CandidatePair,
+  CandidatePairStatus,
   DemandSenseResult,
+  Entity,
   FeaturedComparison,
   ReportListItem,
   RunListItem,
   UserListItem,
 } from './types';
 
-type AdminTab = 'overview' | 'runs' | 'calls' | 'users' | 'reports';
+type AdminTab = 'overview' | 'runs' | 'calls' | 'users' | 'reports' | 'pool';
 
 const dateTime = new Intl.DateTimeFormat(undefined, {
   month: 'short',
@@ -369,6 +382,23 @@ export default function AdminApp() {
     | { kind: 'success'; result: DemandSenseResult }
     | { kind: 'error'; message: string };
   const [preflightState, setPreflightState] = useState<PreflightState>({ kind: 'idle' });
+
+  const [poolEntities, setPoolEntities] = useState<Entity[]>([]);
+  const [poolCategories, setPoolCategories] = useState<string[]>([]);
+  const [poolCategoryFilter, setPoolCategoryFilter] = useState<string>('');
+  const [poolNewName, setPoolNewName] = useState('');
+  const [poolNewCategory, setPoolNewCategory] = useState('');
+  const [poolCsvText, setPoolCsvText] = useState('');
+  const [poolCsvBusy, setPoolCsvBusy] = useState(false);
+  const [poolCsvMsg, setPoolCsvMsg] = useState<string | null>(null);
+
+  const [candidates, setCandidates] = useState<CandidatePair[]>([]);
+  const [candidateStatusFilter, setCandidateStatusFilter] = useState<CandidatePairStatus | 'all'>('all');
+  const [candidateMinScore, setCandidateMinScore] = useState<number>(0);
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<number>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState<'idle' | 'preflighting' | 'promoting' | 'syncing'>('idle');
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [periodDays, setPeriodDays] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -409,6 +439,31 @@ export default function AdminApp() {
       }
     });
   }, []);
+
+  const loadPool = async () => {
+    try {
+      const ents = await getEntities(poolCategoryFilter || undefined);
+      setPoolEntities(ents.items);
+      setPoolCategories(ents.categories);
+
+      const cands = await listCandidates({
+        category: poolCategoryFilter || undefined,
+        status: candidateStatusFilter === 'all' ? undefined : candidateStatusFilter,
+        minScore: candidateMinScore > 0 ? candidateMinScore : undefined,
+        limit: 200,
+      });
+      setCandidates(cands.items);
+    } catch (loadErr: any) {
+      setError(loadErr.message || 'Failed to load pool');
+    }
+  };
+
+  useEffect(() => {
+    if (authenticated && activeTab === 'pool') {
+      loadPool();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authenticated, activeTab, poolCategoryFilter, candidateStatusFilter, candidateMinScore]);
 
   const handleLogin = async (event: FormEvent) => {
     event.preventDefault();
@@ -459,6 +514,111 @@ export default function AdminApp() {
       setFeatured((prev) => [...prev, created]);
     } catch (featureError: any) {
       setError(featureError.message || 'Failed to feature report');
+    }
+  };
+
+  const handleAddPoolEntity = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!poolNewName.trim() || !poolNewCategory.trim()) return;
+    try {
+      await addEntity(poolNewName.trim(), poolNewCategory.trim());
+      setPoolNewName('');
+      setPoolNewCategory('');
+      await loadPool();
+    } catch (addError: any) {
+      setError(addError.message || 'Failed to add entity');
+    }
+  };
+
+  const handleImportCsv = async () => {
+    if (!poolCsvText.trim()) return;
+    setPoolCsvBusy(true);
+    setPoolCsvMsg(null);
+    try {
+      const result = await bulkAddEntities(poolCsvText);
+      setPoolCsvMsg(`Added ${result.added.length}, skipped ${result.skipped.length}`);
+      setPoolCsvText('');
+      await loadPool();
+    } catch (importError: any) {
+      setError(importError.message || 'CSV import failed');
+    } finally {
+      setPoolCsvBusy(false);
+    }
+  };
+
+  const handleDeleteEntity = async (id: number) => {
+    try {
+      await deleteEntity(id);
+      await loadPool();
+    } catch (deleteError: any) {
+      setError(deleteError.message || 'Failed to delete entity');
+    }
+  };
+
+  const handleSyncCandidates = async () => {
+    setBulkBusy('syncing');
+    setBulkMsg(null);
+    try {
+      const result = await syncCandidates(poolCategoryFilter || undefined);
+      setBulkMsg(`${result.created} new pairs added (${result.total} total possible)`);
+      await loadPool();
+    } catch (syncError: any) {
+      setError(syncError.message || 'Sync failed');
+    } finally {
+      setBulkBusy('idle');
+    }
+  };
+
+  const toggleSelected = (id: number) => {
+    setSelectedCandidateIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkPreflight = async () => {
+    const ids: number[] = Array.from(selectedCandidateIds);
+    if (ids.length === 0) return;
+    if (ids.length > 50) {
+      setError('Max 50 per batch');
+      return;
+    }
+    setBulkBusy('preflighting');
+    setBulkMsg(`Scoring ${ids.length} pairs...`);
+    try {
+      const result = await bulkPreflightCandidates(ids, 'en');
+      const scored = result.results.filter((r) => r.status === 'scored').length;
+      const errs = result.results.filter((r) => r.status === 'error').length;
+      setBulkMsg(`Done: ${scored} scored, ${errs} errors`);
+      setSelectedCandidateIds(new Set());
+      await loadPool();
+    } catch (pfError: any) {
+      setError(pfError.message || 'Bulk preflight failed');
+    } finally {
+      setBulkBusy('idle');
+    }
+  };
+
+  const handleBulkPromote = async () => {
+    const ids: number[] = Array.from(selectedCandidateIds);
+    if (ids.length === 0) return;
+    if (ids.length > 50) {
+      setError('Max 50 per batch');
+      return;
+    }
+    setBulkBusy('promoting');
+    setBulkMsg(`Promoting ${ids.length} pairs...`);
+    try {
+      const result = await bulkPromoteCandidates(ids, 'en');
+      setBulkMsg(`Promoted ${result.promoted.length}, skipped ${result.skipped.length}`);
+      setSelectedCandidateIds(new Set());
+      await loadPool();
+    } catch (promoteError: any) {
+      setError(promoteError.message || 'Bulk promote failed');
+    } finally {
+      setBulkBusy('idle');
     }
   };
 
@@ -602,6 +762,7 @@ export default function AdminApp() {
     { key: 'reports', label: 'Reports' },
     { key: 'calls', label: 'Calls' },
     { key: 'users', label: 'Users' },
+    { key: 'pool', label: 'Pool' },
   ];
 
   return (
@@ -957,6 +1118,232 @@ export default function AdminApp() {
         {activeTab === 'reports' && <ReportsTable items={reports} onDelete={handleDeleteReport} onFeature={handleFeatureReport} />}
         {activeTab === 'calls' && <CallsTable items={calls} />}
         {activeTab === 'users' && <UsersTable items={users} />}
+
+        {activeTab === 'pool' && (
+          <div className="space-y-6">
+            <section>
+              <div className="mb-3 flex items-center gap-2 text-sm font-medium text-neutral-200">
+                <Database size={16} /> Entity Pool
+              </div>
+
+              <form onSubmit={handleAddPoolEntity} className="mb-3 flex items-center gap-2">
+                <input
+                  type="text"
+                  value={poolNewName}
+                  onChange={(e) => setPoolNewName(e.target.value)}
+                  placeholder="Entity name (e.g., ChatGPT)"
+                  className="h-9 flex-1 rounded-lg border border-white/10 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-indigo-400"
+                  required
+                />
+                <input
+                  type="text"
+                  value={poolNewCategory}
+                  onChange={(e) => setPoolNewCategory(e.target.value)}
+                  placeholder="Category (e.g., AI Assistant)"
+                  className="h-9 flex-1 rounded-lg border border-white/10 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-indigo-400"
+                  required
+                />
+                <button type="submit" className="flex h-9 items-center gap-1 rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white hover:bg-indigo-500">
+                  <Plus size={14} /> Add
+                </button>
+              </form>
+
+              <details className="mb-3 rounded-lg border border-white/10 bg-white/[0.02] p-3 text-sm">
+                <summary className="cursor-pointer text-neutral-300">Bulk import CSV</summary>
+                <textarea
+                  value={poolCsvText}
+                  onChange={(e) => setPoolCsvText(e.target.value)}
+                  placeholder="name,category&#10;ChatGPT,AI Assistant&#10;Claude,AI Assistant&#10;Gemini,AI Assistant"
+                  rows={6}
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-neutral-900 p-2 font-mono text-xs text-white outline-none focus:border-indigo-400"
+                />
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    onClick={handleImportCsv}
+                    disabled={poolCsvBusy || !poolCsvText.trim()}
+                    className="flex h-8 items-center gap-1 rounded-lg bg-indigo-600 px-3 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+                  >
+                    {poolCsvBusy ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                    Import
+                  </button>
+                  {poolCsvMsg && <span className="text-xs text-neutral-400">{poolCsvMsg}</span>}
+                </div>
+              </details>
+
+              <div className="mb-2 flex items-center gap-2">
+                <select
+                  value={poolCategoryFilter}
+                  onChange={(e) => setPoolCategoryFilter(e.target.value)}
+                  className="h-8 rounded-lg border border-white/10 bg-neutral-900 px-2 text-xs text-white outline-none focus:border-indigo-400"
+                >
+                  <option value="">All categories</option>
+                  {poolCategories.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <span className="text-xs text-neutral-500">{poolEntities.length} entities</span>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {poolEntities.map((entity) => (
+                  <div key={entity.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2">
+                    <div>
+                      <div className="text-sm font-medium text-white">{entity.name}</div>
+                      <div className="text-[10px] uppercase tracking-wide text-neutral-500">{entity.category}</div>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteEntity(entity.id)}
+                      className="rounded-lg p-1 text-neutral-500 hover:bg-red-500/10 hover:text-red-300"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-medium text-neutral-200">
+                  <Layers size={16} /> Candidate Pairs
+                </div>
+                <button
+                  onClick={handleSyncCandidates}
+                  disabled={bulkBusy !== 'idle'}
+                  className="flex h-8 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-neutral-200 hover:bg-white/10 disabled:opacity-50"
+                >
+                  {bulkBusy === 'syncing' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                  Sync from Pool
+                </button>
+              </div>
+
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <select
+                  value={candidateStatusFilter}
+                  onChange={(e) => setCandidateStatusFilter(e.target.value as any)}
+                  className="h-8 rounded-lg border border-white/10 bg-neutral-900 px-2 text-xs text-white outline-none focus:border-indigo-400"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="scored">Scored</option>
+                  <option value="promoted">Promoted</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+                <select
+                  value={candidateMinScore}
+                  onChange={(e) => setCandidateMinScore(Number(e.target.value))}
+                  className="h-8 rounded-lg border border-white/10 bg-neutral-900 px-2 text-xs text-white outline-none focus:border-indigo-400"
+                >
+                  <option value="0">Min score: any</option>
+                  <option value="4">≥ 4</option>
+                  <option value="6">≥ 6</option>
+                  <option value="8">≥ 8</option>
+                </select>
+                <span className="text-xs text-neutral-500">
+                  {candidates.length} pairs · {selectedCandidateIds.size} selected
+                </span>
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    onClick={handleBulkPreflight}
+                    disabled={bulkBusy !== 'idle' || selectedCandidateIds.size === 0}
+                    className="flex h-8 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-neutral-200 hover:bg-white/10 disabled:opacity-50"
+                  >
+                    {bulkBusy === 'preflighting' ? <Loader2 size={12} className="animate-spin" /> : <Gauge size={12} />}
+                    Bulk Preflight ({selectedCandidateIds.size})
+                  </button>
+                  <button
+                    onClick={handleBulkPromote}
+                    disabled={bulkBusy !== 'idle' || selectedCandidateIds.size === 0}
+                    className="flex h-8 items-center gap-1 rounded-lg bg-indigo-600 px-3 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+                  >
+                    {bulkBusy === 'promoting' ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                    Bulk Promote ({selectedCandidateIds.size})
+                  </button>
+                </div>
+              </div>
+
+              {bulkMsg && (
+                <div className="mb-3 rounded-lg border border-white/10 bg-white/[0.04] p-2 text-xs text-neutral-300">
+                  {bulkMsg}
+                </div>
+              )}
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-left text-neutral-500">
+                      <th className="px-2 py-2 w-8"></th>
+                      <th className="px-2 py-2">Pair</th>
+                      <th className="px-2 py-2">Category</th>
+                      <th className="px-2 py-2">Status</th>
+                      <th className="px-2 py-2">Score</th>
+                      <th className="px-2 py-2">Recommendation</th>
+                      <th className="px-2 py-2">Signals</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {candidates.map((pair) => {
+                      const signals = pair.signalsJson ? JSON.parse(pair.signalsJson) : null;
+                      const checked = selectedCandidateIds.has(pair.id);
+                      const canSelect = pair.status !== 'promoted';
+                      return (
+                        <tr key={pair.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                          <td className="px-2 py-2">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={!canSelect}
+                              onChange={() => toggleSelected(pair.id)}
+                            />
+                          </td>
+                          <td className="px-2 py-2 font-medium text-white">
+                            {pair.itemAName} <span className="text-neutral-500">vs</span> {pair.itemBName}
+                          </td>
+                          <td className="px-2 py-2 text-neutral-400">{pair.category}</td>
+                          <td className="px-2 py-2">
+                            <span className={`rounded-md px-1.5 py-0.5 text-[10px] uppercase ${
+                              pair.status === 'scored' ? 'bg-indigo-500/15 text-indigo-300'
+                              : pair.status === 'promoted' ? 'bg-green-500/15 text-green-300'
+                              : pair.status === 'rejected' ? 'bg-red-500/15 text-red-300'
+                              : 'bg-white/5 text-neutral-400'
+                            }`}>
+                              {pair.status}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2">
+                            {typeof pair.demandScore === 'number' ? (
+                              <span className={`rounded-md px-2 py-0.5 font-mono ${
+                                pair.demandScore >= 8 ? 'bg-green-500/20 text-green-300'
+                                : pair.demandScore >= 6 ? 'bg-indigo-500/20 text-indigo-300'
+                                : pair.demandScore >= 4 ? 'bg-amber-500/20 text-amber-300'
+                                : 'bg-red-500/20 text-red-300'
+                              }`}>
+                                {pair.demandScore.toFixed(1)}
+                              </span>
+                            ) : '—'}
+                          </td>
+                          <td className="px-2 py-2 text-neutral-400">{pair.recommendation || '—'}</td>
+                          <td className="px-2 py-2 text-[10px] text-neutral-500">
+                            {signals && (
+                              <span>
+                                art:{signals.existing_articles_count} ·
+                                rdt:{signals.has_reddit_discussion ? '✓' : '✗'} ·
+                                auth:{signals.has_authoritative_source ? '✓' : '✗'}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {candidates.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-white/10 p-6 text-center text-xs text-neutral-500">
+                    No candidates yet. Add entities above, then click "Sync from Pool".
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
       </div>
     </main>
   );

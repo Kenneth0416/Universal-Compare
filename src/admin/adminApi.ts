@@ -1,7 +1,12 @@
 import type {
   AdminSummary,
+  BulkPreflightItemResult,
+  BulkPromoteResult,
   CallListItem,
+  CandidatePair,
+  CandidatePairStatus,
   DemandSenseResult,
+  Entity,
   FeaturedComparison,
   ListResponse,
   ReportListItem,
@@ -114,5 +119,69 @@ export function preflightFeatured(itemA: string, itemB: string, language: string
   return request<DemandSenseResult>('/featured/preflight', {
     method: 'POST',
     body: JSON.stringify({ itemA, itemB, language }),
+  });
+}
+
+export function getEntities(category?: string) {
+  const qs = category ? `?category=${encodeURIComponent(category)}` : '';
+  return request<{ items: Entity[]; categories: string[] }>(`/entities${qs}`);
+}
+
+export function addEntity(name: string, category: string) {
+  return request<Entity>('/entities', {
+    method: 'POST',
+    body: JSON.stringify({ name, category }),
+  });
+}
+
+export function bulkAddEntities(csv: string) {
+  return request<{
+    added: Entity[];
+    skipped: Array<{ name: string; category: string; reason: 'duplicate' | 'invalid' }>;
+  }>('/entities/bulk', {
+    method: 'POST',
+    body: JSON.stringify({ csv }),
+  });
+}
+
+export function deleteEntity(id: number) {
+  return request<{ ok: true }>(`/entities/${id}`, { method: 'DELETE' });
+}
+
+export function syncCandidates(category?: string) {
+  return request<{ created: number; total: number }>('/candidates/sync', {
+    method: 'POST',
+    body: JSON.stringify({ category }),
+  });
+}
+
+export function listCandidates(opts: {
+  category?: string;
+  status?: CandidatePairStatus;
+  minScore?: number;
+  limit?: number;
+  offset?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  if (opts.category) params.set('category', opts.category);
+  if (opts.status) params.set('status', opts.status);
+  if (typeof opts.minScore === 'number') params.set('minScore', String(opts.minScore));
+  if (typeof opts.limit === 'number') params.set('limit', String(opts.limit));
+  if (typeof opts.offset === 'number') params.set('offset', String(opts.offset));
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return request<{ items: CandidatePair[]; total: number }>(`/candidates${qs}`);
+}
+
+export function bulkPreflightCandidates(pairIds: number[], language: string) {
+  return request<{ results: BulkPreflightItemResult[] }>('/candidates/bulk-preflight', {
+    method: 'POST',
+    body: JSON.stringify({ pairIds, language }),
+  });
+}
+
+export function bulkPromoteCandidates(pairIds: number[], language: string, description?: string) {
+  return request<BulkPromoteResult>('/candidates/bulk-promote', {
+    method: 'POST',
+    body: JSON.stringify({ pairIds, language, description }),
   });
 }
