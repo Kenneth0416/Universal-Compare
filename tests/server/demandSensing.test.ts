@@ -264,3 +264,99 @@ test('prompt notes "(search unavailable)" when search1 fails', async () => {
     `Expected prompt to flag unavailable search. Got: ${capturedPrompt.slice(0, 200)}`,
   );
 });
+
+function makeRetryDeepseekClient(responses: string[]) {
+  let i = 0;
+  const calls: any[] = [];
+  return {
+    calls,
+    client: {
+      chat: {
+        completions: {
+          create: async (params: any) => {
+            calls.push(params);
+            const content = responses[Math.min(i, responses.length - 1)];
+            i++;
+            return {
+              choices: [{ message: { content } }],
+              usage: { total_tokens: 100 },
+            };
+          },
+        },
+      },
+    },
+  };
+}
+
+test('deepseek invalid JSON: retries once and succeeds on second attempt', async () => {
+  const validJson = JSON.stringify({
+    score: 7, recommendation: 'good',
+    signals: {
+      existing_articles_count: 5, has_reddit_discussion: true,
+      has_authoritative_source: false, competition_level: 'medium', freshness: 'recent',
+    },
+    reasoning: 'Good signal.',
+  });
+  const { client, calls } = makeRetryDeepseekClient(['not json at all', validJson]);
+
+  const service = new DemandSensingService({
+    minimaxSearchApiKey: 'fake-key',
+    deepseekClient: client as any,
+    searchFn: async () => ({ text: '', sources: [] }),
+  });
+
+  const result = await service.scorePair('A', 'B', 'en');
+  assert.equal(result.score, 7);
+  assert.equal(calls.length, 2);
+  const secondCallMessages = calls[1].messages;
+  const lastMessage = secondCallMessages[secondCallMessages.length - 1].content;
+  assert.match(lastMessage, /previous response was invalid|raw JSON object/i);
+});
+
+test('deepseek invalid JSON twice: throws DemandSensingError 502', async () => {
+  const { client } = makeRetryDeepseekClient(['not json', 'still not json']);
+
+  const service = new DemandSensingService({
+    minimaxSearchApiKey: 'fake-key',
+    deepseekClient: client as any,
+    searchFn: async () => ({ text: '', sources: [] }),
+  });
+
+  await assert.rejects(
+    () => service.scorePair('A', 'B', 'en'),
+    (err: any) =>
+      err.name === 'DemandSensingError' &&
+      err.statusCode === 502 &&
+      /DeepSeek/.test(err.message),
+  );
+});
+
+test('deepseek missing required field (score): retries with stricter prompt', async () => {
+  const missingScore = JSON.stringify({
+    recommendation: 'good',
+    signals: {
+      existing_articles_count: 5, has_reddit_discussion: true,
+      has_authoritative_source: false, competition_level: 'medium', freshness: 'recent',
+    },
+    reasoning: 'No score.',
+  });
+  const validJson = JSON.stringify({
+    score: 7, recommendation: 'good',
+    signals: {
+      existing_articles_count: 5, has_reddit_discussion: true,
+      has_authoritative_source: false, competition_level: 'medium', freshness: 'recent',
+    },
+    reasoning: 'Good signal.',
+  });
+  const { client, calls } = makeRetryDeepseekClient([missingScore, validJson]);
+
+  const service = new DemandSensingService({
+    minimaxSearchApiKey: 'fake-key',
+    deepseekClient: client as any,
+    searchFn: async () => ({ text: '', sources: [] }),
+  });
+
+  const result = await service.scorePair('A', 'B', 'en');
+  assert.equal(result.score, 7);
+  assert.equal(calls.length, 2);
+});

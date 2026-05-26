@@ -172,18 +172,7 @@ export class DemandSensingService {
 
     const prompt = buildPrompt(trimmedA, trimmedB, language, search1, search2);
 
-    const response = await this.deepseekClient.chat.completions.create({
-      model: this.deepseekModel,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-    } as any);
-
-    const content = (response as any).choices?.[0]?.message?.content || '';
-    const usage = (response as any).usage || {};
-    const totalTokens = usage.total_tokens || 0;
-
-    const parsed = JSON.parse(content);
+    const { scoring, totalTokens } = await this.callDeepseekWithRetry(prompt);
 
     const sourcePool = search1?.sources ?? search2?.sources ?? [];
     const topSources = dedupeByUrl(sourcePool)
@@ -191,13 +180,82 @@ export class DemandSensingService {
       .map((s) => ({ url: s.url, title: s.title }));
 
     return {
-      score: parsed.score,
-      recommendation: parsed.recommendation,
-      signals: parsed.signals,
-      reasoning: parsed.reasoning,
+      score: scoring.score,
+      recommendation: scoring.recommendation,
+      signals: scoring.signals,
+      reasoning: scoring.reasoning,
       topSources,
       partial,
       metrics: { durationMs: Date.now() - start, totalTokens },
     };
+  }
+
+  private async callDeepseekWithRetry(
+    prompt: string,
+  ): Promise<{ scoring: any; totalTokens: number }> {
+    const messages: any[] = [{ role: 'user', content: prompt }];
+    let totalTokens = 0;
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await this.deepseekClient.chat.completions.create({
+          model: this.deepseekModel,
+          messages,
+          temperature: 0.2,
+          response_format: { type: 'json_object' },
+        } as any);
+
+        const content = (response as any).choices?.[0]?.message?.content || '';
+        const usage = (response as any).usage || {};
+        totalTokens += usage.total_tokens || 0;
+
+        const scoring = JSON.parse(content);
+        this.validateScoringResponse(scoring);
+        return { scoring, totalTokens };
+      } catch (err) {
+        lastError = err as Error;
+        if (attempt === 0) {
+          messages.push(
+            { role: 'assistant', content: '' },
+            {
+              role: 'user',
+              content:
+                'Your previous response was invalid (parse error or missing required fields). Respond with ONLY a raw JSON object containing: score, recommendation, signals{existing_articles_count, has_reddit_discussion, has_authoritative_source, competition_level, freshness}, reasoning. No markdown, no commentary.',
+            },
+          );
+        }
+      }
+    }
+
+    throw new DemandSensingError(
+      `DeepSeek failed after retry: ${lastError?.message || 'unknown'}`,
+      502,
+    );
+  }
+
+  private validateScoringResponse(parsed: any): void {
+    const required = ['score', 'recommendation', 'signals', 'reasoning'];
+    const missing = required.filter(
+      (k) => parsed[k] === undefined || parsed[k] === null,
+    );
+    if (missing.length) {
+      throw new Error(`Missing required fields: ${missing.join(', ')}`);
+    }
+    if (typeof parsed.score !== 'number') {
+      throw new Error('score must be a number');
+    }
+    const signals = parsed.signals;
+    const sigRequired = [
+      'existing_articles_count',
+      'has_reddit_discussion',
+      'has_authoritative_source',
+      'competition_level',
+      'freshness',
+    ];
+    const sigMissing = sigRequired.filter((k) => signals[k] === undefined);
+    if (sigMissing.length) {
+      throw new Error(`Missing required signals: ${sigMissing.join(', ')}`);
+    }
   }
 }
