@@ -11,6 +11,8 @@ import { createAnalyticsStore } from '../../server/analytics';
 import { createFeaturedStore } from '../../server/featured';
 import { createReportStore } from '../../server/reports';
 import { DemandSensingError } from '../../server/demandSensing';
+import { createEntityPoolStore } from '../../server/entityPool';
+import { createCandidatePairStore } from '../../server/candidatePairs';
 
 const defaultSiteUrl = 'https://compare-anythings.com';
 
@@ -21,10 +23,14 @@ function createTestApp(overrides?: {
   const analyticsStore = createAnalyticsStore(dbPath, 'test-secret');
   const reportStore = createReportStore(analyticsStore.getDb());
   const featuredStore = createFeaturedStore(analyticsStore.getDb());
+  const entityStore = createEntityPoolStore(analyticsStore.getDb());
+  const candidateStore = createCandidatePairStore(analyticsStore.getDb());
   const app = createApp({
     analyticsStore,
     reportStore,
     featuredStore,
+    entityStore,
+    candidateStore,
     adminPassword: 'admin-password',
     adminSessionSecret: 'session-secret',
     provider: {
@@ -41,7 +47,7 @@ function createTestApp(overrides?: {
     demandSensingService: overrides?.demandSensingService,
   });
 
-  return { app, analyticsStore, reportStore, featuredStore };
+  return { app, analyticsStore, reportStore, featuredStore, entityStore, candidateStore };
 }
 
 async function withServer<T>(app: ReturnType<typeof createApp>, callback: (baseUrl: string) => Promise<T>) {
@@ -584,5 +590,95 @@ test('POST /api/admin/featured/preflight: 503 when service not configured', asyn
       body: JSON.stringify({ itemA: 'A', itemB: 'B', language: 'en' }),
     });
     assert.equal(resp.status, 503);
+  });
+});
+
+test('POST /api/admin/entities requires admin auth', async () => {
+  const { app } = createTestApp();
+  await withServer(app, async (baseUrl) => {
+    const resp = await fetch(`${baseUrl}/api/admin/entities`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'X', category: 'Y' }),
+    });
+    assert.equal(resp.status, 401);
+  });
+});
+
+test('POST /api/admin/entities creates entity (201)', async () => {
+  const { app } = createTestApp();
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/entities`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ name: 'ChatGPT', category: 'AI Assistant' }),
+    });
+    assert.equal(resp.status, 201);
+    const body = (await resp.json()) as any;
+    assert.equal(body.name, 'ChatGPT');
+    assert.equal(body.category, 'AI Assistant');
+  });
+});
+
+test('POST /api/admin/entities returns 409 on duplicate', async () => {
+  const { app } = createTestApp();
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    await fetch(`${baseUrl}/api/admin/entities`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ name: 'ChatGPT', category: 'AI Assistant' }),
+    });
+    const resp = await fetch(`${baseUrl}/api/admin/entities`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ name: 'ChatGPT', category: 'AI Assistant' }),
+    });
+    assert.equal(resp.status, 409);
+  });
+});
+
+test('POST /api/admin/entities/bulk with CSV returns added + skipped', async () => {
+  const { app } = createTestApp();
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const csv = 'name,category\nChatGPT,AI\nClaude,AI\n,AI\nChatGPT,AI';
+    const resp = await fetch(`${baseUrl}/api/admin/entities/bulk`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ csv }),
+    });
+    assert.equal(resp.status, 200);
+    const body = (await resp.json()) as any;
+    assert.equal(body.added.length, 2);
+    assert.equal(body.skipped.length, 1);
+    assert.equal(body.skipped[0].reason, 'duplicate');
+  });
+});
+
+test('GET /api/admin/entities filters by category', async () => {
+  const { app, entityStore } = createTestApp();
+  entityStore.addEntity('ChatGPT', 'AI');
+  entityStore.addEntity('Notion', 'Productivity');
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/entities?category=AI`, { headers: { cookie } });
+    assert.equal(resp.status, 200);
+    const body = (await resp.json()) as any;
+    assert.equal(body.items.length, 1);
+    assert.equal(body.items[0].name, 'ChatGPT');
+  });
+});
+
+test('DELETE /api/admin/entities/:id 200 on success, 404 missing', async () => {
+  const { app, entityStore } = createTestApp();
+  const e = entityStore.addEntity('Temp', 'X');
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const ok = await fetch(`${baseUrl}/api/admin/entities/${e.id}`, { method: 'DELETE', headers: { cookie } });
+    assert.equal(ok.status, 200);
+    const missing = await fetch(`${baseUrl}/api/admin/entities/99999`, { method: 'DELETE', headers: { cookie } });
+    assert.equal(missing.status, 404);
   });
 });

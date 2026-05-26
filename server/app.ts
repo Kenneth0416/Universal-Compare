@@ -29,6 +29,8 @@ import {
 } from './seo';
 import type { AIProvider } from './providers/types';
 import { DemandSensingError, type DemandSensingService } from './demandSensing';
+import { parseEntityCsv, type EntityPoolStore } from './entityPool';
+import type { CandidatePairStore } from './candidatePairs';
 
 const VISITOR_COOKIE = 'compareai_visitor_id';
 const VISITOR_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
@@ -47,6 +49,8 @@ type CreateAppOptions = {
   featuredStore: FeaturedStore;
   provider: AIProvider;
   demandSensingService?: Pick<DemandSensingService, 'scorePair'>;
+  entityStore: EntityPoolStore;
+  candidateStore: CandidatePairStore;
   adminPassword?: string;
   adminSessionSecret: string;
   siteUrl?: string;
@@ -86,6 +90,8 @@ export function createApp({
   featuredStore,
   provider,
   demandSensingService,
+  entityStore,
+  candidateStore,
   adminPassword,
   adminSessionSecret,
   siteUrl = process.env.SITE_URL || process.env.APP_URL,
@@ -559,6 +565,70 @@ export function createApp({
       console.error('Preflight unexpected error:', err);
       res.status(502).json({ error: 'Demand sensing failed' });
     }
+  });
+
+  app.get('/api/admin/entities', (req, res) => {
+    const { category } = req.query;
+    const items = entityStore.listEntities(
+      typeof category === 'string' && category.trim() ? category.trim() : undefined,
+    );
+    const categories = entityStore.listCategories();
+    res.json({ items, categories });
+  });
+
+  app.post('/api/admin/entities', (req, res) => {
+    const { name, category } = req.body || {};
+    if (typeof name !== 'string' || typeof category !== 'string' || !name.trim() || !category.trim()) {
+      res.status(400).json({ error: 'name and category must be non-empty strings' });
+      return;
+    }
+    try {
+      const entity = entityStore.addEntity(name, category);
+      res.status(201).json(entity);
+    } catch (err: any) {
+      if (/duplicate/i.test(err.message)) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/admin/entities/bulk', (req, res) => {
+    const { csv, items } = req.body || {};
+    let parsed: Array<{ name: string; category: string }>;
+
+    if (typeof csv === 'string') {
+      const { items: csvItems } = parseEntityCsv(csv);
+      parsed = csvItems;
+    } else if (Array.isArray(items)) {
+      parsed = items.filter((i: any) => i && typeof i.name === 'string' && typeof i.category === 'string');
+    } else {
+      res.status(400).json({ error: 'must provide csv string or items array' });
+      return;
+    }
+
+    if (parsed.length === 0) {
+      res.status(400).json({ error: 'no valid entities to add' });
+      return;
+    }
+
+    const result = entityStore.addEntitiesBulk(parsed);
+    res.json(result);
+  });
+
+  app.delete('/api/admin/entities/:id', (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ error: 'invalid id' });
+      return;
+    }
+    const ok = entityStore.removeEntity(id);
+    if (!ok) {
+      res.status(404).json({ error: 'entity not found' });
+      return;
+    }
+    res.json({ ok: true });
   });
 
   app.post('/api/admin/reports/:reportId/backfill-sources', async (req, res) => {
