@@ -1,7 +1,7 @@
 type DatabaseConnection = {
   exec: (sql: string) => void;
   prepare: (sql: string) => {
-    run: (...params: unknown[]) => { changes: number; lastInsertRowid: number | bigint };
+    run: (...params: unknown[]) => { changes: number };
     get: (...params: unknown[]) => any;
     all: (...params: unknown[]) => any[];
   };
@@ -95,7 +95,7 @@ export function createEntityPoolStore(db: DatabaseConnection) {
         'INSERT INTO entity_pool (name, category, created_at) VALUES (?, ?, ?)',
       ).run(cleanName, cleanCat, createdAt);
       return {
-        id: Number(result.lastInsertRowid),
+        id: Number((result as any).lastInsertRowid),
         name: cleanName,
         category: cleanCat,
         createdAt,

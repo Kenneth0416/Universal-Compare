@@ -13,6 +13,8 @@ import { createReportStore } from './reports';
 import { createProvider } from './providers/index';
 import { createApp } from './app';
 import { DemandSensingService } from './demandSensing';
+import { createEntityPoolStore } from './entityPool';
+import { createCandidatePairStore } from './candidatePairs';
 
 const PORT = process.env.API_SERVER_PORT || 3001;
 const AI_PROVIDER = process.env.AI_PROVIDER || 'grok';
@@ -56,10 +58,14 @@ const adminSessionSecret =
 const analyticsStore = createAnalyticsStore(analyticsDbPath, adminSessionSecret);
 const reportStore = createReportStore(analyticsStore.getDb());
 const featuredStore = createFeaturedStore(analyticsStore.getDb());
+const entityStore = createEntityPoolStore(analyticsStore.getDb());
+const candidateStore = createCandidatePairStore(analyticsStore.getDb());
 const app = createApp({
   analyticsStore,
   reportStore,
   featuredStore,
+  entityStore,
+  candidateStore,
   provider,
   demandSensingService,
   adminPassword: process.env.ADMIN_PASSWORD,

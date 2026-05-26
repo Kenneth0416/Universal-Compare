@@ -3,7 +3,7 @@ import type { DemandSenseResult } from './demandSensing';
 type DatabaseConnection = {
   exec: (sql: string) => void;
   prepare: (sql: string) => {
-    run: (...params: unknown[]) => { changes: number; lastInsertRowid: number | bigint };
+    run: (...params: unknown[]) => { changes: number };
     get: (...params: unknown[]) => any;
     all: (...params: unknown[]) => any[];
   };
