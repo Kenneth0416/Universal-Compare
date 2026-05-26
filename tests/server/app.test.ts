@@ -10,10 +10,13 @@ import { createApp } from '../../server/app';
 import { createAnalyticsStore } from '../../server/analytics';
 import { createFeaturedStore } from '../../server/featured';
 import { createReportStore } from '../../server/reports';
+import { DemandSensingError } from '../../server/demandSensing';
 
 const defaultSiteUrl = 'https://compare-anythings.com';
 
-function createTestApp() {
+function createTestApp(overrides?: {
+  demandSensingService?: { scorePair: (a: string, b: string, lang?: string) => Promise<any> };
+}) {
   const dbPath = path.join(mkdtempSync(path.join(tmpdir(), 'compareai-app-')), 'analytics.db');
   const analyticsStore = createAnalyticsStore(dbPath, 'test-secret');
   const reportStore = createReportStore(analyticsStore.getDb());
@@ -35,6 +38,7 @@ function createTestApp() {
         metrics: { model: 'test-model', promptTokens: 100, completionTokens: 25, totalTokens: 130, durationMs: 50 },
       }),
     },
+    demandSensingService: overrides?.demandSensingService,
   });
 
   return { app, analyticsStore, reportStore, featuredStore };
@@ -469,4 +473,116 @@ test('deduplicates featured comparison slugs with stable numeric suffixes', () =
 
   assert.equal(first.slug, 'claude-vs-chatgpt');
   assert.equal(second.slug, 'claude-vs-chatgpt-2');
+});
+
+async function loginAsAdmin(baseUrl: string): Promise<string> {
+  const resp = await fetch(`${baseUrl}/api/admin/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ password: 'admin-password' }),
+  });
+  assert.equal(resp.status, 200);
+  return extractCookie(resp.headers.get('set-cookie') || '', ADMIN_SESSION_COOKIE);
+}
+
+test('POST /api/admin/featured/preflight requires admin auth', async () => {
+  const { app } = createTestApp();
+  await withServer(app, async (baseUrl) => {
+    const resp = await fetch(`${baseUrl}/api/admin/featured/preflight`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ itemA: 'A', itemB: 'B', language: 'en' }),
+    });
+    assert.equal(resp.status, 401);
+  });
+});
+
+test('POST /api/admin/featured/preflight: 200 with DemandSenseResult', async () => {
+  const mockResult = {
+    score: 8,
+    recommendation: 'good',
+    signals: {
+      existing_articles_count: 5,
+      has_reddit_discussion: true,
+      has_authoritative_source: true,
+      competition_level: 'medium',
+      freshness: 'fresh',
+    },
+    reasoning: 'Strong demand.',
+    topSources: [{ url: 'https://example.com', title: 'Test' }],
+    partial: false,
+    metrics: { durationMs: 1000, totalTokens: 200 },
+  };
+  const { app } = createTestApp({
+    demandSensingService: { scorePair: async () => mockResult },
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/featured/preflight`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ itemA: 'ChatGPT', itemB: 'Claude', language: 'en' }),
+    });
+    assert.equal(resp.status, 200);
+    const body = (await resp.json()) as any;
+    assert.equal(body.score, 8);
+    assert.equal(body.recommendation, 'good');
+    assert.equal(body.signals.existing_articles_count, 5);
+  });
+});
+
+test('POST /api/admin/featured/preflight: 400 when itemA missing', async () => {
+  const { app } = createTestApp({
+    demandSensingService: {
+      scorePair: async () => {
+        throw new DemandSensingError('itemA and itemB must be non-empty strings', 400);
+      },
+    },
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/featured/preflight`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ itemB: 'Claude', language: 'en' }),
+    });
+    assert.equal(resp.status, 400);
+  });
+});
+
+test('POST /api/admin/featured/preflight: 502 when service throws DemandSensingError(502)', async () => {
+  const { app } = createTestApp({
+    demandSensingService: {
+      scorePair: async () => {
+        throw new DemandSensingError('upstream failed', 502);
+      },
+    },
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/featured/preflight`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ itemA: 'A', itemB: 'B', language: 'en' }),
+    });
+    assert.equal(resp.status, 502);
+    const body = (await resp.json()) as any;
+    assert.match(body.error, /upstream failed/);
+  });
+});
+
+test('POST /api/admin/featured/preflight: 503 when service not configured', async () => {
+  const { app } = createTestApp();
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/featured/preflight`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ itemA: 'A', itemB: 'B', language: 'en' }),
+    });
+    assert.equal(resp.status, 503);
+  });
 });

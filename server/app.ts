@@ -28,6 +28,7 @@ import {
   renderTermsHtml,
 } from './seo';
 import type { AIProvider } from './providers/types';
+import { DemandSensingError, type DemandSensingService } from './demandSensing';
 
 const VISITOR_COOKIE = 'compareai_visitor_id';
 const VISITOR_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
@@ -45,6 +46,7 @@ type CreateAppOptions = {
   reportStore: ReportStore;
   featuredStore: FeaturedStore;
   provider: AIProvider;
+  demandSensingService?: Pick<DemandSensingService, 'scorePair'>;
   adminPassword?: string;
   adminSessionSecret: string;
   siteUrl?: string;
@@ -83,6 +85,7 @@ export function createApp({
   reportStore,
   featuredStore,
   provider,
+  demandSensingService,
   adminPassword,
   adminSessionSecret,
   siteUrl = process.env.SITE_URL || process.env.APP_URL,
@@ -535,6 +538,27 @@ export function createApp({
     }
 
     res.json({ ok: true });
+  });
+
+  app.post('/api/admin/featured/preflight', async (req, res) => {
+    if (!demandSensingService) {
+      res.status(503).json({ error: 'Demand sensing service is not configured' });
+      return;
+    }
+
+    const { itemA, itemB, language } = req.body || {};
+
+    try {
+      const result = await demandSensingService.scorePair(itemA, itemB, language);
+      res.json(result);
+    } catch (err) {
+      if (err instanceof DemandSensingError) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+      }
+      console.error('Preflight unexpected error:', err);
+      res.status(502).json({ error: 'Demand sensing failed' });
+    }
   });
 
   app.post('/api/admin/reports/:reportId/backfill-sources', async (req, res) => {
