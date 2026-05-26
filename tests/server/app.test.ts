@@ -827,3 +827,69 @@ test('POST /api/admin/candidates/bulk-preflight: rejects oversized batch (>50)',
     assert.equal(resp.status, 400);
   });
 });
+
+test('POST /api/admin/candidates/bulk-promote requires auth', async () => {
+  const { app } = createTestApp();
+  await withServer(app, async (baseUrl) => {
+    const resp = await fetch(`${baseUrl}/api/admin/candidates/bulk-promote`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pairIds: [1], language: 'en' }),
+    });
+    assert.equal(resp.status, 401);
+  });
+});
+
+test('POST /api/admin/candidates/bulk-promote creates featured + marks candidates', async () => {
+  const { app, entityStore, candidateStore, featuredStore } = createTestApp();
+  entityStore.addEntity('Alpha', 'X');
+  entityStore.addEntity('Beta', 'X');
+  entityStore.addEntity('Gamma', 'X');
+  candidateStore.syncFromEntityPool();
+  const items = candidateStore.listCandidates({}).items;
+  const ids = [items[0].id, items[1].id];
+
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/candidates/bulk-promote`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ pairIds: ids, language: 'en' }),
+    });
+    assert.equal(resp.status, 200);
+    const body = (await resp.json()) as any;
+    assert.equal(body.promoted.length, 2);
+    assert.equal(body.skipped.length, 0);
+
+    assert.equal(candidateStore.getCandidate(ids[0])!.status, 'promoted');
+    assert.equal(candidateStore.getCandidate(ids[1])!.status, 'promoted');
+
+    const featured = featuredStore.listFeatured();
+    assert.equal(featured.length, 2);
+    assert.equal(featured[0].reportId, null);
+  });
+});
+
+test('POST /api/admin/candidates/bulk-promote idempotent for already-promoted', async () => {
+  const { app, entityStore, candidateStore } = createTestApp();
+  entityStore.addEntity('A', 'X');
+  entityStore.addEntity('B', 'X');
+  candidateStore.syncFromEntityPool();
+  const id = candidateStore.listCandidates({}).items[0].id;
+  candidateStore.markPromoted(id);
+
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/candidates/bulk-promote`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ pairIds: [id, 99999], language: 'en' }),
+    });
+    assert.equal(resp.status, 200);
+    const body = (await resp.json()) as any;
+    assert.equal(body.promoted.length, 0);
+    assert.equal(body.skipped.length, 2);
+    assert.ok(body.skipped.some((s: any) => s.reason === 'already_promoted'));
+    assert.ok(body.skipped.some((s: any) => s.reason === 'not_found'));
+  });
+});

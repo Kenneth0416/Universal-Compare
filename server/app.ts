@@ -695,6 +695,53 @@ export function createApp({
     res.json({ results });
   });
 
+  app.post('/api/admin/candidates/bulk-promote', (req, res) => {
+    const { pairIds, language, description } = req.body || {};
+    if (!Array.isArray(pairIds) || pairIds.length === 0) {
+      res.status(400).json({ error: 'pairIds must be a non-empty array' });
+      return;
+    }
+    if (pairIds.length > 50) {
+      res.status(400).json({ error: 'pairIds max 50 per batch' });
+      return;
+    }
+
+    const lang = typeof language === 'string' ? language : 'en';
+    const desc = typeof description === 'string' ? description : '';
+
+    const promoted: ReturnType<typeof featuredStore.addFeatured>[] = [];
+    const skipped: Array<{ candidateId: number; reason: 'already_promoted' | 'not_found' | 'create_failed' }> = [];
+
+    for (const rawId of pairIds) {
+      const id = Number(rawId);
+      if (!Number.isFinite(id)) continue;
+
+      const pair = candidateStore.getCandidate(id);
+      if (!pair) {
+        skipped.push({ candidateId: id, reason: 'not_found' });
+        continue;
+      }
+      if (pair.status === 'promoted') {
+        skipped.push({ candidateId: id, reason: 'already_promoted' });
+        continue;
+      }
+
+      try {
+        const featured = featuredStore.addFeatured(pair.itemAName, pair.itemBName, {
+          language: lang,
+          description: desc,
+        });
+        candidateStore.markPromoted(id);
+        promoted.push(featured);
+      } catch (err) {
+        console.error(`bulk-promote create_failed for candidate ${id}:`, err);
+        skipped.push({ candidateId: id, reason: 'create_failed' });
+      }
+    }
+
+    res.json({ promoted, skipped });
+  });
+
   app.post('/api/admin/reports/:reportId/backfill-sources', async (req, res) => {
     const report = reportStore.getReport(req.params.reportId);
     if (!report) {
