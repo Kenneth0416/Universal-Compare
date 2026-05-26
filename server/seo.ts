@@ -1537,7 +1537,16 @@ export function renderLlmsTxt({
 }) {
   const siteUrl = normalizeSiteUrl(rawSiteUrl);
 
-  const comparisonLinks = featured
+  // Deduplicate by normalized item pair to avoid "-2" suffix variants
+  const seen = new Set<string>();
+  const dedupedFeatured = featured.filter((item) => {
+    const key = [item.itemA, item.itemB].map((s) => s.toLowerCase().trim()).sort().join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const comparisonLinks = dedupedFeatured
     .map((item) => `- [${item.itemA} vs ${item.itemB}](${siteUrl}/compare/${encodeURIComponent(item.slug)}): ${item.description || `AI comparison of ${item.itemA} and ${item.itemB}`}`)
     .join('\n');
 
