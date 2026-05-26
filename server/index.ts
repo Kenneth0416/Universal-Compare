@@ -12,6 +12,7 @@ import { createFeaturedStore } from './featured';
 import { createReportStore } from './reports';
 import { createProvider } from './providers/index';
 import { createApp } from './app';
+import { DemandSensingService } from './demandSensing';
 
 const PORT = process.env.API_SERVER_PORT || 3001;
 const AI_PROVIDER = process.env.AI_PROVIDER || 'grok';
@@ -38,6 +39,15 @@ const provider = createProvider(AI_PROVIDER, {
   deepseekModel: process.env.DEEPSEEK_MODEL,
 });
 
+const demandSensingService = deepseekClient && process.env.MINIMAX_API_KEY
+  ? new DemandSensingService({
+      minimaxSearchApiKey: process.env.MINIMAX_API_KEY,
+      minimaxSearchBaseUrl: minimaxBaseUrl.replace('/v1', ''),
+      deepseekClient,
+      deepseekModel: process.env.DEEPSEEK_MODEL,
+    })
+  : undefined;
+
 const analyticsDbPath =
   process.env.ANALYTICS_DB_PATH || path.resolve(process.cwd(), 'server', 'compareai-analytics.db');
 const adminSessionSecret =
@@ -51,6 +61,7 @@ const app = createApp({
   reportStore,
   featuredStore,
   provider,
+  demandSensingService,
   adminPassword: process.env.ADMIN_PASSWORD,
   adminSessionSecret,
   siteUrl: process.env.SITE_URL || process.env.APP_URL,

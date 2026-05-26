@@ -1,5 +1,6 @@
 import type OpenAI from 'openai';
 import type { Source } from './providers/types';
+import { callMinimaxSearch } from './providers/minimax';
 
 export type DemandSenseSignals = {
   existing_articles_count: number;
@@ -114,12 +115,7 @@ export class DemandSensingService {
   private minimaxSearchBaseUrl: string | undefined;
 
   constructor(deps: DemandSensingDependencies) {
-    if (!deps.searchFn) {
-      throw new Error(
-        'searchFn must be provided (or wire callMinimaxSearch in production)',
-      );
-    }
-    this.searchFn = deps.searchFn;
+    this.searchFn = deps.searchFn ?? callMinimaxSearch;
     this.deepseekClient = deps.deepseekClient;
     this.deepseekModel = deps.deepseekModel || 'deepseek-v4-flash';
     this.minimaxSearchApiKey = deps.minimaxSearchApiKey;

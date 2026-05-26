@@ -34,7 +34,7 @@ export function parseMinimaxToolCall(
   return { name, arguments: args };
 }
 
-async function callMinimaxSearch(
+export async function callMinimaxSearch(
   apiKey: string,
   query: string,
   baseUrl = 'https://api.minimaxi.com',

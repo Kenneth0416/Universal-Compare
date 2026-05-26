@@ -11,7 +11,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "test": "tsx --test",
+    "test": "tsx --test tests/server/*.test.ts tests/services/*.test.ts tests/seo/*.test.ts",
+    "test:real": "RUN_REAL_API_TESTS=1 tsx --test tests/server/demandSensing.real.test.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
