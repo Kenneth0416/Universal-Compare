@@ -741,3 +741,89 @@ test('GET /api/admin/candidates pagination via limit + offset', async () => {
     assert.equal(body.total, 10);
   });
 });
+
+test('POST /api/admin/candidates/bulk-preflight requires auth', async () => {
+  const { app } = createTestApp();
+  await withServer(app, async (baseUrl) => {
+    const resp = await fetch(`${baseUrl}/api/admin/candidates/bulk-preflight`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pairIds: [1], language: 'en' }),
+    });
+    assert.equal(resp.status, 401);
+  });
+});
+
+test('POST /api/admin/candidates/bulk-preflight: 503 when service missing', async () => {
+  const { app, entityStore, candidateStore } = createTestApp();
+  entityStore.addEntity('A', 'X');
+  entityStore.addEntity('B', 'X');
+  candidateStore.syncFromEntityPool();
+  const id = candidateStore.listCandidates({}).items[0].id;
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/candidates/bulk-preflight`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ pairIds: [id], language: 'en' }),
+    });
+    assert.equal(resp.status, 503);
+  });
+});
+
+test('POST /api/admin/candidates/bulk-preflight: happy path + partial failure', async () => {
+  const validResult = {
+    score: 7, recommendation: 'good',
+    signals: {
+      existing_articles_count: 5, has_reddit_discussion: true,
+      has_authoritative_source: false, competition_level: 'medium', freshness: 'fresh',
+    },
+    reasoning: 'x', topSources: [], partial: false,
+    metrics: { durationMs: 1, totalTokens: 1 },
+  };
+  const { app, entityStore, candidateStore } = createTestApp({
+    demandSensingService: {
+      scorePair: async (a: string, b: string) => {
+        if (a === 'C' || b === 'C') throw new Error('intentional fail');
+        return validResult;
+      },
+    },
+  });
+  entityStore.addEntity('A', 'X');
+  entityStore.addEntity('B', 'X');
+  entityStore.addEntity('C', 'X');
+  candidateStore.syncFromEntityPool();
+  const pairIds = candidateStore.listCandidates({}).items.map((p) => p.id);
+
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/candidates/bulk-preflight`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ pairIds, language: 'en' }),
+    });
+    assert.equal(resp.status, 200);
+    const body = (await resp.json()) as any;
+    assert.equal(body.results.length, 3);
+    const errors = body.results.filter((r: any) => r.status === 'error');
+    const scored = body.results.filter((r: any) => r.status === 'scored');
+    assert.equal(errors.length, 2);
+    assert.equal(scored.length, 1);
+  });
+});
+
+test('POST /api/admin/candidates/bulk-preflight: rejects oversized batch (>50)', async () => {
+  const { app } = createTestApp({
+    demandSensingService: { scorePair: async () => ({}) as any },
+  });
+  const pairIds = Array.from({ length: 51 }, (_, i) => i + 1);
+  await withServer(app, async (baseUrl) => {
+    const cookie = await loginAsAdmin(baseUrl);
+    const resp = await fetch(`${baseUrl}/api/admin/candidates/bulk-preflight`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ pairIds, language: 'en' }),
+    });
+    assert.equal(resp.status, 400);
+  });
+});

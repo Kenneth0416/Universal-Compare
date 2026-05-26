@@ -31,6 +31,7 @@ import type { AIProvider } from './providers/types';
 import { DemandSensingError, type DemandSensingService } from './demandSensing';
 import { parseEntityCsv, type EntityPoolStore } from './entityPool';
 import type { CandidatePairStore } from './candidatePairs';
+import { mapConcurrent } from './concurrency';
 
 const VISITOR_COOKIE = 'compareai_visitor_id';
 const VISITOR_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
@@ -657,6 +658,41 @@ export function createApp({
       offset: Number.isFinite(offset) ? offset : 0,
     });
     res.json(result);
+  });
+
+  app.post('/api/admin/candidates/bulk-preflight', async (req, res) => {
+    if (!demandSensingService) {
+      res.status(503).json({ error: 'Demand sensing service is not configured' });
+      return;
+    }
+
+    const { pairIds, language } = req.body || {};
+    if (!Array.isArray(pairIds) || pairIds.length === 0) {
+      res.status(400).json({ error: 'pairIds must be a non-empty array' });
+      return;
+    }
+    if (pairIds.length > 50) {
+      res.status(400).json({ error: 'pairIds max 50 per batch' });
+      return;
+    }
+
+    const pairs = pairIds
+      .map((id: any) => candidateStore.getCandidate(Number(id)))
+      .filter((p): p is NonNullable<typeof p> => p !== null && p.status !== 'promoted');
+
+    const lang = typeof language === 'string' ? language : 'en';
+
+    const results = await mapConcurrent(pairs, 5, async (pair) => {
+      try {
+        const result = await demandSensingService.scorePair(pair.itemAName, pair.itemBName, lang);
+        candidateStore.updateScore(pair.id, result);
+        return { id: pair.id, status: 'scored' as const, result };
+      } catch (err) {
+        return { id: pair.id, status: 'error' as const, error: (err as Error).message };
+      }
+    });
+
+    res.json({ results });
   });
 
   app.post('/api/admin/reports/:reportId/backfill-sources', async (req, res) => {
