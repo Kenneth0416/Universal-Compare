@@ -44,6 +44,44 @@ function normalizeSiteUrl(siteUrl = DEFAULT_SITE_URL) {
   return siteUrl.replace(/\/+$/, '');
 }
 
+function renderHreflangTags(path: string, siteUrl: string) {
+  const base = `${siteUrl}${path}`;
+  const sep = path.includes('?') ? '&' : '?';
+  return `
+    <link rel="alternate" hreflang="en" href="${escapeHtml(base)}${sep}hl=en" />
+    <link rel="alternate" hreflang="zh-Hans" href="${escapeHtml(base)}${sep}hl=zh-Hans" />
+    <link rel="alternate" hreflang="zh-Hant" href="${escapeHtml(base)}${sep}hl=zh-Hant" />
+    <link rel="alternate" hreflang="x-default" href="${escapeHtml(base)}" />`;
+}
+
+function renderSiteNav(_siteUrl: string) {
+  return `
+    <nav aria-label="Main navigation">
+      <ul>
+        <li><a href="/">Home</a></li>
+        <li><a href="/popular-ai-comparisons">Popular Comparisons</a></li>
+        <li><a href="/methodology">Methodology</a></li>
+        <li><a href="/about">About</a></li>
+      </ul>
+    </nav>`;
+}
+
+function renderSiteFooter(_siteUrl: string) {
+  return `
+    <footer aria-label="Site footer">
+      <nav aria-label="Footer navigation">
+        <ul>
+          <li><a href="/about">About CompareAI</a></li>
+          <li><a href="/methodology">Methodology</a></li>
+          <li><a href="/popular-ai-comparisons">Popular Comparisons</a></li>
+          <li><a href="/privacy">Privacy Policy</a></li>
+          <li><a href="/terms">Terms of Service</a></li>
+        </ul>
+      </nav>
+      <p>&copy; ${new Date().getFullYear()} CompareAI. AI-powered comparison engine.</p>
+    </footer>`;
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -113,7 +151,9 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
     : `${siteUrl}/r/${encodeURIComponent(report.reportId)}`;
   const language = report.language || 'en';
   const isoDate = report.createdAt;
-  const image = `${siteUrl}${OG_IMAGE_PATH}`;
+  const image = featured?.slug
+    ? `${siteUrl}/og/${encodeURIComponent(featured.slug)}.png`
+    : `${siteUrl}${OG_IMAGE_PATH}`;
 
   // Article schema - primary content type for comparison reports
   const article = {
@@ -128,14 +168,26 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
     inLanguage: language,
     author: {
       '@type': 'Organization',
+      '@id': `${siteUrl}/#organization`,
       name: 'CompareAI Editorial Team',
       url: `${siteUrl}/about`,
+      logo: { '@type': 'ImageObject', url: `${siteUrl}${OG_IMAGE_PATH}` },
+      description: 'AI engineering team specializing in multi-agent comparison analysis with web-sourced research and editorial review.',
+      foundingDate: '2024',
+      knowsAbout: ['artificial intelligence', 'product comparison', 'technology analysis', 'data-driven decision making'],
+      publishingPrinciples: `${siteUrl}/methodology`,
+      ethicsPolicy: `${siteUrl}/methodology`,
+      correctionsPolicy: `${siteUrl}/methodology`,
     },
     publisher: {
       '@type': 'Organization',
+      '@id': `${siteUrl}/#organization`,
       name: 'CompareAI',
       url: siteUrl,
-      logo: { '@type': 'ImageObject', url: `${siteUrl}${OG_IMAGE_PATH}` },
+      logo: { '@type': 'ImageObject', url: `${siteUrl}${OG_IMAGE_PATH}`, width: 1200, height: 630 },
+      description: 'Free AI-powered comparison engine using multi-agent pipeline with web research for source-backed, structured analysis.',
+      foundingDate: '2024',
+      knowsAbout: ['AI comparison', 'product analysis', 'technology evaluation'],
     },
     mainEntityOfPage: { '@type': 'WebPage', '@id': url },
     about: [
@@ -175,7 +227,7 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
           { '@type': 'Thing', name: itemB },
         ],
         reviewBody,
-        author: { '@type': 'Organization', name: 'CompareAI Editorial Team' },
+        author: { '@type': 'Organization', '@id': `${siteUrl}/#organization`, name: 'CompareAI Editorial Team', url: `${siteUrl}/about` },
       };
 
       if (typeof scoreA === 'number' || typeof scoreB === 'number') {
@@ -222,7 +274,7 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
         '@type': 'Review',
         name: `Pros and Cons of ${itemA}`,
         itemReviewed: { '@type': 'Thing', name: itemA },
-        author: { '@type': 'Organization', name: 'CompareAI' },
+        author: { '@type': 'Organization', '@id': `${siteUrl}/#organization`, name: 'CompareAI', url: siteUrl },
       };
       if (prosCons.item_a_pros?.length) {
         review.positiveNotes = {
@@ -244,7 +296,7 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
         '@type': 'Review',
         name: `Pros and Cons of ${itemB}`,
         itemReviewed: { '@type': 'Thing', name: itemB },
-        author: { '@type': 'Organization', name: 'CompareAI' },
+        author: { '@type': 'Organization', '@id': `${siteUrl}/#organization`, name: 'CompareAI', url: siteUrl },
       };
       if (prosCons.item_b_pros?.length) {
         review.positiveNotes = {
@@ -672,9 +724,15 @@ export function renderReportSeoHtml({
   const url = featured?.slug
     ? `${siteUrl}/compare/${encodeURIComponent(featured.slug)}`
     : `${siteUrl}/r/${encodeURIComponent(report.reportId)}`;
-  const image = `${siteUrl}${OG_IMAGE_PATH}`;
+  const image = featured?.slug
+    ? `${siteUrl}/og/${encodeURIComponent(featured.slug)}.png`
+    : `${siteUrl}${OG_IMAGE_PATH}`;
   const robots = featured ? 'index, follow, max-snippet:-1, max-image-preview:large' : 'noindex, follow';
   const structuredData = buildStructuredData(report, featured, siteUrl);
+
+  const reportPath = featured?.slug
+    ? `/compare/${encodeURIComponent(featured.slug)}`
+    : `/r/${encodeURIComponent(report.reportId)}`;
 
   const head = `
     <title>${escapeHtml(title)}</title>
@@ -684,6 +742,7 @@ export function renderReportSeoHtml({
     <meta name="language" content="${escapeHtml(report.language || 'en')}" />
     <meta http-equiv="last-modified" content="${getIsoDate(report.createdAt)}" />
     <link rel="canonical" href="${escapeHtml(url)}" />
+    ${renderHreflangTags(reportPath, siteUrl)}
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="CompareAI" />
     <meta property="og:title" content="${escapeHtml(title)}" />
@@ -701,7 +760,7 @@ export function renderReportSeoHtml({
   return injectSeoIntoHtml(
     indexHtml,
     head,
-    `${renderReportSummary(report, featured, feedbackStats)}${renderComparisonLinks(relatedComparisons || [], 'Related AI comparisons')}`,
+    `${renderSiteNav(siteUrl)}${renderReportSummary(report, featured, feedbackStats)}${renderComparisonLinks(relatedComparisons || [], 'Related AI comparisons')}${renderSiteFooter(siteUrl)}`,
   );
 }
 
@@ -769,6 +828,7 @@ export function renderPopularComparisonsHtml({
     <meta name="description" content="${description}" />
     <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" />
     <link rel="canonical" href="${escapeHtml(url)}" />
+    ${renderHreflangTags('/popular-ai-comparisons', siteUrl)}
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="CompareAI" />
     <meta property="og:title" content="${title}" />
@@ -782,7 +842,8 @@ export function renderPopularComparisonsHtml({
     ${renderJsonLdBlocks(structuredData)}
   `;
 
-  return injectSeoIntoHtml(indexHtml, head, renderPopularComparisonsBody(comparisons, description));
+  const bodyContent = `${renderSiteNav(siteUrl)}${renderPopularComparisonsBody(comparisons, description)}${renderSiteFooter(siteUrl)}`;
+  return injectSeoIntoHtml(indexHtml, head, bodyContent);
 }
 
 export function renderMethodologyHtml({
@@ -810,8 +871,22 @@ export function renderMethodologyHtml({
       headline: title,
       description,
       url,
-      author: { '@type': 'Organization', name: 'CompareAI Editorial Team', url: `${siteUrl}/about` },
-      publisher: { '@type': 'Organization', name: 'CompareAI', url: siteUrl },
+      author: {
+        '@type': 'Organization',
+        '@id': `${siteUrl}/#organization`,
+        name: 'CompareAI Editorial Team',
+        url: `${siteUrl}/about`,
+        description: 'AI engineering team specializing in multi-agent comparison analysis with web-sourced research and editorial review.',
+        knowsAbout: ['artificial intelligence', 'product comparison', 'technology analysis', 'data-driven decision making'],
+        publishingPrinciples: `${siteUrl}/methodology`,
+      },
+      publisher: {
+        '@type': 'Organization',
+        '@id': `${siteUrl}/#organization`,
+        name: 'CompareAI',
+        url: siteUrl,
+        logo: { '@type': 'ImageObject', url: `${siteUrl}${OG_IMAGE_PATH}` },
+      },
     },
     {
       '@context': 'https://schema.org',
@@ -829,6 +904,7 @@ export function renderMethodologyHtml({
     <meta name="description" content="${escapeHtml(description)}" />
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="${escapeHtml(url)}" />
+    ${renderHreflangTags('/methodology', siteUrl)}
     <meta property="og:type" content="article" />
     <meta property="og:site_name" content="CompareAI" />
     <meta property="og:title" content="${escapeHtml(title)}" />
@@ -842,6 +918,7 @@ export function renderMethodologyHtml({
   `;
 
   const body = `
+    ${renderSiteNav(siteUrl)}
     <main class="seo-report-summary">
       <p class="seo-kicker">Methodology</p>
       <h1>How Our Comparisons Are Generated</h1>
@@ -866,8 +943,8 @@ export function renderMethodologyHtml({
       <section class="seo-section"><h2>Limitations</h2>
         <p>AI analysis may contain inaccuracies. Scores are relative, not absolute. Data freshness depends on available web sources.</p>
       </section>
-      <section class="seo-section"><p><a href="/">Create your own comparison</a> &middot; <a href="/about">About</a></p></section>
     </main>
+    ${renderSiteFooter(siteUrl)}
   `;
 
   return injectSeoIntoHtml(indexHtml, head, body);
@@ -893,10 +970,22 @@ export function renderAboutHtml({
       url,
       description,
       mainEntity: {
+        '@context': 'https://schema.org',
         '@type': 'Organization',
+        '@id': `${siteUrl}/#organization`,
         name: 'CompareAI',
+        legalName: 'CompareAI',
         url: siteUrl,
-        logo: `${siteUrl}${OG_IMAGE_PATH}`,
+        logo: { '@type': 'ImageObject', url: `${siteUrl}${OG_IMAGE_PATH}`, width: 1200, height: 630 },
+        description: 'Free AI-powered comparison engine using multi-agent pipeline with web research for source-backed, structured analysis reports.',
+        foundingDate: '2024',
+        knowsAbout: ['artificial intelligence', 'product comparison', 'technology analysis', 'multi-agent AI systems', 'data-driven decision making', 'web research'],
+        slogan: 'Compare anything with AI',
+        publishingPrinciples: `${siteUrl}/methodology`,
+        ethicsPolicy: `${siteUrl}/methodology`,
+        correctionsPolicy: `${siteUrl}/methodology`,
+        ownershipFundingInfo: 'Independent, self-funded project',
+        actionableFeedbackPolicy: `${siteUrl}/about`,
       },
     },
     {
@@ -915,6 +1004,7 @@ export function renderAboutHtml({
     <meta name="description" content="${escapeHtml(description)}" />
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="${escapeHtml(url)}" />
+    ${renderHreflangTags('/about', siteUrl)}
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="CompareAI" />
     <meta property="og:title" content="${escapeHtml(title)}" />
@@ -928,6 +1018,7 @@ export function renderAboutHtml({
   `;
 
   const body = `
+    ${renderSiteNav(siteUrl)}
     <main class="seo-report-summary">
       <p class="seo-kicker">About</p>
       <h1>About CompareAI</h1>
@@ -948,8 +1039,180 @@ export function renderAboutHtml({
           <li>Reports are updated when significant new information becomes available</li>
         </ul>
       </section>
-      <section class="seo-section"><p><a href="/">Create your own comparison</a> &middot; <a href="/methodology">Methodology</a></p></section>
     </main>
+    ${renderSiteFooter(siteUrl)}
+  `;
+
+  return injectSeoIntoHtml(indexHtml, head, body);
+}
+
+export function renderPrivacyPolicyHtml({
+  indexHtml,
+  siteUrl: rawSiteUrl,
+}: {
+  indexHtml: string;
+  siteUrl?: string;
+}) {
+  const siteUrl = normalizeSiteUrl(rawSiteUrl);
+  const url = `${siteUrl}/privacy`;
+  const title = 'Privacy Policy | CompareAI';
+  const description = 'Learn how CompareAI collects, uses, and protects your information. We collect minimal data and never sell your personal information to third parties.';
+
+  const structuredData = [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      name: title,
+      url,
+      description,
+      inLanguage: 'en',
+      isPartOf: { '@type': 'WebSite', name: 'CompareAI', url: siteUrl },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, item: { '@id': `${siteUrl}/`, name: 'Home' } },
+        { '@type': 'ListItem', position: 2, item: { '@id': url, name: 'Privacy Policy' } },
+      ],
+    },
+  ];
+
+  const head = `
+    <title>${escapeHtml(title)}</title>
+    <meta name="title" content="${escapeHtml(title)}" />
+    <meta name="description" content="${escapeHtml(description)}" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="${escapeHtml(url)}" />
+    ${renderHreflangTags('/privacy', siteUrl)}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CompareAI" />
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:url" content="${escapeHtml(url)}" />
+    <meta property="og:image" content="${escapeHtml(`${siteUrl}${OG_IMAGE_PATH}`)}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    ${renderJsonLdBlocks(structuredData)}
+  `;
+
+  const body = `
+    ${renderSiteNav(siteUrl)}
+    <main class="seo-report-summary">
+      <p class="seo-kicker">Privacy Policy</p>
+      <h1>Privacy Policy</h1>
+      <section class="seo-section"><h2>Introduction</h2>
+        <p>CompareAI respects your privacy. This policy explains how we collect, use, and protect your information when you use our AI-powered comparison service.</p>
+      </section>
+      <section class="seo-section"><h2>Information We Collect</h2>
+        <ul>
+          <li>Comparison inputs (the entities you submit for comparison)</li>
+          <li>Usage data (anonymous visitor identifiers, page views)</li>
+          <li>Technical data (browser type, device info, IP address)</li>
+          <li>Feedback votes on comparison reports</li>
+        </ul>
+      </section>
+      <section class="seo-section"><h2>How We Use Your Information</h2>
+        <ul>
+          <li>Generate AI-powered comparison reports</li>
+          <li>Improve comparison quality and service reliability</li>
+          <li>Detect and prevent abuse</li>
+        </ul>
+      </section>
+      <section class="seo-section"><h2>AI Processing</h2>
+        <p>Comparison inputs are sent to third-party AI providers for analysis. We do not send personal identifiers to AI providers.</p>
+      </section>
+      <section class="seo-section"><h2>Cookies</h2>
+        <p>We use one essential cookie for session management. It does not track you across other websites.</p>
+      </section>
+      <section class="seo-section"><h2>Your Rights</h2>
+        <p>You may request access to, correction of, or deletion of your data by contacting us.</p>
+      </section>
+    </main>
+    ${renderSiteFooter(siteUrl)}
+  `;
+
+  return injectSeoIntoHtml(indexHtml, head, body);
+}
+
+export function renderTermsHtml({
+  indexHtml,
+  siteUrl: rawSiteUrl,
+}: {
+  indexHtml: string;
+  siteUrl?: string;
+}) {
+  const siteUrl = normalizeSiteUrl(rawSiteUrl);
+  const url = `${siteUrl}/terms`;
+  const title = 'Terms of Service | CompareAI';
+  const description = 'Terms of Service for CompareAI. Understand the rules, disclaimers, and limitations of our AI-powered comparison service.';
+
+  const structuredData = [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      name: title,
+      url,
+      description,
+      inLanguage: 'en',
+      isPartOf: { '@type': 'WebSite', name: 'CompareAI', url: siteUrl },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, item: { '@id': `${siteUrl}/`, name: 'Home' } },
+        { '@type': 'ListItem', position: 2, item: { '@id': url, name: 'Terms of Service' } },
+      ],
+    },
+  ];
+
+  const head = `
+    <title>${escapeHtml(title)}</title>
+    <meta name="title" content="${escapeHtml(title)}" />
+    <meta name="description" content="${escapeHtml(description)}" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="${escapeHtml(url)}" />
+    ${renderHreflangTags('/terms', siteUrl)}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CompareAI" />
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:url" content="${escapeHtml(url)}" />
+    <meta property="og:image" content="${escapeHtml(`${siteUrl}${OG_IMAGE_PATH}`)}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    ${renderJsonLdBlocks(structuredData)}
+  `;
+
+  const body = `
+    ${renderSiteNav(siteUrl)}
+    <main class="seo-report-summary">
+      <p class="seo-kicker">Terms of Service</p>
+      <h1>Terms of Service</h1>
+      <section class="seo-section"><h2>Acceptance of Terms</h2>
+        <p>By accessing or using CompareAI, you agree to be bound by these Terms of Service.</p>
+      </section>
+      <section class="seo-section"><h2>Description of Service</h2>
+        <p>CompareAI is a free AI-powered comparison engine that generates analytical reports comparing two entities, including scoring, pros and cons, and recommendations.</p>
+      </section>
+      <section class="seo-section"><h2>AI-Generated Content</h2>
+        <ul>
+          <li>Content may contain inaccuracies or errors</li>
+          <li>Reports should not be the sole basis for important decisions</li>
+          <li>Scores and recommendations do not constitute professional advice</li>
+        </ul>
+      </section>
+      <section class="seo-section"><h2>Disclaimer of Warranties</h2>
+        <p>The service is provided &ldquo;as is&rdquo; without warranties. We do not guarantee accuracy of AI-generated content.</p>
+      </section>
+      <section class="seo-section"><h2>Limitation of Liability</h2>
+        <p>CompareAI shall not be liable for indirect or consequential damages arising from use of the service.</p>
+      </section>
+    </main>
+    ${renderSiteFooter(siteUrl)}
   `;
 
   return injectSeoIntoHtml(indexHtml, head, body);
@@ -1013,6 +1276,7 @@ export function renderHomepageHtml({
     <meta name="description" content="${escapeHtml(description)}" />
     <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" />
     <link rel="canonical" href="${escapeHtml(siteUrl)}/" />
+    ${renderHreflangTags('/', siteUrl)}
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="CompareAI" />
     <meta property="og:title" content="${escapeHtml(title)}" />
@@ -1029,26 +1293,44 @@ export function renderHomepageHtml({
   `;
 
   const body = `
+    ${renderSiteNav(siteUrl)}
     <main class="seo-report-summary">
       <h1>Compare Anything with AI</h1>
       <p class="seo-description">${escapeHtml(description)}</p>
       <section class="seo-section">
-        <h2>How it works</h2>
+        <h2>How CompareAI Works</h2>
+        <p>Our multi-agent AI pipeline delivers structured, source-backed comparison reports in seconds.</p>
         <ol>
           <li>Enter any two entities &mdash; products, concepts, technologies, or ideas</li>
           <li>Our AI pipeline researches both entities across 5-8 web sources</li>
           <li>Get a detailed report with scores, pros/cons, and a clear recommendation</li>
         </ol>
       </section>
-      ${featuredHtml}
-      <nav class="seo-section">
+      <section class="seo-section">
+        <h2>What Can You Compare?</h2>
+        <p>CompareAI handles any comparison category with tailored analysis dimensions.</p>
+        <h3>Technology &amp; Software</h3>
+        <p>Compare programming languages, frameworks, cloud platforms, AI tools, and developer ecosystems with benchmark-backed scoring.</p>
+        <h3>Products &amp; Hardware</h3>
+        <p>Smartphones, laptops, cameras, appliances &mdash; get spec-level comparisons with real-world performance insights.</p>
+        <h3>Services &amp; Subscriptions</h3>
+        <p>Streaming platforms, SaaS tools, financial products, and subscription services analyzed on value, features, and user fit.</p>
+        <h3>Concepts &amp; Ideas</h3>
+        <p>Compare methodologies, philosophies, strategies, or any abstract concepts with structured multi-dimensional analysis.</p>
+      </section>
+      <section class="seo-section">
+        <h2>Why Choose CompareAI Over Other Comparison Tools?</h2>
         <ul>
-          <li><a href="/popular-ai-comparisons">Browse all comparisons</a></li>
-          <li><a href="/methodology">How we compare</a></li>
-          <li><a href="/about">About CompareAI</a></li>
+          <li><strong>AI-powered research</strong> &mdash; multi-agent pipeline uses web search, not pre-built databases</li>
+          <li><strong>Source transparency</strong> &mdash; every claim links back to its original source</li>
+          <li><strong>Structured scoring</strong> &mdash; 0-10 dimension scores with radar chart visualization</li>
+          <li><strong>Actionable verdict</strong> &mdash; clear recommendation on which option suits your needs</li>
+          <li><strong>Free &amp; multilingual</strong> &mdash; available in English, Simplified Chinese, and Traditional Chinese</li>
         </ul>
-      </nav>
+      </section>
+      ${featuredHtml}
     </main>
+    ${renderSiteFooter(siteUrl)}
   `;
 
   return injectSeoIntoHtml(indexHtml, head, body);
@@ -1097,6 +1379,18 @@ export function renderSitemapXml(reports: SitemapReport[], siteUrl?: string) {
       lastmod: today,
       changefreq: 'monthly',
       priority: '0.5',
+    },
+    {
+      loc: `${normalizedSiteUrl}/privacy`,
+      lastmod: today,
+      changefreq: 'yearly',
+      priority: '0.3',
+    },
+    {
+      loc: `${normalizedSiteUrl}/terms`,
+      lastmod: today,
+      changefreq: 'yearly',
+      priority: '0.3',
     },
     ...reports.map((report) => ({
       loc: `${normalizedSiteUrl}/compare/${encodeURIComponent(report.slug)}`,

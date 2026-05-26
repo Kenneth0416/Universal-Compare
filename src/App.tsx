@@ -275,6 +275,19 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+
+      <footer className="relative z-10 border-t border-white/10 mt-16 py-10 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-5xl mx-auto">
+          <nav aria-label="Footer navigation" className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm">
+            <a href="/about" className="text-neutral-400 hover:text-indigo-300 transition-colors">{t('nav.about')}</a>
+            <a href="/methodology" className="text-neutral-400 hover:text-indigo-300 transition-colors">{t('nav.methodology')}</a>
+            <a href="/popular-ai-comparisons" className="text-neutral-400 hover:text-indigo-300 transition-colors">{t('nav.popularComparisons')}</a>
+            <a href="/privacy" className="text-neutral-400 hover:text-indigo-300 transition-colors">{t('nav.privacy')}</a>
+            <a href="/terms" className="text-neutral-400 hover:text-indigo-300 transition-colors">{t('nav.terms')}</a>
+          </nav>
+          <p className="mt-4 text-center text-xs text-neutral-500">&copy; {new Date().getFullYear()} CompareAI</p>
+        </div>
+      </footer>
     </div>
   );
 }

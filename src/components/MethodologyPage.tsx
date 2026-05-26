@@ -57,10 +57,12 @@ export default function MethodologyPage() {
           </section>
         </div>
 
-        <div className="mt-12 pt-8 border-t border-white/10 flex gap-4 text-sm">
+        <div className="mt-12 pt-8 border-t border-white/10 flex flex-wrap gap-4 text-sm">
           <a href="/" className="text-indigo-400 hover:text-indigo-300 transition-colors">{t('nav.home')}</a>
           <a href="/about" className="text-indigo-400 hover:text-indigo-300 transition-colors">{t('nav.about')}</a>
           <a href="/popular-ai-comparisons" className="text-indigo-400 hover:text-indigo-300 transition-colors">{t('nav.popularComparisons')}</a>
+          <a href="/privacy" className="text-indigo-400 hover:text-indigo-300 transition-colors">{t('nav.privacy')}</a>
+          <a href="/terms" className="text-indigo-400 hover:text-indigo-300 transition-colors">{t('nav.terms')}</a>
         </div>
       </main>
     </div>

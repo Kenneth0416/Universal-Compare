@@ -6,7 +6,9 @@ import App from './App.tsx';
 import AboutPage from './components/AboutPage.tsx';
 import MethodologyPage from './components/MethodologyPage.tsx';
 import PopularComparisonsPage from './components/PopularComparisonsPage.tsx';
+import PrivacyPolicyPage from './components/PrivacyPolicyPage.tsx';
 import ReportViewer from './components/ReportViewer.tsx';
+import TermsPage from './components/TermsPage.tsx';
 import './index.css';
 
 const pathname = window.location.pathname;
@@ -17,6 +19,10 @@ if (pathname.startsWith('/admin')) {
   RootApp = MethodologyPage;
 } else if (pathname === '/about') {
   RootApp = AboutPage;
+} else if (pathname === '/privacy') {
+  RootApp = PrivacyPolicyPage;
+} else if (pathname === '/terms') {
+  RootApp = TermsPage;
 } else if (pathname.startsWith('/r/') || pathname.startsWith('/compare/')) {
   RootApp = ReportViewer;
 } else if (pathname === '/popular-ai-comparisons') {

@@ -13,16 +13,19 @@ import { extractAiUsageMetrics } from './aiUsage';
 import type { createAnalyticsStore } from './analytics';
 import type { createFeaturedStore } from './featured';
 import type { createReportStore } from './reports';
+import { generateOgImage } from './og';
 import {
   renderAboutHtml,
   renderHomepageHtml,
   renderLlmsTxt,
   renderMethodologyHtml,
   renderPopularComparisonsHtml,
+  renderPrivacyPolicyHtml,
   renderReportNotFoundHtml,
   renderReportSeoHtml,
   renderRobotsTxt,
   renderSitemapXml,
+  renderTermsHtml,
 } from './seo';
 import type { AIProvider } from './providers/types';
 
@@ -151,6 +154,18 @@ export function createApp({
     res.type('text/html').send(renderAboutHtml({ indexHtml, siteUrl }));
   });
 
+  app.get('/privacy', (_req, res) => {
+    const indexHtml = readClientIndexHtml();
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('text/html').send(renderPrivacyPolicyHtml({ indexHtml, siteUrl }));
+  });
+
+  app.get('/terms', (_req, res) => {
+    const indexHtml = readClientIndexHtml();
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('text/html').send(renderTermsHtml({ indexHtml, siteUrl }));
+  });
+
   app.get('/popular-ai-comparisons', (_req, res) => {
     const indexHtml = readClientIndexHtml();
     res.set('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=3600');
@@ -161,6 +176,21 @@ export function createApp({
         siteUrl,
       }),
     );
+  });
+
+  app.get('/og/:slug.png', async (req, res) => {
+    try {
+      const png = await generateOgImage(req.params.slug, reportStore, featuredStore);
+      if (!png) {
+        res.status(404).end();
+        return;
+      }
+      res.set('Content-Type', 'image/png');
+      res.set('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
+      res.send(png);
+    } catch {
+      res.status(500).end();
+    }
   });
 
   app.get('/compare/:slug', (req, res) => {
