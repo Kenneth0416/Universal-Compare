@@ -370,7 +370,7 @@ export default function AdminApp() {
   const [featured, setFeatured] = useState<FeaturedComparison[]>([]);
   const [generatingIds, setGeneratingIds] = useState<Set<number>>(new Set());
   const [generatingProgress, setGeneratingProgress] = useState<Record<number, string>>({});
-  const [backfillingId, setBackfillingId] = useState<number | null>(null);
+  const [backfillingIds, setBackfillingIds] = useState<Set<number>>(new Set());
   const [newItemA, setNewItemA] = useState('');
   const [newItemB, setNewItemB] = useState('');
   const [newLang, setNewLang] = useState('en');
@@ -1069,7 +1069,11 @@ export default function AdminApp() {
                                   <button
                                     type="button"
                                     onClick={async () => {
-                                      setBackfillingId(item.id);
+                                      setBackfillingIds((prev) => {
+                                        const next = new Set(prev);
+                                        next.add(item.id);
+                                        return next;
+                                      });
                                       try {
                                         const result = await backfillSources(item.reportId!);
                                         setFeatured((prev) =>
@@ -1083,17 +1087,21 @@ export default function AdminApp() {
                                               : f,
                                           ),
                                         );
-                                        alert(`Backfilled: ${result.sourcesCount} sources, ${result.dimensionsUpdated} dimensions`);
+                                        alert(`Backfilled ${item.itemA} vs ${item.itemB}: ${result.sourcesCount} sources, ${result.dimensionsUpdated} dimensions`);
                                       } catch (err: any) {
-                                        alert(`Failed: ${err.message}`);
+                                        alert(`Failed ${item.itemA} vs ${item.itemB}: ${err.message}`);
                                       } finally {
-                                        setBackfillingId(null);
+                                        setBackfillingIds((prev) => {
+                                          const next = new Set(prev);
+                                          next.delete(item.id);
+                                          return next;
+                                        });
                                       }
                                     }}
-                                    disabled={backfillingId === item.id}
+                                    disabled={backfillingIds.has(item.id)}
                                     className="text-xs text-blue-400 hover:text-blue-300 disabled:text-neutral-600"
                                   >
-                                    {backfillingId === item.id ? 'Backfilling...' : 'Backfill Sources'}
+                                    {backfillingIds.has(item.id) ? 'Backfilling...' : 'Backfill Sources'}
                                   </button>
                                 )}
                               </>
