@@ -88,6 +88,8 @@ export type FeaturedComparison = {
   viewCount: number;
   sortOrder: number;
   createdAt: string;
+  hasSources: boolean;
+  hasCitations: boolean;
 };
 
 export type AdminSummary = {

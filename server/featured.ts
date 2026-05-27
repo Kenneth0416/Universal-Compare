@@ -18,6 +18,8 @@ export type FeaturedComparison = {
   viewCount: number;
   sortOrder: number;
   createdAt: string;
+  hasSources: boolean;
+  hasCitations: boolean;
 };
 
 function isoNow() {
@@ -124,22 +126,37 @@ export function createFeaturedStore(db: DatabaseConnection) {
   ensureExistingSlugs();
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_featured_slug ON featured_comparisons(slug)');
 
-  const getReportViewCount = (reportId: string | null): number => {
-    if (!reportId) return 0;
+  type ReportMeta = { viewCount: number; hasSources: boolean; hasCitations: boolean };
+
+  const getReportMeta = (reportId: string | null): ReportMeta => {
+    if (!reportId) return { viewCount: 0, hasSources: false, hasCitations: false };
 
     try {
-      const row = db.prepare('SELECT view_count AS viewCount FROM comparison_reports WHERE report_id = ?').get(reportId) as any;
-      return Number(row?.viewCount || 0);
+      const row = db.prepare('SELECT view_count AS viewCount, result_json AS resultJson FROM comparison_reports WHERE report_id = ?').get(reportId) as any;
+      if (!row) return { viewCount: 0, hasSources: false, hasCitations: false };
+
+      let hasSources = false;
+      let hasCitations = false;
+      try {
+        const result = JSON.parse(row.resultJson) as any;
+        hasSources = Array.isArray(result?.sources) && result.sources.length > 0;
+        const dims = Array.isArray(result?.dimensions) ? result.dimensions : [];
+        hasCitations = dims.some((d: any) => Array.isArray(d?.analysis?.citations) && d.analysis.citations.length > 0);
+      } catch {
+        // malformed result_json — treat as missing
+      }
+
+      return { viewCount: Number(row.viewCount || 0), hasSources, hasCitations };
     } catch {
-      return 0;
+      return { viewCount: 0, hasSources: false, hasCitations: false };
     }
   };
 
-  const withViewCount = (items: FeaturedComparison[]): FeaturedComparison[] =>
-    items.map((item) => ({
-      ...item,
-      viewCount: getReportViewCount(item.reportId),
-    }));
+  const withReportMeta = (items: FeaturedComparison[]): FeaturedComparison[] =>
+    items.map((item) => {
+      const meta = getReportMeta(item.reportId);
+      return { ...item, ...meta };
+    });
 
   const listFeatured = (language?: string): FeaturedComparison[] => {
     if (language) {
@@ -149,14 +166,14 @@ export function createFeaturedStore(db: DatabaseConnection) {
         WHERE language = ?
         ORDER BY sort_order ASC, created_at DESC
       `).all(language) as FeaturedComparison[];
-      return withViewCount(items);
+      return withReportMeta(items);
     }
     const items = db.prepare(`
       SELECT ${selectCols}
       FROM featured_comparisons
       ORDER BY sort_order ASC, created_at DESC
     `).all() as FeaturedComparison[];
-    return withViewCount(items);
+    return withReportMeta(items);
   };
 
   const addFeatured = (
@@ -176,6 +193,7 @@ export function createFeaturedStore(db: DatabaseConnection) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(truncate(itemA), truncate(itemB), lang, desc, rId, slug, order, now);
 
+    const meta = getReportMeta(rId);
     return {
       id: Number((result as any).lastInsertRowid),
       itemA: truncate(itemA),
@@ -184,9 +202,11 @@ export function createFeaturedStore(db: DatabaseConnection) {
       description: desc,
       reportId: rId,
       slug,
-      viewCount: getReportViewCount(rId),
+      viewCount: meta.viewCount,
       sortOrder: order,
       createdAt: now,
+      hasSources: meta.hasSources,
+      hasCitations: meta.hasCitations,
     };
   };
 
@@ -196,7 +216,7 @@ export function createFeaturedStore(db: DatabaseConnection) {
       FROM featured_comparisons
       WHERE slug = ?
     `).get(slug) as FeaturedComparison | undefined;
-    return item ? withViewCount([item])[0] : null;
+    return item ? withReportMeta([item])[0] : null;
   };
 
   const getFeaturedByReportId = (reportId: string): FeaturedComparison | null => {
@@ -207,7 +227,7 @@ export function createFeaturedStore(db: DatabaseConnection) {
       ORDER BY sort_order ASC, created_at DESC
       LIMIT 1
     `).get(reportId) as FeaturedComparison | undefined;
-    return item ? withViewCount([item])[0] : null;
+    return item ? withReportMeta([item])[0] : null;
   };
 
   const updateReportId = (id: number, reportId: string): boolean => {

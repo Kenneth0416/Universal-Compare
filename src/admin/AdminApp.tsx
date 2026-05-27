@@ -1065,24 +1065,37 @@ export default function AdminApp() {
                                   <Check size={10} />
                                   Report
                                 </a>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    setBackfillingId(item.id);
-                                    try {
-                                      const result = await backfillSources(item.reportId!);
-                                      alert(`Backfilled: ${result.sourcesCount} sources, ${result.dimensionsUpdated} dimensions`);
-                                    } catch (err: any) {
-                                      alert(`Failed: ${err.message}`);
-                                    } finally {
-                                      setBackfillingId(null);
-                                    }
-                                  }}
-                                  disabled={backfillingId === item.id}
-                                  className="text-xs text-blue-400 hover:text-blue-300 disabled:text-neutral-600"
-                                >
-                                  {backfillingId === item.id ? 'Backfilling...' : 'Backfill Sources'}
-                                </button>
+                                {(!item.hasSources || !item.hasCitations) && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      setBackfillingId(item.id);
+                                      try {
+                                        const result = await backfillSources(item.reportId!);
+                                        setFeatured((prev) =>
+                                          prev.map((f) =>
+                                            f.id === item.id
+                                              ? {
+                                                  ...f,
+                                                  hasSources: result.sourcesCount > 0,
+                                                  hasCitations: result.dimensionsUpdated > 0,
+                                                }
+                                              : f,
+                                          ),
+                                        );
+                                        alert(`Backfilled: ${result.sourcesCount} sources, ${result.dimensionsUpdated} dimensions`);
+                                      } catch (err: any) {
+                                        alert(`Failed: ${err.message}`);
+                                      } finally {
+                                        setBackfillingId(null);
+                                      }
+                                    }}
+                                    disabled={backfillingId === item.id}
+                                    className="text-xs text-blue-400 hover:text-blue-300 disabled:text-neutral-600"
+                                  >
+                                    {backfillingId === item.id ? 'Backfilling...' : 'Backfill Sources'}
+                                  </button>
+                                )}
                               </>
                             ) : (
                               <button
