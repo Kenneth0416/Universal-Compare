@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { getPopularComparisons, type PopularComparison } from '../services/popularComparisonService';
+import { useTranslation } from 'react-i18next';
 
 interface RelatedComparisonsProps {
   currentSlug?: string;
-  language?: string;
 }
 
-export default function RelatedComparisons({ currentSlug, language = 'en' }: RelatedComparisonsProps) {
+export default function RelatedComparisons({ currentSlug }: RelatedComparisonsProps) {
+  const { t, i18n } = useTranslation();
   const [items, setItems] = useState<PopularComparison[]>([]);
+  const language = i18n.resolvedLanguage || i18n.language || 'en';
 
   useEffect(() => {
     getPopularComparisons(language)
@@ -23,12 +25,12 @@ export default function RelatedComparisons({ currentSlug, language = 'en' }: Rel
   return (
     <section className="mt-14">
       <div className="mb-5 flex items-center justify-between gap-4">
-        <h2 className="text-2xl font-bold text-white">Related AI comparisons</h2>
+        <h2 className="text-2xl font-bold text-white">{t('related.title')}</h2>
         <a
           href="/popular-ai-comparisons"
           className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-300 transition-colors hover:text-indigo-200"
         >
-          <span>View all</span>
+          <span>{t('related.viewAll')}</span>
           <ArrowRight size={16} />
         </a>
       </div>
@@ -47,7 +49,7 @@ export default function RelatedComparisons({ currentSlug, language = 'en' }: Rel
               <p className="mt-3 text-sm leading-relaxed text-neutral-500">{item.description}</p>
             )}
             <div className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-indigo-400 opacity-0 transition-opacity group-hover:opacity-100">
-              <span>View report</span>
+              <span>{t('popular.viewReport')}</span>
               <ArrowRight size={12} />
             </div>
           </a>

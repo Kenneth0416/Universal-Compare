@@ -2,8 +2,10 @@
  * DimensionCard - 单维度对比卡片
  * 用于小红书多图分享，每张卡片展示一个维度的详细对比
  */
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { ComparisonResult } from '../../services/geminiService';
+import i18n, { normalizeLanguage } from '../../i18n';
+import { clampPosterText, formatPosterScore, normalizePosterScore } from './posterUtils';
 
 interface DimensionCardProps {
   dimension: ComparisonResult['dimensions'][number];
@@ -14,38 +16,11 @@ interface DimensionCardProps {
   width?: number;
   height?: number;
   language?: string;
+  shareUrl?: string;
 }
 
-const isFiniteNumber = (value: unknown): value is number =>
-  typeof value === 'number' && isFinite(value);
-
-const cardI18n: Record<string, Record<string, string>> = {
-  en: {
-    dimensionDetail: 'Dimension Detail',
-    wins: 'Wins',
-    gap: 'Gap',
-    keyDifference: 'Key Difference',
-    noAnalysis: 'No analysis available',
-  },
-  'zh-CN': {
-    dimensionDetail: '维度详情',
-    wins: '胜出',
-    gap: '差距',
-    keyDifference: '关键差异',
-    noAnalysis: '暂无分析',
-  },
-  'zh-TW': {
-    dimensionDetail: '維度詳情',
-    wins: '勝出',
-    gap: '差距',
-    keyDifference: '關鍵差異',
-    noAnalysis: '暫無分析',
-  },
-};
-
 function cardT(lang: string | undefined, key: string): string {
-  const map = cardI18n[lang || 'en'] || cardI18n.en;
-  return map[key] || cardI18n.en[key] || key;
+  return i18n.t(`poster.${key}`, { lng: normalizeLanguage(lang) });
 }
 
 export const DimensionCard: React.FC<DimensionCardProps> = ({
@@ -57,27 +32,19 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
   width = 540,
   height = 720,
   language,
+  shareUrl,
 }) => {
-  const [mounted, setMounted] = useState(false);
-  const [url, setUrl] = useState('');
-
-  useEffect(() => {
-    setMounted(true);
-    setUrl(window.location.href);
-  }, []);
-
-  const scoreA = dimension.analysis?.optional_score_a ?? 0;
-  const scoreB = dimension.analysis?.optional_score_b ?? 0;
-  const isAWinner = scoreA > scoreB;
-  const isBWinner = scoreB > scoreA;
-  const isTie = scoreA === scoreB;
-  const diff = Math.abs(scoreA - scoreB);
-
-  // 分数条宽度百分比
-  const barWidthA = (scoreA / 10) * 100;
-  const barWidthB = (scoreB / 10) * 100;
-
-  if (!mounted) return null;
+  const url = shareUrl || (typeof window !== 'undefined' ? window.location.href : '');
+  const scoreA = normalizePosterScore(dimension.analysis?.optional_score_a);
+  const scoreB = normalizePosterScore(dimension.analysis?.optional_score_b);
+  const isAWinner = scoreA !== null && scoreB !== null && scoreA > scoreB;
+  const isBWinner = scoreA !== null && scoreB !== null && scoreB > scoreA;
+  const isTie = scoreA !== null && scoreB !== null && scoreA === scoreB;
+  const diff = scoreA !== null && scoreB !== null ? Math.abs(scoreA - scoreB) : null;
+  const barWidthA = (scoreA ?? 0) * 10;
+  const barWidthB = (scoreB ?? 0) * 10;
+  const title = clampPosterText(dimension.label, 64);
+  const titleFontSize = title.length > 42 ? 18 : title.length > 26 ? 21 : 24;
 
   return (
     <div
@@ -120,19 +87,25 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
       {/* 维度标题 */}
       <div className="relative flex-shrink-0 pt-6 px-6 text-center">
         <div className="inline-block px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300/80 text-[10px] font-medium mb-3">
-          {dimension.key?.replace(/_/g, ' ').toUpperCase() || 'COMPARISON'}
+          {dimension.key?.replace(/_/g, ' ').toUpperCase() || cardT(language, 'comparison').toUpperCase()}
         </div>
         <h2
           className="font-bold text-2xl text-white mb-2"
-          style={{ letterSpacing: '-0.01em' }}
+          style={{
+            letterSpacing: '-0.01em',
+            fontSize: `${titleFontSize}px`,
+            lineHeight: 1.2,
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
         >
-          {dimension.label}
+          {title}
         </h2>
         {dimension.why_it_matters && (
           <p className="text-xs text-white/50 max-w-[90%] mx-auto leading-relaxed">
-            {dimension.why_it_matters.length > 80
-              ? dimension.why_it_matters.substring(0, 80) + '...'
-              : dimension.why_it_matters}
+            {clampPosterText(dimension.why_it_matters, 100)}
           </p>
         )}
       </div>
@@ -147,7 +120,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
                 className={`w-2 h-2 rounded-full ${isAWinner ? 'bg-indigo-400' : 'bg-white/30'}`}
               />
               <span
-                className={`text-sm font-medium ${isAWinner ? 'text-indigo-300' : 'text-white/60'}`}
+                className={`max-w-[300px] truncate text-sm font-medium ${isAWinner ? 'text-indigo-300' : 'text-white/60'}`}
               >
                 {entityA}
               </span>
@@ -161,7 +134,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
               className={`text-3xl font-bold ${isAWinner ? 'text-indigo-300' : 'text-white/40'}`}
               style={{ fontVariantNumeric: 'tabular-nums' }}
             >
-              {scoreA.toFixed(1)}
+              {formatPosterScore(scoreA)}
             </span>
           </div>
           <div className="h-2 rounded-full bg-white/10 overflow-hidden">
@@ -193,7 +166,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
                 className={`w-2 h-2 rounded-full ${isBWinner ? 'bg-purple-400' : 'bg-white/30'}`}
               />
               <span
-                className={`text-sm font-medium ${isBWinner ? 'text-purple-300' : 'text-white/60'}`}
+                className={`max-w-[300px] truncate text-sm font-medium ${isBWinner ? 'text-purple-300' : 'text-white/60'}`}
               >
                 {entityB}
               </span>
@@ -207,7 +180,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
               className={`text-3xl font-bold ${isBWinner ? 'text-purple-300' : 'text-white/40'}`}
               style={{ fontVariantNumeric: 'tabular-nums' }}
             >
-              {scoreB.toFixed(1)}
+              {formatPosterScore(scoreB)}
             </span>
           </div>
           <div className="h-2 rounded-full bg-white/10 overflow-hidden">
@@ -225,7 +198,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
         </div>
 
         {/* 差距指示 */}
-        {!isTie && (
+        {!isTie && diff !== null && (
           <div className="text-center">
             <span className="text-xs text-white/40">
               {cardT(language, 'gap')}{' '}
@@ -247,7 +220,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
               {cardT(language, 'keyDifference')}
             </div>
             <p className="text-sm text-white/80 leading-relaxed">
-              {dimension.analysis.key_difference}
+              {clampPosterText(dimension.analysis.key_difference, 180)}
             </p>
           </div>
         )}
@@ -259,7 +232,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
               {entityA}
             </div>
             <p className="text-xs text-white/60 leading-relaxed line-clamp-3">
-              {dimension.analysis?.item_a_summary || cardT(language, 'noAnalysis')}
+              {clampPosterText(dimension.analysis?.item_a_summary, 150) || cardT(language, 'noAnalysis')}
             </p>
           </div>
           <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
@@ -267,7 +240,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
               {entityB}
             </div>
             <p className="text-xs text-white/60 leading-relaxed line-clamp-3">
-              {dimension.analysis?.item_b_summary || cardT(language, 'noAnalysis')}
+              {clampPosterText(dimension.analysis?.item_b_summary, 150) || cardT(language, 'noAnalysis')}
             </p>
           </div>
         </div>
@@ -284,7 +257,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
         <div className="text-xs font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
           CompareAI
         </div>
-        <div className="text-[10px] text-white/30">{url}</div>
+        <div className="max-w-[360px] truncate text-[10px] text-white/30">{url}</div>
       </div>
     </div>
   );

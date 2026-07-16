@@ -69,7 +69,7 @@ export default function ComparisonSuggestions({ onSelect, visible }: ComparisonS
             <div className="p-3">
               <div className="flex items-center gap-2 px-2 py-1.5 text-xs font-bold text-neutral-500 uppercase tracking-wider">
                 <Users size={14} />
-                <span>{t('hero.communityComparisons', 'From the community')}</span>
+                <span>{t('hero.communityComparisons')}</span>
               </div>
               <div className="space-y-1">
                 {communityRecent.slice(0, 8).map((item, i) => (

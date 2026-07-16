@@ -45,7 +45,7 @@ export default function FeaturedShowcase({ onSelect }: FeaturedShowcaseProps) {
         </p>
       )}
       <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-400 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-        <span>{item.reportId ? t('hero.viewReport', 'View report') : t('hero.compareBtn', 'Compare')}</span>
+        <span>{item.reportId ? t('hero.viewReport') : t('hero.compareBtn')}</span>
         <ArrowRight size={12} />
       </div>
     </>
@@ -60,7 +60,7 @@ export default function FeaturedShowcase({ onSelect }: FeaturedShowcaseProps) {
       >
         <div className="mb-6 flex items-center justify-center gap-2 text-sm font-medium text-neutral-500">
           <Sparkles size={16} className="text-indigo-400" />
-          <span>{t('hero.featuredTitle', 'Try these comparisons')}</span>
+          <span>{t('hero.featuredTitle')}</span>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

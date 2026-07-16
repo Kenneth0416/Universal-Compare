@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { ChevronDown } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface ComparisonCardProps {
   title: string;
@@ -46,13 +47,7 @@ const extractTextContent = (node: React.ReactNode): string => {
   return '';
 };
 
-const formatCategoryLabel = (value?: string) => {
-  if (!value) {
-    return 'dimension';
-  }
-
-  return value.replace(/[_-]+/g, ' ').trim();
-};
+const formatCategoryLabel = (value: string) => value.replace(/[_-]+/g, ' ').trim();
 
 const formatScore = (value?: number | null) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -90,6 +85,7 @@ interface ScoreGaugeProps {
 }
 
 const ScoreGauge: React.FC<ScoreGaugeProps> = ({ label, score }) => {
+  const { t } = useTranslation();
   const formattedScore = formatScore(score);
   const normalizedScore = clampScore(score);
   const filledSegments = normalizedScore === null ? 0 : Math.round(normalizedScore);
@@ -98,7 +94,11 @@ const ScoreGauge: React.FC<ScoreGaugeProps> = ({ label, score }) => {
   return (
     <div
       className="flex min-w-0 items-center gap-1.5 sm:gap-2"
-      aria-label={`${label} score ${formattedScore ?? 'unavailable'} out of ${SCORE_SEGMENTS}`}
+      aria-label={t('result.scoreAria', {
+        label,
+        score: formattedScore ?? t('result.scoreUnavailable'),
+        max: SCORE_SEGMENTS,
+      })}
     >
       <span className="shrink-0 font-mono text-[10px] font-bold uppercase tracking-wide text-indigo-200">
         [{label}]
@@ -130,6 +130,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
   children,
   className = ''
 }) => {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = React.useState(false);
   const contentId = React.useId().replace(/:/g, '');
   const preview = truncatePreview(summary ?? extractTextContent(children));
@@ -173,7 +174,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
           <div className="min-w-0 flex-1">
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="font-mono text-[10px] font-bold uppercase tracking-[0.28em] text-neutral-500">
-                {formatCategoryLabel(categoryLabel)}
+                {categoryLabel ? formatCategoryLabel(categoryLabel) : t('result.categoryDimension')}
               </span>
               <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                 <ScoreGauge label="A" score={scoreA} />

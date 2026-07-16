@@ -78,7 +78,7 @@ export const AILoadingState: React.FC<AILoadingStateProps> = ({ itemA, itemB, st
           transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.4, ease: "easeOut" }}
           className="px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white font-mono text-sm sm:text-base truncate max-w-[140px] sm:max-w-[180px] shadow-[0_0_20px_rgba(255,255,255,0.05)]"
         >
-          {itemA || 'Item A'}
+          {itemA || t('loading.itemA')}
         </motion.div>
 
         {/* Connecting Line with Pulse */}
@@ -123,7 +123,7 @@ export const AILoadingState: React.FC<AILoadingStateProps> = ({ itemA, itemB, st
           transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.4, ease: "easeOut" }}
           className="px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white font-mono text-sm sm:text-base truncate max-w-[140px] sm:max-w-[180px] shadow-[0_0_20px_rgba(255,255,255,0.05)]"
         >
-          {itemB || 'Item B'}
+          {itemB || t('loading.itemB')}
         </motion.div>
       </div>
 

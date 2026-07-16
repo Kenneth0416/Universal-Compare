@@ -10,6 +10,7 @@ import {
   Legend
 } from 'recharts';
 import { ComparisonResult } from '../services/geminiService';
+import { useTranslation } from 'react-i18next';
 
 interface DimensionChartProps {
   dimensions: ComparisonResult['dimensions'];
@@ -18,6 +19,7 @@ interface DimensionChartProps {
 }
 
 export const DimensionChart: React.FC<DimensionChartProps> = ({ dimensions, entityA, entityB }) => {
+  const { t } = useTranslation();
   const safeDimensions = Array.isArray(dimensions) ? dimensions : [];
   const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && isFinite(value);
 
@@ -54,7 +56,7 @@ export const DimensionChart: React.FC<DimensionChartProps> = ({ dimensions, enti
 
   return (
     <div className="w-full bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-black/50">
-      <h3 className="text-xl font-bold text-white mb-8">Multidimensional Analysis</h3>
+      <h3 className="text-xl font-bold text-white mb-8">{t('result.multidimensionalAnalysis')}</h3>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
         {/* Radar Chart */}
@@ -110,7 +112,7 @@ export const DimensionChart: React.FC<DimensionChartProps> = ({ dimensions, enti
           <table className="w-full min-w-[500px] text-left border-collapse">
             <thead>
               <tr className="border-b border-white/10">
-                <th className="py-3 px-4 text-xs font-medium text-neutral-400 uppercase tracking-wider font-mono">Dimension</th>
+                <th className="py-3 px-4 text-xs font-medium text-neutral-400 uppercase tracking-wider font-mono">{t('result.dimension')}</th>
                 <th className="py-3 px-4 text-xs font-medium text-indigo-300 uppercase tracking-wider font-mono text-center">{entityA}</th>
                 <th className="py-3 px-4 text-xs font-medium text-purple-300 uppercase tracking-wider font-mono text-center">{entityB}</th>
               </tr>

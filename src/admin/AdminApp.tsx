@@ -665,7 +665,7 @@ export default function AdminApp() {
       const result = await generateComparison(
         itemA,
         itemB,
-        (step) => setGeneratingProgress((prev) => ({ ...prev, [featuredId]: step })),
+        (progress) => setGeneratingProgress((prev) => ({ ...prev, [featuredId]: progress.key })),
         undefined,
         language,
       );

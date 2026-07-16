@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Share2, X, Image, Loader2, Layers, Check, Link2, Sparkles } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { Image, Layers, Link2, Sparkles } from 'lucide-react';
+import PosterExportDialog, { type PosterExportOption } from './PosterExportDialog';
+import { motion } from 'motion/react';
 import { ComparisonResult } from '../services/geminiService';
 import {
   generatePosterBlob,
@@ -9,6 +10,7 @@ import {
 } from '../services/shareService';
 import { PosterCover } from './poster/PosterCover';
 import { DimensionCard } from './poster/DimensionCard';
+import { sanitizePosterFilename } from './poster/posterUtils';
 import { useTranslation } from 'react-i18next';
 
 interface ShareButtonProps {
@@ -24,9 +26,9 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const tempContainerRef = useRef<HTMLDivElement | null>(null);
-  const buttonRef = useRef<HTMLDivElement>(null);
+  const feedbackTimerRef = useRef<number | null>(null);
 
-  const shareOptions = [
+  const shareOptions: PosterExportOption[] = [
     {
       id: 'all',
       label: t('share.downloadAll'),
@@ -61,12 +63,22 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
     },
   ];
 
-  const currentLang = i18nInstance.language || 'en';
+  const currentLang = i18nInstance.resolvedLanguage || i18nInstance.language || 'en';
+  const shareUrl = reportUrl
+    ? new URL(reportUrl, window.location.origin).href
+    : window.location.href;
+
+  const showFeedback = useCallback((message: string) => {
+    setSuccess(message);
+    if (feedbackTimerRef.current) window.clearTimeout(feedbackTimerRef.current);
+    feedbackTimerRef.current = window.setTimeout(() => setSuccess(null), 3000);
+  }, []);
 
   useEffect(() => {
     return () => {
-      if (tempContainerRef.current) {
-        document.body.removeChild(tempContainerRef.current);
+      if (feedbackTimerRef.current) window.clearTimeout(feedbackTimerRef.current);
+      if (tempContainerRef.current?.parentNode) {
+        tempContainerRef.current.parentNode.removeChild(tempContainerRef.current);
       }
     };
   }, []);
@@ -86,75 +98,71 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
       document.body.removeChild(tempContainerRef.current);
     }
     const container = document.createElement('div');
-    container.id = 'temp-poster-container';
-    container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 540px; height: 720px; z-index: -1;';
+    container.style.cssText = 'position: fixed; left: -10000px; top: 0; width: 540px; height: 720px; pointer-events: none;';
     document.body.appendChild(container);
     tempContainerRef.current = container;
     return container;
   }, []);
 
-  const waitForRender = useCallback((ms = 300) =>
-    new Promise((resolve) => setTimeout(resolve, ms)), []);
+  const waitForRender = useCallback(async () => {
+    await document.fonts?.ready;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    // QR canvas and Recharts SVG finish their first paint after React commits.
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
+  }, []);
 
-  const generatePoster = async (type: 'cover' | 'card', index?: number) => {
+  const generatePoster = async (type: 'cover' | 'card', index?: number): Promise<{ blob: Blob; filename: string }> => {
     const container = createTempContainer();
     let root: ReturnType<typeof import('react-dom/client').createRoot> | null = null;
 
     try {
       const { createRoot } = await import('react-dom/client');
       root = createRoot(container);
+      const baseName = sanitizePosterFilename(`${result.entityA.name}-vs-${result.entityB.name}`);
 
       if (type === 'cover') {
-        await new Promise<void>((resolve) => {
-          root!.render(<PosterCover result={result} width={540} height={720} language={currentLang} />);
-          setTimeout(resolve, 100);
-        });
-        await waitForRender(1000);
-        const posterElement = document.getElementById('poster-cover');
-        if (!posterElement) throw new Error('Poster container not found');
-
-        container.style.cssText = 'position: fixed; left: 0; top: 0; width: 540px; height: 720px; z-index: -1; visibility: visible;';
-        await waitForRender(1500);
-
-        const blob = await generatePosterBlob({ containerElement: posterElement, pixelRatio: 2 });
-        container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 540px; height: 720px; z-index: -1;';
-
-        const filename = `${result.entityA.name}-vs-${result.entityB.name}-${t('share.reportSuffix')}.png`;
-        downloadPoster(blob, filename);
-      } else if (type === 'card' && index !== undefined) {
-        await new Promise<void>((resolve) => {
-          root!.render(
-            <DimensionCard
-              dimension={result.dimensions[index]}
-              entityA={result.entityA.name}
-              entityB={result.entityB.name}
-              dimensionIndex={index}
-              totalDimensions={result.dimensions.length}
-              width={540}
-              height={720}
-              language={currentLang}
-            />
-          );
-          setTimeout(resolve, 100);
-        });
-        await waitForRender(1000);
-        const cardElement = document.getElementById(`dimension-card-${index}`);
-        if (!cardElement) throw new Error(`Card ${index} not found`);
-
-        container.style.cssText = 'position: fixed; left: 0; top: 0; width: 540px; height: 720px; z-index: -1; visibility: visible;';
-        await waitForRender(800);
-
-        const blob = await generatePosterBlob({ containerElement: cardElement, pixelRatio: 2 });
-        container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 540px; height: 720px; z-index: -1;';
-
-        const filename = `${result.entityA.name}-vs-${result.entityB.name}-${result.dimensions[index].label}.png`;
-        downloadPoster(blob, filename);
+        root.render(
+          <PosterCover result={result} width={540} height={720} language={currentLang} shareUrl={shareUrl} />
+        );
+      } else {
+        if (index === undefined || !result.dimensions[index]) throw new Error('INVALID_POSTER_CARD');
+        root.render(
+          <DimensionCard
+            dimension={result.dimensions[index]}
+            entityA={result.entityA.name}
+            entityB={result.entityB.name}
+            dimensionIndex={index}
+            totalDimensions={result.dimensions.length}
+            width={540}
+            height={720}
+            language={currentLang}
+            shareUrl={shareUrl}
+          />
+        );
       }
+
+      await waitForRender();
+      const posterElement = container.firstElementChild as HTMLElement | null;
+      if (!posterElement) throw new Error('POSTER_ELEMENT_NOT_FOUND');
+      const blob = await generatePosterBlob({ containerElement: posterElement, pixelRatio: 2 });
+      const suffix = type === 'cover'
+        ? t('share.reportSuffix')
+        : `${String((index ?? 0) + 1).padStart(2, '0')}-${result.dimensions[index!].label}`;
+      return { blob, filename: `${sanitizePosterFilename(`${baseName}-${suffix}`)}.png` };
     } finally {
-      if (root) root.unmount();
-      if (container.parentNode) document.body.removeChild(container);
+      root?.unmount();
+      container.remove();
       if (tempContainerRef.current === container) tempContainerRef.current = null;
     }
+  };
+
+  const downloadZip = async (images: Array<{ blob: Blob; filename: string }>, suffix: string) => {
+    const { default: JSZip } = await import('jszip');
+    const zip = new JSZip();
+    images.forEach((image) => zip.file(image.filename, image.blob));
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+    const baseName = sanitizePosterFilename(`${result.entityA.name}-vs-${result.entityB.name}`);
+    downloadPoster(blob, `${baseName}-${suffix}.zip`);
   };
 
   const handleDownloadAll = async () => {
@@ -162,12 +170,10 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
     setError(null);
     setSuccess(null);
     try {
-      await generatePoster('cover');
-      for (let i = 0; i < result.dimensions.length; i++) {
-        await generatePoster('card', i);
-      }
-      setSuccess(t('share.downloadedAll', { count: result.dimensions.length + 1 }));
-      setTimeout(() => setSuccess(null), 3000);
+      const images = [await generatePoster('cover')];
+      for (let i = 0; i < result.dimensions.length; i++) images.push(await generatePoster('card', i));
+      await downloadZip(images, 'all-posters');
+      showFeedback(t('share.downloadedAll', { count: images.length }));
     } catch (err) {
       console.error(err);
       setError(t('share.generateFailed'));
@@ -181,9 +187,9 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
     setError(null);
     setSuccess(null);
     try {
-      await generatePoster('cover');
-      setSuccess(t('share.downloadedCover'));
-      setTimeout(() => setSuccess(null), 3000);
+      const image = await generatePoster('cover');
+      downloadPoster(image.blob, image.filename);
+      showFeedback(t('share.downloadedCover'));
     } catch (err) {
       console.error(err);
       setError(t('share.generateFailed'));
@@ -197,11 +203,11 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
     setError(null);
     setSuccess(null);
     try {
-      for (let i = 0; i < result.dimensions.length; i++) {
-        await generatePoster('card', i);
-      }
-      setSuccess(t('share.downloadedCards', { count: result.dimensions.length }));
-      setTimeout(() => setSuccess(null), 3000);
+      const images = [];
+      for (let i = 0; i < result.dimensions.length; i++) images.push(await generatePoster('card', i));
+      if (!images.length) throw new Error('NO_DIMENSION_CARDS');
+      await downloadZip(images, 'dimension-cards');
+      showFeedback(t('share.downloadedCards', { count: images.length }));
     } catch (err) {
       console.error(err);
       setError(t('share.generateFailed'));
@@ -211,29 +217,50 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
   };
 
   const handleCopyLink = async () => {
+    setError(null);
     try {
-      const shareUrl = reportUrl
-        ? `${window.location.origin}${reportUrl}`
-        : window.location.href;
-      await navigator.clipboard.writeText(shareUrl);
-      setSuccess(t('share.linkCopied'));
-      setTimeout(() => setSuccess(null), 3000);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+      } else {
+        const input = document.createElement('textarea');
+        input.value = shareUrl;
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        input.select();
+        const copied = document.execCommand('copy');
+        input.remove();
+        if (!copied) throw new Error('COPY_FAILED');
+      }
+      showFeedback(t('share.linkCopied'));
     } catch {
       setError(t('share.copyFailed'));
     }
   };
 
   const handleNativeShare = async () => {
-    const shareUrl = window.location.href;
-    const ok = await nativeShare({
-      title: `${result.entityA.name} VS ${result.entityB.name} - ${t('share.reportSuffix')}`,
-      text: result.recommendation?.short_verdict || `${result.entityA.name} vs ${result.entityB.name}`,
-      url: shareUrl,
-    });
-    if (ok) setIsExpanded(false);
+    setIsGenerating('native');
+    setError(null);
+    try {
+      const image = await generatePoster('cover');
+      const file = new File([image.blob], image.filename, { type: 'image/png' });
+      const outcome = await nativeShare({
+        title: `${result.entityA.name} VS ${result.entityB.name} - ${t('share.reportSuffix')}`,
+        text: result.recommendation?.short_verdict || `${result.entityA.name} vs ${result.entityB.name}`,
+        url: shareUrl,
+        files: [file],
+      });
+      if (outcome === 'shared') setIsExpanded(false);
+      if (outcome === 'failed' || outcome === 'unavailable') setError(t('share.nativeShareFailed'));
+    } catch (err) {
+      console.error(err);
+      setError(t('share.generateFailed'));
+    } finally {
+      setIsGenerating(null);
+    }
   };
 
-  const handleOptionClick = (id: string) => {
+  const handleOptionClick = (id: PosterExportOption['id']) => {
     switch (id) {
       case 'all': handleDownloadAll(); break;
       case 'cover': handleDownloadCover(); break;
@@ -243,21 +270,27 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
   };
 
   return (
-    <div className={`relative ${className}`} ref={buttonRef}>
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setIsExpanded(false)}
-            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40"
-          />
-        )}
-      </AnimatePresence>
+    <div className={`relative ${className}`}>
+      <PosterExportDialog
+        open={isExpanded}
+        result={result}
+        language={currentLang}
+        shareUrl={shareUrl}
+        options={shareOptions}
+        isGenerating={isGenerating}
+        success={success}
+        error={error}
+        onClose={() => setIsExpanded(false)}
+        onOption={handleOptionClick}
+        onNativeShare={handleNativeShare}
+        t={t}
+      />
 
       <motion.button
         key="trigger"
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={isExpanded}
         initial={{ opacity: 0, y: 20, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
@@ -265,7 +298,7 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
         whileHover={{ scale: 1.03, y: -2 }}
         whileTap={{ scale: 0.97 }}
         onClick={() => setIsExpanded(true)}
-        className="relative overflow-hidden bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 shadow-xl shadow-purple-500/40 flex items-center gap-2 px-5 py-3 rounded-2xl z-50"
+        className="relative z-10 flex items-center gap-2 overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 px-5 py-3 shadow-xl shadow-purple-500/40"
       >
         <motion.div
           className="absolute inset-0 opacity-90"
@@ -280,131 +313,6 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ result, reportUrl, cla
           <span className="text-white font-semibold text-sm">{t('share.sharePoster')}</span>
         </div>
       </motion.button>
-
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            key="expanded"
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-            className="fixed left-1/2 -translate-x-1/2 bottom-6 z-50 w-[calc(100%-48px)] max-w-sm"
-          >
-            <motion.div
-              className="absolute -inset-1 rounded-3xl opacity-75"
-              style={{ background: 'linear-gradient(135deg, #8b5cf6, #ec4899, #f43f5e, #8b5cf6)', backgroundSize: '300% 300%', animation: 'gradient-rotate 3s ease infinite' }}
-              animate={{ opacity: [0.5, 0.8, 0.5] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            />
-
-            <div className="relative bg-[#0f0a1e]/95 backdrop-blur-xl rounded-3xl p-1 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-                <div className="flex items-center gap-2">
-                  <Sparkles size={16} className="text-purple-400" />
-                  <span className="text-sm font-semibold text-white">{t('share.sharePoster')}</span>
-                </div>
-                <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => setIsExpanded(false)} className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/60 hover:text-white transition-colors">
-                  <X size={16} />
-                </motion.button>
-              </div>
-
-              <div className="p-3 grid grid-cols-2 gap-2">
-                {shareOptions.map((option, index) => (
-                  <motion.button
-                    key={option.id}
-                    initial={{ opacity: 0, y: 20, scale: 0.8 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    transition={{ delay: index * 0.08, type: 'spring', stiffness: 400, damping: 25 }}
-                    whileHover={{ scale: 1.02, y: -2 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => handleOptionClick(option.id)}
-                    disabled={isGenerating !== null}
-                    className={`relative overflow-hidden flex flex-col items-center gap-2 p-4 rounded-2xl bg-gradient-to-br ${option.gradient} p-[1px] disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    <div className="absolute inset-[1px] rounded-2xl" style={{ background: 'rgba(15, 10, 30, 0.95)' }} />
-                    <div className="relative flex flex-col items-center gap-2">
-                      {isGenerating === option.id ? (
-                        <Loader2 size={28} className="text-white animate-spin" />
-                      ) : (
-                        <motion.div whileHover={{ rotate: 360 }} transition={{ duration: 0.5 }} className={`p-2 rounded-xl bg-gradient-to-br ${option.gradient}`}>
-                          <option.icon size={24} className="text-white" />
-                        </motion.div>
-                      )}
-                      <div className="text-center">
-                        <div className="text-sm font-semibold text-white">
-                          {isGenerating === option.id ? t('share.generating') : option.label}
-                        </div>
-                        <div className="text-[10px] text-white/60 mt-0.5">{option.sublabel}</div>
-                      </div>
-                    </div>
-                    <motion.div
-                      className="absolute inset-0 rounded-2xl opacity-0"
-                      style={{ background: option.glowColor }}
-                      animate={{ opacity: [0, 0.15, 0] }}
-                      transition={{ duration: 1.5, repeat: Infinity }}
-                    />
-                  </motion.button>
-                ))}
-              </div>
-
-              {'share' in navigator && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: shareOptions.length * 0.08 + 0.1 }}
-                  className="px-3 pb-3"
-                >
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={handleNativeShare}
-                    className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
-                  >
-                    <Share2 size={18} className="text-emerald-400" />
-                    <span className="text-sm font-medium text-white">{t('share.useNativeShare')}</span>
-                  </motion.button>
-                </motion.div>
-              )}
-
-              <AnimatePresence>
-                {success && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0, y: 10 }}
-                    animate={{ opacity: 1, height: 'auto', y: 0 }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="mx-3 mb-3 p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center gap-2"
-                  >
-                    <Check size={16} className="text-emerald-400" />
-                    <span className="text-sm text-emerald-300">{success}</span>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <AnimatePresence>
-                {error && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0, y: 10 }}
-                    animate={{ opacity: 1, height: 'auto', y: 0 }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="mx-3 mb-3 p-3 rounded-xl bg-red-500/20 border border-red-500/30"
-                  >
-                    <span className="text-sm text-red-400">{error}</span>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <style>{`
-        @keyframes gradient-rotate {
-          0% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
-        }
-      `}</style>
     </div>
   );
 };

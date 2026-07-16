@@ -6,12 +6,12 @@ import { AILoadingState } from './components/AILoadingState';
 import ComparisonResultView from './components/ComparisonResultView';
 
 import FeaturedShowcase from './components/FeaturedShowcase';
+import ComparisonSuggestions from './components/ComparisonSuggestions';
 import { finishComparisonRun, startComparisonRun } from './services/trackingService';
 import { saveReport } from './services/reportService';
 import MinimalGrid from './components/react-bits/MinimalGrid';
 import BlurText from './components/react-bits/BlurText';
 import { useTranslation } from 'react-i18next';
-import { switchLanguage } from './i18n';
 
 const warnTrackingFailure = (error: unknown) => {
   console.warn('Comparison tracking failed:', error);
@@ -28,11 +28,13 @@ export default function App() {
   const [showPartial, setShowPartial] = useState(false);
   const [error, setError] = useState('');
   const [reportUrl, setReportUrl] = useState<string | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
   const handleShowcaseSelect = (a: string, b: string) => {
     setItemA(a);
     setItemB(b);
+    setShowSuggestions(false);
     // Auto-trigger comparison after state update
     setTimeout(() => formRef.current?.requestSubmit(), 0);
   };
@@ -67,8 +69,8 @@ export default function App() {
       const res = await generateComparison(
         itemA,
         itemB,
-        (step) => {
-          setLoadingStep(step);
+        (progress) => {
+          setLoadingStep(t(`loading.${progress.key}`, { count: progress.count }));
         },
         (phase, data) => {
           setShowPartial(true);
@@ -116,26 +118,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen font-sans selection:bg-indigo-500/30 selection:text-indigo-200 relative">
-      <div className="fixed top-4 right-4 z-50 flex gap-1 bg-white/5 backdrop-blur-md rounded-full p-1 border border-white/10">
-        <button
-          onClick={() => switchLanguage('en')}
-          className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${i18nInstance.language === 'en' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'}`}
-        >
-          EN
-        </button>
-        <button
-          onClick={() => switchLanguage('zh-CN')}
-          className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${i18nInstance.language === 'zh-CN' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'}`}
-        >
-          简体
-        </button>
-        <button
-          onClick={() => switchLanguage('zh-TW')}
-          className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${i18nInstance.language === 'zh-TW' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'}`}
-        >
-          繁体
-        </button>
-      </div>
       <MinimalGrid />
       {/* Header / Hero */}
       <header className="pt-20 pb-16 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto text-center relative z-10">
@@ -208,6 +190,10 @@ export default function App() {
                 )}
               </button>
             </div>
+            <ComparisonSuggestions
+              visible={showSuggestions}
+              onSelect={handleShowcaseSelect}
+            />
           </form>
         </motion.div>
       </header>
@@ -268,7 +254,7 @@ export default function App() {
                   href="/popular-ai-comparisons"
                   className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-5 text-sm font-semibold text-indigo-300 transition-colors hover:border-indigo-500/40 hover:bg-white/[0.07]"
                 >
-                  Popular AI Comparisons
+                  {t('hero.popularLink')}
                 </a>
               </div>
             </motion.div>
@@ -278,7 +264,7 @@ export default function App() {
 
       <footer className="relative z-10 border-t border-white/10 mt-16 py-10 px-4 sm:px-6 lg:px-8">
         <div className="max-w-5xl mx-auto">
-          <nav aria-label="Footer navigation" className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm">
+          <nav aria-label={t('nav.footerLabel')} className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm">
             <a href="/about" className="text-neutral-400 hover:text-indigo-300 transition-colors">{t('nav.about')}</a>
             <a href="/methodology" className="text-neutral-400 hover:text-indigo-300 transition-colors">{t('nav.methodology')}</a>
             <a href="/popular-ai-comparisons" className="text-neutral-400 hover:text-indigo-300 transition-colors">{t('nav.popularComparisons')}</a>

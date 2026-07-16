@@ -1,4 +1,7 @@
 {
+  "language": {
+    "selector": "选择语言"
+  },
   "hero": {
     "subtitle": "比较任何事物。从电子产品到水果，概念到软件。发现它们的关系、主要差异，以及哪个更适合你。",
     "placeholderA": "例如：MacBook Air M3",
@@ -9,7 +12,8 @@
     "recentComparisons": "最近记录",
     "communityComparisons": "社区对比",
     "featuredTitle": "试试这些对比",
-    "viewReport": "查看报告"
+    "viewReport": "查看报告",
+    "popularLink": "浏览热门 AI 对比"
   },
   "nav": {
     "home": "首页",
@@ -18,7 +22,8 @@
     "popularComparisons": "热门对比",
     "createComparison": "创建你自己的对比",
     "privacy": "隐私政策",
-    "terms": "服务条款"
+    "terms": "服务条款",
+    "footerLabel": "页脚导航"
   },
   "result": {
     "relationship": "关系类型",
@@ -31,7 +36,19 @@
     "keyDifference": "主要差异：",
     "winner": "胜出：",
     "sources": "来源",
-    "sourcesLabel": "来源："
+    "sourcesLabel": "来源：",
+    "multidimensionalAnalysis": "多维度分析",
+    "dimension": "维度",
+    "categoryDimension": "对比维度",
+    "scoreAria": "{{label}} 得分 {{score}}，满分 {{max}}",
+    "scoreUnavailable": "暂无",
+    "relationshipTypes": {
+      "same_category": "同类对象",
+      "cross_category": "跨类别对象",
+      "complementary": "互补关系",
+      "substitutes": "替代关系",
+      "related": "相关对象"
+    }
   },
   "methodology": {
     "label": "方法论",
@@ -94,13 +111,23 @@
     "loading": "正在加载报告...",
     "goBack": "返回 CompareAI",
     "shareTitle": "分享你的对比结果",
-    "shareSubtitle": "生成精美海报，分享到社交媒体"
+    "shareSubtitle": "生成精美海报，分享到社交媒体",
+    "number": "报告 #{{id}}",
+    "views_one": "{{count}} 次浏览",
+    "views_other": "{{count}} 次浏览"
   },
   "loading": {
     "parsingInputs": "解析输入",
     "mappingConcepts": "映射概念",
     "synthesizingResults": "综合结果",
-    "initializing": "初始化 AI 引擎..."
+    "initializing": "初始化 AI 引擎...",
+    "researching": "阶段 1：同时研究两个对象...",
+    "architecting": "阶段 2：构建对比框架...",
+    "analyzing": "阶段 3：分析 {{count}} 个维度...",
+    "synthesizing": "阶段 4：综合结论与优缺点...",
+    "finalizing": "正在完成报告...",
+    "itemA": "对象 A",
+    "itemB": "对象 B"
   },
   "error": {
     "generic": "比较过程中发生错误。"
@@ -117,14 +144,20 @@
     "copyLink": "复制链接",
     "copyLinkDesc": "快速分享",
     "generating": "生成中...",
-    "downloadedAll": "已下载 {count} 张图片",
+    "downloadedAll": "已下载 {{count}} 张图片",
     "downloadedCover": "封面海报已下载",
-    "downloadedCards": "已下载 {count} 张维度卡片",
+    "downloadedCards": "已下载 {{count}} 张维度卡片",
     "linkCopied": "链接已复制",
     "copyFailed": "复制失败",
     "generateFailed": "生成失败，请重试",
     "useNativeShare": "使用系统分享",
-    "reportSuffix": "对比报告"
+    "reportSuffix": "对比报告",
+    "preview": "预览",
+    "close": "关闭分享面板",
+    "closePreview": "关闭海报预览",
+    "nativeShareFailed": "系统分享不可用，请下载海报或复制链接。",
+    "exportTitle": "导出对比海报",
+    "exportOptions": "导出选项"
   },
   "privacy": {
     "label": "隐私政策",
@@ -186,7 +219,7 @@
     "contactDesc": "如对这些服务条款有疑问，请通过我们的网站联系渠道联系我们。"
   },
   "poster": {
-    "dimensionsOverview": "{count} 维度总览",
+    "dimensionsOverview": "{{count}} 维度总览",
     "visualComparison": "AI 对比海报",
     "averageScore": "平均分",
     "winner": "胜出",
@@ -199,6 +232,25 @@
     "wins": "胜出",
     "gap": "差距",
     "keyDifference": "关键差异",
-    "noAnalysis": "暂无分析"
+    "noAnalysis": "暂无分析",
+    "aiReport": "AI 对比报告",
+    "recommended": "推荐：{{winner}}",
+    "coreDimensions": "核心对比维度",
+    "poweredBy": "AI 驱动",
+    "scanCreate": "扫码生成你的对比",
+    "comparison": "对比"
+  },
+  "popular": {
+    "label": "AI 对比目录",
+    "title": "热门 AI 对比",
+    "description": "浏览 AI 助手、编程工具、搜索和效率工具对比。",
+    "loading": "正在加载对比...",
+    "viewReport": "查看报告",
+    "empty": "新的公开对比报告即将在这里显示。",
+    "pageTitle": "热门 AI 对比 | CompareAI"
+  },
+  "related": {
+    "title": "相关 AI 对比",
+    "viewAll": "查看全部"
   }
 }

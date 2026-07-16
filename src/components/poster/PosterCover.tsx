@@ -2,10 +2,17 @@
  * PosterCover - 小红书风格封面海报
  * 集成雷达图、渐变背景、品牌元素
  */
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { ComparisonResult } from '../../services/geminiService';
+import i18n, { normalizeLanguage } from '../../i18n';
 import { MiniRadarChart } from './MiniRadarChart';
+import {
+  averagePosterScores,
+  clampPosterText,
+  formatPosterScore,
+  normalizePosterScore,
+} from './posterUtils';
 
 interface PosterCoverProps {
   result: ComparisonResult;
@@ -15,60 +22,16 @@ interface PosterCoverProps {
   height?: number;
   /** 语言代码 */
   language?: string;
+  /** 海报二维码和访问提示指向的公开报告链接 */
+  shareUrl?: string;
 }
 
 const POSTER_WIDTH = 540;
 const POSTER_HEIGHT = 720;
 
-const posterI18n: Record<string, Record<string, string>> = {
-  en: {
-    dimensionsOverview: '{count} Dimensions Overview',
-    visualComparison: 'Visual Comparison Poster',
-    averageScore: 'Average Score',
-    winner: 'Winner',
-    radarOverview: 'Radar Overview',
-    axisLegend: 'Axis Legend',
-    chartNote: 'Dimensions shown as numbers on chart',
-    scanOrVisit: 'Scan Or Visit',
-    scanHint: 'Scan QR code or visit the URL below',
-  },
-  'zh-CN': {
-    dimensionsOverview: '{count} 维度总览',
-    visualComparison: 'AI 对比海报',
-    averageScore: '平均分',
-    winner: '胜出',
-    radarOverview: '雷达总览',
-    axisLegend: '维度图例',
-    chartNote: '图上以编号显示维度',
-    scanOrVisit: '扫码或访问',
-    scanHint: '用二维码打开，或直接访问下方网址',
-  },
-  'zh-TW': {
-    dimensionsOverview: '{count} 維度總覽',
-    visualComparison: 'AI 對比海報',
-    averageScore: '平均分',
-    winner: '勝出',
-    radarOverview: '雷達總覽',
-    axisLegend: '維度圖例',
-    chartNote: '圖上以編號顯示維度',
-    scanOrVisit: '掃碼或訪問',
-    scanHint: '用二維碼打開，或直接訪問下方網址',
-  },
-};
-
 function posterT(lang: string | undefined, key: string, vars?: Record<string, string | number>): string {
-  const map = posterI18n[lang || 'en'] || posterI18n.en;
-  let text = map[key] || posterI18n.en[key] || key;
-  if (vars) {
-    for (const [k, v] of Object.entries(vars)) {
-      text = text.replace(`{${k}}`, String(v));
-    }
-  }
-  return text;
+  return i18n.t(`poster.${key}`, { ...vars, lng: normalizeLanguage(lang) });
 }
-
-const isFiniteNumber = (value: unknown): value is number =>
-  typeof value === 'number' && isFinite(value);
 
 const containsCjk = (value: string) => /[\u3400-\u9fff]/.test(value);
 
@@ -117,9 +80,6 @@ const compactPosterLabel = (label: string): string => {
 const flattenPosterLabel = (label: string): string =>
   label.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
 
-const clampPosterText = (value: string, maxLength: number): string =>
-  value.length <= maxLength ? value : `${value.slice(0, maxLength - 1).trim()}…`;
-
 const normalizePosterUrl = (value: string): string => {
   try {
     return new URL(value).href.replace(/^https?:\/\//, '');
@@ -146,31 +106,23 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
   width = POSTER_WIDTH,
   height = POSTER_HEIGHT,
   language,
+  shareUrl,
 }) => {
-  const [mounted, setMounted] = useState(false);
-  const [url, setUrl] = useState('');
+  const url = shareUrl || (typeof window !== 'undefined' ? window.location.href : '');
 
-  useEffect(() => {
-    setMounted(true);
-    setUrl(window.location.href);
-  }, []);
-
-  // 计算数据
-  const totalA = result.dimensions.reduce(
-    (sum, dim) => sum + (isFiniteNumber(dim.analysis?.optional_score_a) ? dim.analysis!.optional_score_a : 0),
-    0
-  );
-  const totalB = result.dimensions.reduce(
-    (sum, dim) => sum + (isFiniteNumber(dim.analysis?.optional_score_b) ? dim.analysis!.optional_score_b : 0),
-    0
-  );
-  const avgA = result.dimensions.length > 0 ? totalA / result.dimensions.length : 0;
-  const avgB = result.dimensions.length > 0 ? totalB / result.dimensions.length : 0;
+  // 计算数据：异常或缺失评分不参与平均值，越界评分会收敛到 0-10。
+  const dimensions = Array.isArray(result.dimensions) ? result.dimensions : [];
+  const avgA = averagePosterScores(dimensions.map((dim) => dim.analysis?.optional_score_a));
+  const avgB = averagePosterScores(dimensions.map((dim) => dim.analysis?.optional_score_b));
 
   const posterWidth = width || POSTER_WIDTH;
   const posterHeight = height || POSTER_HEIGHT;
-  const winner = avgA > avgB ? result.entityA.name : avgB > avgA ? result.entityB.name : null;
-  const loser = avgA > avgB ? result.entityB.name : avgB > avgA ? result.entityA.name : null;
+  const winner = avgA !== null && avgB !== null
+    ? avgA > avgB ? result.entityA.name : avgB > avgA ? result.entityB.name : null
+    : null;
+  const loser = winner === result.entityA.name
+    ? result.entityB.name
+    : winner === result.entityB.name ? result.entityA.name : null;
   const entityADisplay = clampPosterText(result.entityA.name, 18);
   const entityBDisplay = clampPosterText(result.entityB.name, 18);
   const titleFontSize = Math.max(
@@ -183,7 +135,7 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
   const accessUrl = normalizePosterUrl(url);
   const accessUrlLines = splitPosterUrl(accessUrl);
 
-  const dimensionLegend = result.dimensions.map((dim, index) => {
+  const dimensionLegend = dimensions.slice(0, 6).map((dim, index) => {
     const shortLabel = compactPosterLabel(dim.label);
     const legendLabel = clampPosterText(flattenPosterLabel(shortLabel), 22);
 
@@ -191,8 +143,8 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
       index: index + 1,
       legendLabel,
       chartLabel: String(index + 1),
-      scoreA: isFiniteNumber(dim.analysis?.optional_score_a) ? dim.analysis!.optional_score_a : 0,
-      scoreB: isFiniteNumber(dim.analysis?.optional_score_b) ? dim.analysis!.optional_score_b : 0,
+      scoreA: normalizePosterScore(dim.analysis?.optional_score_a) ?? 0,
+      scoreB: normalizePosterScore(dim.analysis?.optional_score_b) ?? 0,
     };
   });
 
@@ -201,8 +153,6 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
     [result.entityA.name]: dim.scoreA,
     [result.entityB.name]: dim.scoreB,
   }));
-
-  if (!mounted) return null;
 
   return (
     <div
@@ -342,7 +292,7 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
               className="text-[34px] font-black text-transparent bg-clip-text bg-gradient-to-b from-indigo-300 to-indigo-500"
               style={{ fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}
             >
-              {avgA.toFixed(1)}
+              {formatPosterScore(avgA)}
             </div>
             <div className="mt-1 text-[11px] text-indigo-100/86 font-medium truncate">
               {result.entityA.name}
@@ -363,7 +313,7 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
               className="text-[34px] font-black text-transparent bg-clip-text bg-gradient-to-b from-purple-300 to-pink-500"
               style={{ fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}
             >
-              {avgB.toFixed(1)}
+              {formatPosterScore(avgB)}
             </div>
             <div className="mt-1 text-[11px] text-purple-100/86 font-medium truncate">
               {result.entityB.name}

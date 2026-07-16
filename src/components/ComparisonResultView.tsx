@@ -54,7 +54,9 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
             </div>
             {result.relationship?.relationship_type && (
               <p className="text-white font-medium mb-2 capitalize">
-                {result.relationship.relationship_type.replace(/_/g, ' ')}
+                {t(`result.relationshipTypes.${result.relationship.relationship_type}`, {
+                  defaultValue: result.relationship.relationship_type.replace(/_/g, ' '),
+                })}
               </p>
             )}
             {result.relationship?.reasoning && (
@@ -107,7 +109,6 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
                 key={dim.key || idx}
                 title={dim.label}
                 summary={summary}
-                categoryLabel={dim.key}
                 scoreA={scoreA}
                 scoreB={scoreB}
                 className="h-full"

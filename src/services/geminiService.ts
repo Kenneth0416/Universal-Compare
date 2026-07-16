@@ -8,6 +8,11 @@ import type { ComparisonResult, Source } from './apiService';
 
 export type { ComparisonResult, Source } from './apiService';
 
+export interface ComparisonProgress {
+  key: 'researching' | 'architecting' | 'analyzing' | 'synthesizing' | 'finalizing';
+  count?: number;
+}
+
 // Re-export all agent functions and helpers from apiService
 export {
   runResearcherAgent,
@@ -34,14 +39,14 @@ function deduplicateSourcesByUrl(sources: Source[]): Source[] {
 export async function generateComparison(
   itemA: string,
   itemB: string,
-  onProgress?: (step: string) => void,
+  onProgress?: (progress: ComparisonProgress) => void,
   onPhaseComplete?: (phase: string, data: any) => void,
   language?: string,
   runId?: string
 ): Promise<ComparisonResult> {
 
   // Phase 1: Dual-Track Research (now returns sources)
-  onProgress?.("Phase 1: Researching entities concurrently...");
+  onProgress?.({ key: 'researching' });
   const [resA, resB] = await Promise.all([
     apiService.runResearcherAgent(itemA, language, runId),
     apiService.runResearcherAgent(itemB, language, runId)
@@ -52,12 +57,12 @@ export async function generateComparison(
   onPhaseComplete?.('entities', { entityA: profileA, entityB: profileB });
 
   // Phase 2: Framework Architecture
-  onProgress?.("Phase 2: Architecting comparison framework...");
+  onProgress?.({ key: 'architecting' });
   const framework = await apiService.runArchitectAgent(profileA, profileB, language, runId);
   onPhaseComplete?.('framework', { relationship: framework.relationship, dimensionCount: framework.dimensions.length });
 
   // Phase 3: Multi-Dimensional Analysis — passes sources to analyst
-  onProgress?.(`Phase 3: Analyzing ${framework.dimensions.length} dimensions concurrently...`);
+  onProgress?.({ key: 'analyzing', count: framework.dimensions.length });
   const analyzedDimensions = await apiService.mapConcurrent(framework.dimensions, 6, async (dim) => {
     const result = await apiService.runAnalystAgent(profileA, profileB, dim, allSources, language, runId);
     onPhaseComplete?.('dimension', result);
@@ -65,7 +70,7 @@ export async function generateComparison(
   });
 
   // Phase 4: Synthesis & Verdict (Concurrent)
-  onProgress?.("Phase 4: Synthesizing final verdict and pros/cons...");
+  onProgress?.({ key: 'synthesizing' });
   const [prosCons, recommendation] = await Promise.all([
     apiService.runProsConsAgent(profileA, profileB, analyzedDimensions, language, runId),
     apiService.runRecommendationAgent(profileA, profileB, analyzedDimensions, null, language, runId)
@@ -73,7 +78,7 @@ export async function generateComparison(
   onPhaseComplete?.('verdict', { prosCons, recommendation });
 
   // Assemble Final Result — includes sources
-  onProgress?.("Finalizing report...");
+  onProgress?.({ key: 'finalizing' });
   return {
     entityA: profileA,
     entityB: profileB,

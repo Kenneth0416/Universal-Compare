@@ -1,4 +1,7 @@
 {
+  "language": {
+    "selector": "Choose language"
+  },
   "hero": {
     "subtitle": "Compare anything. From gadgets to fruits, concepts to software. Discover the relationship, key differences, and which one is right for you.",
     "placeholderA": "e.g., MacBook Air M3",
@@ -9,13 +12,21 @@
     "recentComparisons": "Recent",
     "communityComparisons": "From the community",
     "featuredTitle": "Try these comparisons",
-    "viewReport": "View report"
+    "viewReport": "View report",
+    "popularLink": "Explore popular AI comparisons"
   },
   "loading": {
     "parsingInputs": "Parsing inputs",
     "mappingConcepts": "Mapping concepts",
     "synthesizingResults": "Synthesizing results",
-    "initializing": "Initializing AI Engine..."
+    "initializing": "Initializing AI Engine...",
+    "researching": "Phase 1: Researching both entities...",
+    "architecting": "Phase 2: Building the comparison framework...",
+    "analyzing": "Phase 3: Analyzing {{count}} dimensions...",
+    "synthesizing": "Phase 4: Synthesizing the verdict and pros/cons...",
+    "finalizing": "Finalizing report...",
+    "itemA": "Item A",
+    "itemB": "Item B"
   },
   "error": {
     "generic": "An error occurred during comparison."
@@ -32,14 +43,20 @@
     "copyLink": "Copy Link",
     "copyLinkDesc": "Quick share",
     "generating": "Generating...",
-    "downloadedAll": "Downloaded {count} images",
+    "downloadedAll": "Downloaded {{count}} images",
     "downloadedCover": "Cover poster downloaded",
-    "downloadedCards": "Downloaded {count} dimension cards",
+    "downloadedCards": "Downloaded {{count}} dimension cards",
     "linkCopied": "Link copied",
     "copyFailed": "Copy failed",
     "generateFailed": "Generation failed, please retry",
     "useNativeShare": "Share via system",
-    "reportSuffix": "Comparison Report"
+    "reportSuffix": "Comparison Report",
+    "preview": "Preview",
+    "close": "Close share panel",
+    "closePreview": "Close poster preview",
+    "nativeShareFailed": "System sharing is unavailable. Please download or copy the link instead.",
+    "exportTitle": "Export comparison posters",
+    "exportOptions": "Export options"
   },
   "nav": {
     "home": "Home",
@@ -48,7 +65,8 @@
     "popularComparisons": "Popular Comparisons",
     "createComparison": "Create your own comparison",
     "privacy": "Privacy Policy",
-    "terms": "Terms of Service"
+    "terms": "Terms of Service",
+    "footerLabel": "Footer navigation"
   },
   "result": {
     "relationship": "Relationship",
@@ -61,7 +79,19 @@
     "keyDifference": "Key Difference:",
     "winner": "Winner:",
     "sources": "Sources",
-    "sourcesLabel": "Sources:"
+    "sourcesLabel": "Sources:",
+    "multidimensionalAnalysis": "Multidimensional Analysis",
+    "dimension": "Dimension",
+    "categoryDimension": "Dimension",
+    "scoreAria": "{{label}} score {{score}} out of {{max}}",
+    "scoreUnavailable": "unavailable",
+    "relationshipTypes": {
+      "same_category": "Same category",
+      "cross_category": "Cross category",
+      "complementary": "Complementary",
+      "substitutes": "Substitutes",
+      "related": "Related"
+    }
   },
   "methodology": {
     "label": "Methodology",
@@ -124,7 +154,10 @@
     "loading": "Loading report...",
     "goBack": "Go back to CompareAI",
     "shareTitle": "Share your comparison result",
-    "shareSubtitle": "Generate beautiful posters to share"
+    "shareSubtitle": "Generate beautiful posters to share",
+    "number": "Report #{{id}}",
+    "views_one": "{{count}} view",
+    "views_other": "{{count}} views"
   },
   "privacy": {
     "label": "Privacy Policy",
@@ -186,7 +219,7 @@
     "contactDesc": "For questions about these Terms of Service, please reach out via our website contact channels."
   },
   "poster": {
-    "dimensionsOverview": "{count} Dimensions Overview",
+    "dimensionsOverview": "{{count}} Dimensions Overview",
     "visualComparison": "Visual Comparison Poster",
     "averageScore": "Average Score",
     "winner": "Winner",
@@ -199,6 +232,25 @@
     "wins": "Wins",
     "gap": "Gap",
     "keyDifference": "Key Difference",
-    "noAnalysis": "No analysis available"
+    "noAnalysis": "No analysis available",
+    "aiReport": "AI Comparison Report",
+    "recommended": "Recommended: {{winner}}",
+    "coreDimensions": "Core Comparison Dimensions",
+    "poweredBy": "Powered by AI",
+    "scanCreate": "Scan to create your comparison",
+    "comparison": "Comparison"
+  },
+  "popular": {
+    "label": "AI comparison directory",
+    "title": "Popular AI Comparisons",
+    "description": "Browse AI assistant, coding tool, search, and productivity comparisons.",
+    "loading": "Loading comparisons...",
+    "viewReport": "View report",
+    "empty": "New public comparison reports will appear here soon.",
+    "pageTitle": "Popular AI Comparisons | CompareAI"
+  },
+  "related": {
+    "title": "Related AI comparisons",
+    "viewAll": "View all"
   }
 }

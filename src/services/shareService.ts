@@ -42,7 +42,7 @@ export async function generatePosterBlob(options: ShareOptions): Promise<Blob> {
     return blob;
   } catch (error) {
     console.error('Poster generation failed:', error);
-    throw new Error('海报生成失败，请重试');
+    throw new Error('POSTER_GENERATION_FAILED', { cause: error });
   }
 }
 
@@ -78,34 +78,40 @@ export function downloadPoster(blob: Blob, filename = 'compare-poster.png'): voi
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  // Safari may not start reading the object URL until the next task.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /**
  * 分享到系统分享面板 (Web Share API)
  */
+export type NativeShareResult = 'shared' | 'cancelled' | 'unavailable' | 'failed';
+
 export async function nativeShare(data: {
   title: string;
   text: string;
   url?: string;
-}): Promise<boolean> {
-  if (navigator.share) {
-    try {
-      await navigator.share({
-        title: data.title,
-        text: data.text,
-        url: data.url || window.location.href,
-      });
-      return true;
-    } catch (error) {
-      // 用户取消分享不算错误
-      if ((error as Error).name !== 'AbortError') {
-        console.error('Native share failed:', error);
-      }
-      return false;
-    }
+  files?: File[];
+}): Promise<NativeShareResult> {
+  if (!navigator.share) return 'unavailable';
+
+  const files = data.files?.length && navigator.canShare?.({ files: data.files })
+    ? data.files
+    : undefined;
+
+  try {
+    await navigator.share({
+      title: data.title,
+      text: data.text,
+      url: files ? undefined : data.url || window.location.href,
+      files,
+    });
+    return 'shared';
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') return 'cancelled';
+    console.error('Native share failed:', error);
+    return 'failed';
   }
-  return false;
 }
 
 /**

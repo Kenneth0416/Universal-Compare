@@ -1,4 +1,7 @@
 {
+  "language": {
+    "selector": "選擇語言"
+  },
   "hero": {
     "subtitle": "比較任何事物。從電子產品到水果，概念到軟件。發現它們的關係、主要差異，以及哪個更適合你。",
     "placeholderA": "例如：MacBook Air M3",
@@ -9,7 +12,8 @@
     "recentComparisons": "最近記錄",
     "communityComparisons": "社區對比",
     "featuredTitle": "試試這些對比",
-    "viewReport": "查看報告"
+    "viewReport": "查看報告",
+    "popularLink": "瀏覽熱門 AI 對比"
   },
   "nav": {
     "home": "首頁",
@@ -18,7 +22,8 @@
     "popularComparisons": "熱門對比",
     "createComparison": "建立你自己的對比",
     "privacy": "隱私政策",
-    "terms": "服務條款"
+    "terms": "服務條款",
+    "footerLabel": "頁尾導覽"
   },
   "result": {
     "relationship": "關係類型",
@@ -31,7 +36,19 @@
     "keyDifference": "主要差異：",
     "winner": "勝出：",
     "sources": "來源",
-    "sourcesLabel": "來源："
+    "sourcesLabel": "來源：",
+    "multidimensionalAnalysis": "多維度分析",
+    "dimension": "維度",
+    "categoryDimension": "對比維度",
+    "scoreAria": "{{label}} 得分 {{score}}，滿分 {{max}}",
+    "scoreUnavailable": "暫無",
+    "relationshipTypes": {
+      "same_category": "同類對象",
+      "cross_category": "跨類別對象",
+      "complementary": "互補關係",
+      "substitutes": "替代關係",
+      "related": "相關對象"
+    }
   },
   "methodology": {
     "label": "方法論",
@@ -94,13 +111,23 @@
     "loading": "正在載入報告...",
     "goBack": "返回 CompareAI",
     "shareTitle": "分享你的對比結果",
-    "shareSubtitle": "生成精美海報，分享到社群媒體"
+    "shareSubtitle": "生成精美海報，分享到社群媒體",
+    "number": "報告 #{{id}}",
+    "views_one": "{{count}} 次瀏覽",
+    "views_other": "{{count}} 次瀏覽"
   },
   "loading": {
     "parsingInputs": "解析輸入",
     "mappingConcepts": "映射概念",
     "synthesizingResults": "綜合結果",
-    "initializing": "初始化 AI 引擎..."
+    "initializing": "初始化 AI 引擎...",
+    "researching": "階段 1：同時研究兩個對象...",
+    "architecting": "階段 2：建立對比框架...",
+    "analyzing": "階段 3：分析 {{count}} 個維度...",
+    "synthesizing": "階段 4：綜合結論與優缺點...",
+    "finalizing": "正在完成報告...",
+    "itemA": "對象 A",
+    "itemB": "對象 B"
   },
   "error": {
     "generic": "比較過程中發生錯誤。"
@@ -117,14 +144,20 @@
     "copyLink": "複製連結",
     "copyLinkDesc": "快速分享",
     "generating": "生成中...",
-    "downloadedAll": "已下載 {count} 張圖片",
+    "downloadedAll": "已下載 {{count}} 張圖片",
     "downloadedCover": "封面海報已下載",
-    "downloadedCards": "已下載 {count} 張維度卡片",
+    "downloadedCards": "已下載 {{count}} 張維度卡片",
     "linkCopied": "連結已複製",
     "copyFailed": "複製失敗",
     "generateFailed": "生成失敗，請重試",
     "useNativeShare": "使用系統分享",
-    "reportSuffix": "對比報告"
+    "reportSuffix": "對比報告",
+    "preview": "預覽",
+    "close": "關閉分享面板",
+    "closePreview": "關閉海報預覽",
+    "nativeShareFailed": "系統分享不可用，請下載海報或複製連結。",
+    "exportTitle": "匯出對比海報",
+    "exportOptions": "匯出選項"
   },
   "privacy": {
     "label": "隱私政策",
@@ -186,7 +219,7 @@
     "contactDesc": "如對這些服務條款有疑問，請透過我們的網站聯繫管道聯繫我們。"
   },
   "poster": {
-    "dimensionsOverview": "{count} 維度總覽",
+    "dimensionsOverview": "{{count}} 維度總覽",
     "visualComparison": "AI 對比海報",
     "averageScore": "平均分",
     "winner": "勝出",
@@ -199,6 +232,25 @@
     "wins": "勝出",
     "gap": "差距",
     "keyDifference": "關鍵差異",
-    "noAnalysis": "暫無分析"
+    "noAnalysis": "暫無分析",
+    "aiReport": "AI 對比報告",
+    "recommended": "推薦：{{winner}}",
+    "coreDimensions": "核心對比維度",
+    "poweredBy": "AI 驅動",
+    "scanCreate": "掃碼生成你的對比",
+    "comparison": "對比"
+  },
+  "popular": {
+    "label": "AI 對比目錄",
+    "title": "熱門 AI 對比",
+    "description": "瀏覽 AI 助手、程式設計工具、搜尋和生產力工具對比。",
+    "loading": "正在載入對比...",
+    "viewReport": "查看報告",
+    "empty": "新的公開對比報告即將在這裡顯示。",
+    "pageTitle": "熱門 AI 對比 | CompareAI"
+  },
+  "related": {
+    "title": "相關 AI 對比",
+    "viewAll": "查看全部"
   }
 }

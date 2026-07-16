@@ -5,6 +5,7 @@ import AdminApp from './admin/AdminApp.tsx';
 import App from './App.tsx';
 import AboutPage from './components/AboutPage.tsx';
 import MethodologyPage from './components/MethodologyPage.tsx';
+import LanguageSwitcher from './components/LanguageSwitcher.tsx';
 import PopularComparisonsPage from './components/PopularComparisonsPage.tsx';
 import PrivacyPolicyPage from './components/PrivacyPolicyPage.tsx';
 import ReportViewer from './components/ReportViewer.tsx';
@@ -33,6 +34,7 @@ if (pathname.startsWith('/admin')) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    {pathname.startsWith('/admin') ? null : <LanguageSwitcher />}
     <RootApp />
   </StrictMode>,
 );

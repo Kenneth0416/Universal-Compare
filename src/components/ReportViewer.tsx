@@ -10,17 +10,17 @@ import { getReport, getReportBySlug, type ReportData } from '../services/reportS
 import type { ComparisonResult } from '../services/geminiService';
 
 export default function ReportViewer() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const pathname = window.location.pathname;
   const isCompareUrl = pathname.startsWith('/compare/');
   const reportKey = pathname.replace(isCompareUrl ? '/compare/' : '/r/', '');
   const [report, setReport] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [errorKey, setErrorKey] = useState('');
 
   useEffect(() => {
     if (!reportKey) {
-      setError(t('report.invalidUrl'));
+      setErrorKey('report.invalidUrl');
       setLoading(false);
       return;
     }
@@ -33,9 +33,9 @@ export default function ReportViewer() {
         document.title = `${data.itemA} vs ${data.itemB} — CompareAI`;
       })
       .catch((err) => {
-        setError(err.message === 'Report not found'
-          ? t('report.notFound')
-          : t('report.loadFailed'));
+        setErrorKey(err.message === 'Report not found'
+          ? 'report.notFound'
+          : 'report.loadFailed');
       })
       .finally(() => setLoading(false));
   }, [isCompareUrl, reportKey]);
@@ -63,11 +63,11 @@ export default function ReportViewer() {
           </div>
         )}
 
-        {error && (
+        {errorKey && (
           <div className="flex flex-col items-center justify-center gap-4 py-32">
             <div className="bg-red-500/10 text-red-400 p-6 rounded-2xl flex flex-col items-center gap-3 border border-red-500/20 backdrop-blur-md max-w-md text-center">
               <AlertCircle size={24} />
-              <p className="font-medium">{error}</p>
+              <p className="font-medium">{t(errorKey)}</p>
               <a href="/" className="text-sm text-indigo-400 hover:text-indigo-300 underline underline-offset-4">
                 {t('report.goBack')}
               </a>
@@ -87,7 +87,9 @@ export default function ReportViewer() {
                 {report.itemA} <span className="text-indigo-400">vs</span> {report.itemB}
               </h1>
               <p className="text-sm text-neutral-500 font-mono">
-                Report #{report.reportId} • {new Date(report.createdAt).toLocaleDateString()} • {report.viewCount} views
+                {t('report.number', { id: report.reportId })} •{' '}
+                {new Intl.DateTimeFormat(i18n.resolvedLanguage || i18n.language).format(new Date(report.createdAt))} •{' '}
+                {t('report.views', { count: report.viewCount })}
               </p>
             </div>
 
@@ -107,10 +109,7 @@ export default function ReportViewer() {
                 <span>{t('nav.createComparison')}</span>
               </a>
             </section>
-            <RelatedComparisons
-              currentSlug={isCompareUrl ? reportKey : undefined}
-              language={report.language || 'en'}
-            />
+            <RelatedComparisons currentSlug={isCompareUrl ? reportKey : undefined} />
           </motion.div>
         )}
       </main>
