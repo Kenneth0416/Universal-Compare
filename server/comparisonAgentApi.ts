@@ -6,7 +6,7 @@ import { consumePersistentLimit } from './rateLimit';
 import { normalizeComparisonResult, serializeComparisonResult } from '../shared/comparisonSchema';
 
 type AnalyticsStore = ReturnType<typeof createAnalyticsStore>;
-type AgentRequest = Request & { visitorId?: string };
+type AgentRequest = Request & { visitorId?: string; visitorVerified?: boolean };
 type Language = 'en' | 'zh-CN' | 'zh-TW';
 type Phase = 'researcher' | 'architect' | 'analyst' | 'pros-cons' | 'recommendation' | 'finalize';
 
@@ -532,10 +532,19 @@ function fixedResearchRequest(entity: string) {
   };
 }
 
-function runOwnedByVisitor(analyticsStore: AnalyticsStore, runId: string, visitorId: string) {
+function runOwnedByVisitor(
+  analyticsStore: AnalyticsStore,
+  runId: string,
+  visitorId: string,
+  visitorVerified: boolean,
+) {
   try {
     const row = analyticsStore.getDb().prepare('SELECT visitor_id AS visitorId FROM comparison_runs WHERE run_id = ?').get(runId) as { visitorId?: string } | undefined;
-    return Boolean(row && visitorId && row.visitorId === visitorId);
+    if (!row) return false;
+    // Cookie-less clients cannot maintain identity; the unguessable run id is
+    // the capability. Verified visitors must own the run (IDOR protection).
+    if (!visitorVerified) return true;
+    return Boolean(visitorId && row.visitorId === visitorId);
   } catch (error) {
     console.warn('Run ownership verification unavailable; refusing run attachment:', error);
     return false;
@@ -570,7 +579,8 @@ export function createComparisonAgentRouter({
     }
     const phase = req.params.phase as Phase;
     const ip = requestIp(req);
-    const visitorKey = req.visitorId || `ip:${ip}`;
+    // Cookie-less visitors get a fresh id per request; scope grants by IP there.
+    const visitorKey = req.visitorVerified ? (req.visitorId as string) : `ip:${ip}`;
     if (!ipBucket.consume(ip) || !visitorBucket.consume(visitorKey)) {
       res.set('Retry-After', '5').status(429).json({ error: 'AI request rate limit exceeded' });
       return;
@@ -621,11 +631,13 @@ export function createComparisonAgentRouter({
       const rawRunId = body.runId;
       if (rawRunId !== undefined) {
         const candidateRunId = text(rawRunId, 'runId', 100);
-        if (!runOwnedByVisitor(analyticsStore, candidateRunId, req.visitorId || '')) throw new ApiError('runId does not belong to this visitor', 403);
+        if (!runOwnedByVisitor(analyticsStore, candidateRunId, req.visitorId || '', Boolean(req.visitorVerified))) throw new ApiError('runId does not belong to this visitor', 403);
         runId = candidateRunId;
       }
 
-      const sourceScope = `${visitorKey}:${runId || ''}`;
+      // Scope grants by the server-issued run id when available (stable across
+      // requests regardless of cookie issuance); otherwise by request IP.
+      const sourceScope = runId ? `run:${runId}` : `ip:${ip}`;
       let response: unknown;
       if (phase === 'researcher') {
         exactKeys(body, ['itemName', 'language', 'runId']);

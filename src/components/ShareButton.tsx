@@ -26,6 +26,8 @@ interface ShareButtonProps {
   /** Optional persistence state; omitted for already-persisted report viewers. */
   reportStatus?: 'saving' | 'ready' | 'error';
   onRetrySave?: () => void;
+  /** Language of the report content; defaults to current UI language. */
+  language?: string;
 }
 
 export const ShareButton: React.FC<ShareButtonProps> = ({
@@ -34,6 +36,7 @@ export const ShareButton: React.FC<ShareButtonProps> = ({
   className = '',
   reportStatus,
   onRetrySave,
+  language,
 }) => {
   const { t, i18n: i18nInstance } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -80,7 +83,7 @@ export const ShareButton: React.FC<ShareButtonProps> = ({
     },
   ];
 
-  const currentLang = i18nInstance.resolvedLanguage || i18nInstance.language || 'en';
+  const currentLang = language || i18nInstance.resolvedLanguage || i18nInstance.language || 'en';
   const explicitReportUrl = normalizeHttpUrl(reportUrl, window.location.origin);
   const isPersistedViewer = /^\/(?:r|compare)\/[^/]+\/?$/.test(window.location.pathname);
   const viewerUrl = isPersistedViewer ? normalizeHttpUrl(window.location.href) : null;

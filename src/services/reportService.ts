@@ -43,8 +43,8 @@ export async function saveReport(input: SaveReportInput): Promise<SaveReportResp
   return response.json();
 }
 
-export async function getReport(reportId: string): Promise<ReportData> {
-  const response = await fetch(`${API_BASE}/reports/${encodeURIComponent(reportId)}`);
+export async function getReport(reportId: string, signal?: AbortSignal): Promise<ReportData> {
+  const response = await fetch(`${API_BASE}/reports/${encodeURIComponent(reportId)}`, { signal });
 
   if (!response.ok) {
     if (response.status === 404) {
@@ -56,8 +56,8 @@ export async function getReport(reportId: string): Promise<ReportData> {
   return response.json();
 }
 
-export async function getReportBySlug(slug: string): Promise<ReportData> {
-  const response = await fetch(`${API_BASE}/reports/by-slug/${encodeURIComponent(slug)}`);
+export async function getReportBySlug(slug: string, signal?: AbortSignal): Promise<ReportData> {
+  const response = await fetch(`${API_BASE}/reports/by-slug/${encodeURIComponent(slug)}`, { signal });
 
   if (!response.ok) {
     if (response.status === 404) {

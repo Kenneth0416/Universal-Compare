@@ -26,6 +26,8 @@ interface ComparisonResultViewProps {
   showShare?: boolean;
   reportStatus?: 'saving' | 'ready' | 'error';
   onRetrySave?: () => void;
+  /** Language of the report content for poster/share export. */
+  language?: string;
 }
 
 export default function ComparisonResultView({
@@ -34,6 +36,7 @@ export default function ComparisonResultView({
   showShare = true,
   reportStatus,
   onRetrySave,
+  language,
 }: ComparisonResultViewProps) {
   const { t } = useTranslation();
   const prefersReducedMotion = useReducedMotion();
@@ -199,7 +202,9 @@ export default function ComparisonResultView({
                           ? result.entityA?.name || 'A'
                           : dim.analysis.better_for === 'B'
                           ? result.entityB?.name || 'B'
-                          : dim.analysis.better_for}
+                          : t(`result.betterFor.${dim.analysis.better_for.toLowerCase()}`, {
+                              defaultValue: dim.analysis.better_for,
+                            })}
                       </span>
                     </div>
                   )}
@@ -430,6 +435,7 @@ export default function ComparisonResultView({
             reportUrl={reportUrl}
             reportStatus={reportStatus}
             onRetrySave={onRetrySave}
+            language={language}
           />
         </section>
       )}

@@ -13,7 +13,8 @@
     "communityComparisons": "社区对比",
     "featuredTitle": "试试这些对比",
     "viewReport": "查看报告",
-    "popularLink": "浏览热门 AI 对比"
+    "popularLink": "浏览热门 AI 对比",
+    "inputLimit": "请输入两个不同的对象，每个不超过 {{count}} 个字符。"
   },
   "nav": {
     "home": "首页",
@@ -47,7 +48,15 @@
       "cross_category": "跨类别对象",
       "complementary": "互补关系",
       "substitutes": "替代关系",
-      "related": "相关对象"
+      "related": "相关对象",
+      "alternatives": "替代方案",
+      "complements": "互补关系",
+      "analogy": "类比对象",
+      "not_comparable": "不宜直接比较"
+    },
+    "betterFor": {
+      "both": "兩者皆適合",
+      "neither": "兩者皆不適合"
     }
   },
   "methodology": {
@@ -102,7 +111,11 @@
     "yes": "有帮助",
     "no": "没帮助",
     "thanks": "感谢你的反馈！",
-    "stats": "{{pct}}% 的读者认为此对比有帮助（{{total}} 票）"
+    "stats": "{{pct}}% 的读者认为此对比有帮助（{{total}} 票）",
+    "loadFailed": "无法加载反馈统计。",
+    "submitFailed": "反馈提交失败，请重试。",
+    "submitting": "正在提交反馈…",
+    "retry": "重试"
   },
   "report": {
     "invalidUrl": "无效的报告链接",
@@ -114,7 +127,10 @@
     "shareSubtitle": "生成精美海报，分享到社交媒体",
     "number": "报告 #{{id}}",
     "views_one": "{{count}} 次浏览",
-    "views_other": "{{count}} 次浏览"
+    "views_other": "{{count}} 次浏览",
+    "saving": "正在保存可分享的报告…",
+    "saveFailed": "报告保存失败。重试之前无法分享。",
+    "retrySave": "重试保存报告"
   },
   "loading": {
     "parsingInputs": "解析输入",
@@ -127,10 +143,22 @@
     "synthesizing": "阶段 4：综合结论与优缺点...",
     "finalizing": "正在完成报告...",
     "itemA": "对象 A",
-    "itemB": "对象 B"
+    "itemB": "对象 B",
+    "partialResults": "比较进度",
+    "partialAvailable": "分析仍在继续，部分结果已就绪。",
+    "dimensionsComplete": "已完成 {{count}} 个维度的分析。"
   },
   "error": {
-    "generic": "比较过程中发生错误。"
+    "generic": "比较过程中发生错误。",
+    "itemsRequired": "请输入两个要比较的对象。",
+    "itemTooLong": "每个对象不能超过 {{count}} 个字符。",
+    "itemsMustDiffer": "请输入两个不同的对象。",
+    "partialAvailable": "比较被中断，但已有部分结果。",
+    "pageLoadFailed": "页面加载失败，请重试。",
+    "reload": "重新加载",
+    "rateLimited": "请求过于频繁，请稍候再试。",
+    "budgetExceeded": "今日比较次数已达上限，请明天再试。",
+    "serviceBusy": "AI 服务繁忙，请稍后重试。"
   },
   "share": {
     "sharePoster": "分享海报",
@@ -157,7 +185,11 @@
     "closePreview": "关闭海报预览",
     "nativeShareFailed": "系统分享不可用，请下载海报或复制链接。",
     "exportTitle": "导出对比海报",
-    "exportOptions": "导出选项"
+    "exportOptions": "导出选项",
+    "preparing": "正在准备分享链接…",
+    "saveFailed": "暂时无法分享",
+    "preparingDescription": "报告正在保存中，稍后即可分享和导出海报。",
+    "cancel": "取消导出"
   },
   "privacy": {
     "label": "隐私政策",

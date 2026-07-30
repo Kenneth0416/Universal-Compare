@@ -104,6 +104,13 @@ export async function generateComparison(
     recommendation,
     sources: allSources,
   };
-  const { reportToken } = await apiService.runFinalizeAgent(result, language, runId, signal);
-  return { ...result, reportToken };
+  // Finalize only mints the persistence grant. A failure here must not discard
+  // an otherwise complete comparison; the client can retry finalize on save.
+  try {
+    const { reportToken } = await apiService.runFinalizeAgent(result, language, runId, signal);
+    return { ...result, reportToken };
+  } catch (finalizeError) {
+    console.warn('Report grant issuance failed; sharing can retry later:', finalizeError);
+    return result;
+  }
 }

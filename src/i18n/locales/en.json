@@ -13,7 +13,8 @@
     "communityComparisons": "From the community",
     "featuredTitle": "Try these comparisons",
     "viewReport": "View report",
-    "popularLink": "Explore popular AI comparisons"
+    "popularLink": "Explore popular AI comparisons",
+    "inputLimit": "Use two different items, up to {{count}} characters each."
   },
   "loading": {
     "parsingInputs": "Parsing inputs",
@@ -26,10 +27,22 @@
     "synthesizing": "Phase 4: Synthesizing the verdict and pros/cons...",
     "finalizing": "Finalizing report...",
     "itemA": "Item A",
-    "itemB": "Item B"
+    "itemB": "Item B",
+    "partialResults": "Comparison progress",
+    "partialAvailable": "Partial findings are ready while analysis continues.",
+    "dimensionsComplete": "{{count}} dimension(s) analyzed."
   },
   "error": {
-    "generic": "An error occurred during comparison."
+    "generic": "An error occurred during comparison.",
+    "itemsRequired": "Please enter two items to compare.",
+    "itemTooLong": "Each item must be {{count}} characters or fewer.",
+    "itemsMustDiffer": "Please enter two different items.",
+    "partialAvailable": "The comparison was interrupted, but partial results are available.",
+    "pageLoadFailed": "This page failed to load. Please try again.",
+    "reload": "Reload",
+    "rateLimited": "Too many requests. Please wait a moment and try again.",
+    "budgetExceeded": "Daily comparison limit reached. Please try again tomorrow.",
+    "serviceBusy": "The AI service is busy. Please try again shortly."
   },
   "share": {
     "sharePoster": "Share Poster",
@@ -56,7 +69,11 @@
     "closePreview": "Close poster preview",
     "nativeShareFailed": "System sharing is unavailable. Please download or copy the link instead.",
     "exportTitle": "Export comparison posters",
-    "exportOptions": "Export options"
+    "exportOptions": "Export options",
+    "preparing": "Preparing share link…",
+    "saveFailed": "Sharing unavailable",
+    "preparingDescription": "The report is being saved. Sharing and poster export will be available shortly.",
+    "cancel": "Cancel export"
   },
   "nav": {
     "home": "Home",
@@ -90,7 +107,15 @@
       "cross_category": "Cross category",
       "complementary": "Complementary",
       "substitutes": "Substitutes",
-      "related": "Related"
+      "related": "Related",
+      "alternatives": "Alternatives",
+      "complements": "Complements",
+      "analogy": "Analogy",
+      "not_comparable": "Not directly comparable"
+    },
+    "betterFor": {
+      "both": "Both",
+      "neither": "Neither"
     }
   },
   "methodology": {
@@ -145,7 +170,11 @@
     "yes": "Yes",
     "no": "No",
     "thanks": "Thanks for your feedback!",
-    "stats": "{{pct}}% of readers found this helpful ({{total}} votes)"
+    "stats": "{{pct}}% of readers found this helpful ({{total}} votes)",
+    "loadFailed": "Could not load feedback totals.",
+    "submitFailed": "Could not send your feedback. Please try again.",
+    "submitting": "Sending feedback…",
+    "retry": "Retry"
   },
   "report": {
     "invalidUrl": "Invalid report URL",
@@ -157,7 +186,10 @@
     "shareSubtitle": "Generate beautiful posters to share",
     "number": "Report #{{id}}",
     "views_one": "{{count}} view",
-    "views_other": "{{count}} views"
+    "views_other": "{{count}} views",
+    "saving": "Saving a shareable report…",
+    "saveFailed": "The report could not be saved. Sharing is unavailable until you retry.",
+    "retrySave": "Retry saving report"
   },
   "privacy": {
     "label": "Privacy Policy",

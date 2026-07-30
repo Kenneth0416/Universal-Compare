@@ -1,9 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { generateComparison, ComparisonResult } from './services/geminiService';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
+import { generateComparison, runFinalizeAgent, ComparisonResult } from './services/geminiService';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Loader2, AlertCircle } from 'lucide-react';
 import { AILoadingState } from './components/AILoadingState';
-import ComparisonResultView from './components/ComparisonResultView';
 
 import FeaturedShowcase from './components/FeaturedShowcase';
 import ComparisonSuggestions from './components/ComparisonSuggestions';
@@ -12,12 +11,16 @@ import { saveReport, type SaveReportInput } from './services/reportService';
 import MinimalGrid from './components/react-bits/MinimalGrid';
 import BlurText from './components/react-bits/BlurText';
 import { useTranslation } from 'react-i18next';
+import i18n from './i18n';
 
-const MAX_ITEM_LENGTH = 100;
+const MAX_ITEM_LENGTH = 120;
 
 type PartialComparisonResult = Partial<ComparisonResult> & { dimensions?: ComparisonResult['dimensions'] };
 type ReportSaveStatus = 'ready' | 'saving' | 'error';
 type ReportPayload = Omit<SaveReportInput, 'signal'>;
+// Lazy-load the heavy result view (recharts/poster/export) only when a result exists.
+const ComparisonResultView = React.lazy(() => import('./components/ComparisonResultView'));
+
 type CompatibleResultViewProps = React.ComponentProps<typeof ComparisonResultView> & {
   reportStatus?: ReportSaveStatus;
   onRetrySave?: () => void;
@@ -33,13 +36,24 @@ const warnTrackingFailure = (error: unknown) => {
 
 const normalizeItem = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 
+/** Maps known server error messages to localized strings; unknown messages pass through. */
+const localizeServerError = (message: string): string => {
+  if (!message) return i18n.t('error.generic');
+  const lower = message.toLowerCase();
+  if (lower.includes('rate limit')) return i18n.t('error.rateLimited');
+  if (lower.includes('daily ai request budget')) return i18n.t('error.budgetExceeded');
+  if (lower.includes('ai service is busy')) return i18n.t('error.serviceBusy');
+  return message;
+};
+
 export default function App() {
   const { t, i18n: i18nInstance } = useTranslation();
   const [itemA, setItemA] = useState('');
   const [itemB, setItemB] = useState('');
   const [submittedItems, setSubmittedItems] = useState({ itemA: '', itemB: '' });
+  const [submittedLanguage, setSubmittedLanguage] = useState<string>('en');
   const [loading, setLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState('');
+  const [loadingStep, setLoadingStep] = useState<{ key: string; count?: number } | null>(null);
   const [result, setResult] = useState<ComparisonResult | null>(null);
   const [partialResult, setPartialResult] = useState<PartialComparisonResult>({});
   const [error, setError] = useState('');
@@ -74,13 +88,28 @@ export default function App() {
     generation: number,
     payload: ReportPayload,
     signal: AbortSignal,
+    refreshToken = false,
   ) => {
     if (generationRef.current !== generation) return;
     const attempt = ++saveAttemptRef.current;
     setReportSaveStatus('saving');
 
     try {
-      const saved = await saveReport({ ...payload, signal });
+      let effectivePayload = payload;
+      // Mint (or refresh, on retry/expiry) the short-lived persistence grant.
+      if (refreshToken || !payload.result.reportToken) {
+        const { reportToken } = await runFinalizeAgent(
+          payload.result,
+          payload.language,
+          payload.runId,
+          signal,
+        );
+        effectivePayload = {
+          ...payload,
+          result: { ...payload.result, reportToken },
+        };
+      }
+      const saved = await saveReport({ ...effectivePayload, signal });
       if (!saved.url) throw new Error('Report response did not include a URL');
       if (generationRef.current !== generation || saveAttemptRef.current !== attempt) return;
       setReportUrl(saved.url);
@@ -95,7 +124,7 @@ export default function App() {
   const retryReportSave = () => {
     const retry = retryReportRef.current;
     if (!retry || retry.generation !== generationRef.current || reportSaveStatus === 'saving') return;
-    void persistReport(retry.generation, retry.payload, retry.signal);
+    void persistReport(retry.generation, retry.payload, retry.signal, true);
   };
 
   const handleShowcaseSelect = (a: string, b: string) => {
@@ -115,6 +144,7 @@ export default function App() {
     const itemASnapshot = itemA.trim();
     const itemBSnapshot = itemB.trim();
     const languageSnapshot = i18nInstance.language || 'en';
+    setSubmittedLanguage(languageSnapshot);
 
     if (!itemASnapshot || !itemBSnapshot) {
       setValidationError(t('error.itemsRequired', { defaultValue: 'Enter both items to compare.' }));
@@ -154,7 +184,7 @@ export default function App() {
     setResult(null);
     setReportUrl(null);
     setReportSaveStatus('ready');
-    setLoadingStep(t('loading.initializing'));
+    setLoadingStep({ key: 'loading.initializing' });
 
     let runId: string | undefined;
     const isCurrentGeneration = () => generationRef.current === generation;
@@ -177,7 +207,7 @@ export default function App() {
         itemBSnapshot,
         (progress) => {
           if (!isCurrentGeneration()) return;
-          setLoadingStep(t(`loading.${progress.key}`, { count: progress.count }));
+          setLoadingStep({ key: `loading.${progress.key}`, count: progress.count });
         },
         (phase, data) => {
           if (!isCurrentGeneration()) return;
@@ -235,7 +265,7 @@ export default function App() {
           if (isCurrentGeneration()) warnTrackingFailure(trackingError);
         });
       }
-      if (isCurrentGeneration()) setError(message || t('error.generic'));
+      if (isCurrentGeneration()) setError(localizeServerError(message));
     } finally {
       if (isCurrentGeneration()) {
         setLoading(false);
@@ -296,6 +326,8 @@ export default function App() {
                     setValidationError('');
                   }}
                   onFocus={() => !inFlightRef.current && setShowSuggestions(true)}
+                  onBlur={() => window.setTimeout(() => setShowSuggestions(false), 150)}
+                  onKeyDown={(e) => e.key === 'Escape' && setShowSuggestions(false)}
                   placeholder={t('hero.placeholderA')}
                   aria-label={t('loading.itemA')}
                   aria-describedby={`comparison-input-hint${validationError ? ' comparison-validation-error' : ''}`}
@@ -325,6 +357,8 @@ export default function App() {
                     setValidationError('');
                   }}
                   onFocus={() => !inFlightRef.current && setShowSuggestions(true)}
+                  onBlur={() => window.setTimeout(() => setShowSuggestions(false), 150)}
+                  onKeyDown={(e) => e.key === 'Escape' && setShowSuggestions(false)}
                   placeholder={t('hero.placeholderB')}
                   aria-label={t('loading.itemB')}
                   aria-describedby={`comparison-input-hint${validationError ? ' comparison-validation-error' : ''}`}
@@ -410,7 +444,7 @@ export default function App() {
               <AILoadingState
                 itemA={submittedItems.itemA}
                 itemB={submittedItems.itemB}
-                stepDescription={loadingStep}
+                stepDescription={loadingStep ? t(loadingStep.key, { count: loadingStep.count }) : undefined}
               />
             </motion.div>
           )}
@@ -461,34 +495,20 @@ export default function App() {
               transition={{ duration: 0.6, delay: 0.1 }}
               className="focus:outline-none"
             >
-              <CompatibleComparisonResultView
-                result={result}
-                reportUrl={reportUrl}
-                reportStatus={reportSaveStatus}
-                onRetrySave={retryReportSave}
-                showShare={true}
-              />
-              <div className="mt-6 text-center" role="status" aria-live="polite">
-                {reportSaveStatus === 'saving' && (
-                  <p className="text-sm text-neutral-400">
-                    {t('report.saving', { defaultValue: 'Saving a shareable report…' })}
-                  </p>
-                )}
-                {reportSaveStatus === 'error' && (
-                  <div className="flex flex-col items-center gap-3">
-                    <p role="alert" className="text-sm text-rose-400">
-                      {t('report.saveFailed', { defaultValue: 'The report could not be saved. Sharing is unavailable until you retry.' })}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={retryReportSave}
-                      className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
-                    >
-                      {t('report.retrySave', { defaultValue: 'Retry saving report' })}
-                    </button>
-                  </div>
-                )}
-              </div>
+              <Suspense fallback={
+                <div className="flex justify-center py-16" role="status" aria-busy="true">
+                  <Loader2 className="animate-spin text-indigo-400" size={28} />
+                </div>
+              }>
+                <CompatibleComparisonResultView
+                  result={result}
+                  reportUrl={reportUrl}
+                  reportStatus={reportSaveStatus}
+                  onRetrySave={retryReportSave}
+                  showShare={true}
+                  language={submittedLanguage}
+                />
+              </Suspense>
             </motion.div>
           )}
 

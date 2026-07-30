@@ -46,6 +46,8 @@ type FeaturedStore = ReturnType<typeof createFeaturedStore>;
 
 type RequestWithVisitor = Request & {
   visitorId?: string;
+  /** True when the visitor id came from a verified signed cookie (capable of ownership checks). */
+  visitorVerified?: boolean;
 };
 
 type CreateAppOptions = {
@@ -327,6 +329,7 @@ export function createApp({
       });
 
       req.visitorId = visitor.visitorId;
+      req.visitorVerified = Boolean(verifiedVisitorId);
       if (!verifiedVisitorId || visitor.isNew) {
         res.cookie(VISITOR_COOKIE, createVisitorIdToken(visitor.visitorId, adminSessionSecret), {
           httpOnly: true,
@@ -376,9 +379,11 @@ export function createApp({
       return;
     }
 
+    // Cookie-less clients cannot carry a persistent identity; the server-issued
+    // unguessable run id is the capability. Verified visitors get ownership checks.
     const finished = analyticsStore.finishComparisonRun({
       runId: req.params.runId,
-      visitorId: req.visitorId,
+      visitorId: req.visitorVerified ? req.visitorId : undefined,
       status,
       errorMessage: typeof errorMessage === 'string' ? errorMessage : undefined,
     });
@@ -935,7 +940,9 @@ Return ONLY the citations array.`,
         return;
       }
       const serializedResult = serializeComparisonResult(result);
-      const reportScope = `${req.visitorId || `ip:${getRequestIp(req)}`}:${normalizedRunId || ''}`;
+      const reportScope = normalizedRunId
+        ? `run:${normalizedRunId}`
+        : `ip:${getRequestIp(req)}`;
       if (!serializedResult || !verifyReportToken(
         reportToken,
         reportScope,

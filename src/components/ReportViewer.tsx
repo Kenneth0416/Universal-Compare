@@ -26,18 +26,27 @@ export default function ReportViewer() {
     }
 
     const loadReport = isCompareUrl ? getReportBySlug : getReport;
+    const controller = new AbortController();
+    let active = true;
 
-    loadReport(reportKey)
+    loadReport(reportKey, controller.signal)
       .then((data) => {
+        if (!active) return;
         setReport(data);
         document.title = `${data.itemA} vs ${data.itemB} — CompareAI`;
       })
       .catch((err) => {
+        if (!active || (err instanceof Error && err.name === 'AbortError')) return;
         setErrorKey(err.message === 'Report not found'
           ? 'report.notFound'
           : 'report.loadFailed');
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (active) setLoading(false); });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [isCompareUrl, reportKey]);
 
   return (
@@ -96,6 +105,7 @@ export default function ReportViewer() {
             <ComparisonResultView
               result={report.result as ComparisonResult}
               showShare={true}
+              language={report.language}
             />
             <div className="mt-8 max-w-sm mx-auto">
               <ReportFeedback reportId={report.reportId} />

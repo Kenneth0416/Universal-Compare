@@ -356,21 +356,31 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
   };
 
   const finishComparisonRun = (input: FinishComparisonRunInput) => {
-    if (!input.visitorId) {
-      return { updated: false };
-    }
-
-    const result = db.prepare(`
-      UPDATE comparison_runs
-      SET status = ?, error_message = ?, finished_at = ?
-      WHERE run_id = ? AND visitor_id = ?
-    `).run(
-      input.status,
-      input.errorMessage ? truncate(input.errorMessage, 1000) : null,
-      isoNow(),
-      input.runId,
-      input.visitorId,
-    );
+    // Without a verified visitor identity the unguessable run id itself is the
+    // capability (cookie-less clients); ownership is enforced whenever a
+    // visitor id is present.
+    const result = input.visitorId
+      ? db.prepare(`
+          UPDATE comparison_runs
+          SET status = ?, error_message = ?, finished_at = ?
+          WHERE run_id = ? AND visitor_id = ?
+        `).run(
+          input.status,
+          input.errorMessage ? truncate(input.errorMessage, 1000) : null,
+          isoNow(),
+          input.runId,
+          input.visitorId,
+        )
+      : db.prepare(`
+          UPDATE comparison_runs
+          SET status = ?, error_message = ?, finished_at = ?
+          WHERE run_id = ?
+        `).run(
+          input.status,
+          input.errorMessage ? truncate(input.errorMessage, 1000) : null,
+          isoNow(),
+          input.runId,
+        );
 
     return { updated: result.changes > 0 };
   };

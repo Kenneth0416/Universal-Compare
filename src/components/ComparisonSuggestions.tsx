@@ -14,40 +14,17 @@ interface ComparisonSuggestionsProps {
   visible: boolean;
 }
 
-const STORAGE_KEY = 'recent-comparisons';
-const MAX_RECENT = 5;
-
-function getRecentComparisons(): ComparisonSuggestion[] {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return [];
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
-}
-
-export function saveRecentComparison(itemA: string, itemB: string) {
-  try {
-    const recent = getRecentComparisons().filter(
-      (r) => !(r.itemA === itemA && r.itemB === itemB)
-    );
-    recent.unshift({ itemA, itemB, timestamp: Date.now() });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(recent.slice(0, MAX_RECENT)));
-  } catch {
-    // ignore
-  }
-}
-
 export default function ComparisonSuggestions({ onSelect, visible }: ComparisonSuggestionsProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [communityRecent, setCommunityRecent] = useState<ComparisonSuggestion[]>([]);
 
   useEffect(() => {
+    if (!visible) return;
     const controller = new AbortController();
     let active = true;
+    const lang = i18n.language || 'en';
 
-    fetch('/api/suggestions', { signal: controller.signal })
+    fetch(`/api/suggestions?lang=${encodeURIComponent(lang)}`, { signal: controller.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`Failed to load suggestions: ${res.status}`);
         return res.json();
@@ -65,7 +42,7 @@ export default function ComparisonSuggestions({ onSelect, visible }: ComparisonS
       active = false;
       controller.abort();
     };
-  }, []);
+  }, [visible, i18n.language]);
 
   if (!visible) return null;
   if (communityRecent.length === 0) return null;

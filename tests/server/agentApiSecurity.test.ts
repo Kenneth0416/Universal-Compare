@@ -392,11 +392,24 @@ test('only attaches telemetry to a run owned by the current visitor', async () =
     });
     assert.equal(attemptedClaim.status, 403);
 
-    const stranger = await fetch(`${baseUrl}/api/ai/phases/researcher`, {
+    // A verified visitor from a different account cannot attach to the run.
+    const secondRun = await fetch(`${baseUrl}/api/comparison-runs`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ itemA: 'C', itemB: 'D' }),
+    });
+    const strangerCookie = cookieFrom(secondRun);
+    const stranger = await fetch(`${baseUrl}/api/ai/phases/researcher`, {
+      method: 'POST', headers: { 'content-type': 'application/json', cookie: strangerCookie },
       body: JSON.stringify({ itemName: 'Claude', runId }),
     });
     assert.equal(stranger.status, 403);
+
+    // Cookie-less clients use the unguessable run id as the capability.
+    const cookieless = await fetch(`${baseUrl}/api/ai/phases/researcher`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ itemName: 'Claude', runId }),
+    });
+    assert.equal(cookieless.status, 200);
 
     const owner = await fetch(`${baseUrl}/api/ai/phases/researcher`, {
       method: 'POST', headers: { 'content-type': 'application/json', cookie: firstCookie },
