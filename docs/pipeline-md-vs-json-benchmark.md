@@ -63,12 +63,27 @@
 
 ### 建議的下一步驗證
 
-1. ~~JSON 長任務整份~~ → **已驗證可行且解析滿分**（見上）
-2. 4–6 維度、中文、真實搜尋內容下的長任務品質穩定性（本次是 4 維度英文簡化 profile）
-3. MD 長任務 + remark parser 的錯誤率統計（20+ 次樣本）
+1. ~~JSON 長任務整份~~ → **已驗證可行且解析滿分**
+2. ~~4–6 維度、中文、真實搜尋內容下的品質~~ → **已驗證（§5，EN + zh-CN 均通過生產 validator）**
+3. MD 長任務 + remark parser 的錯誤率統計（20+ 次樣本）——非必要，優先落地 JSON 長任務
 
-## 5. 結論
+## 5. 真實 Pipeline 長任務驗證（`scripts/bench-long-task.ts`，真實搜尋 + 生產 validator）
 
-- **長任務輸出確實比現行多段 JSON 高效（約省一半成本）** — 但高效的主因是「少次大呼叫」，不是 MD 本身
-- 若追求此效率，**首選 JSON 長任務或 agentic submit tool**（保留結構強制），MD 長任務作為對照組保留，不作為主路徑
-- 多段 MD 不建議：失去 schema 必填約束後品質不穩
+用 MiniMax 真實研究資料 + `normalizeComparisonResult` 生產校驗門檻，EN 與 zh-CN 各一組：
+
+| 變體 | Total tok（EN） | 節省 | Wall | 生產 schema | Citation 白名單 |
+|---|---|---|---|---|---|
+| 現行多段（analyst ∥3 + synthesis ∥2） | 21782 | — | 15.8s | ✓ | ✓ |
+| JSON 長任務（thinking） | 14815 | **−32%** | 29.3s（**較慢**） | ✓ | ✓ |
+| JSON 長任務（no-think） | 12387 | **−43%** | **12.9s（較快）** | ✓ | ✓ |
+
+zh-CN（iPhone vs Samsung Galaxy）同樣成立：token −26%（thinking），4 dims，schema ✓，citations ✓，中文品質正常。
+
+**定案結論**：
+
+1. **JSON 長任務（no-think）是同時更省且更快的方案**：token −43%、wall −18%，且通過生產 schema 與 citation 白名單驗證——可作為現行 pipeline 的直接優化
+2. thinking 版本雖省 token（−32%）但因單次序列生成完整報告而**更慢**（29s）——thinking 只該留給 architect/final 等小輸出步驟
+3. 效率主因確認為「少次大呼叫」（現行 7 次 → 3 次：research/profile 共享 + architect + 1 次全量分析綜合）
+4. 前提不變：長任務單次失敗 = 全部重來（多段只需重試單段）；需保留多段 pipeline 作為回退與長維度數場景
+
+**建議落地**：在 `comparisonAgentApi.ts` 新增 long-task 路徑（architect → 單次 no-think 全量分析+pros/cons+verdict），以 `AI_PIPELINE_MODE=long-task|phased` 切換，預期每次比較省約 40% token 且略快；超時/解析失敗自動回退 phased。
