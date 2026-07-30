@@ -5,7 +5,6 @@ import { Search, Loader2, AlertCircle } from 'lucide-react';
 import { AILoadingState } from './components/AILoadingState';
 
 import FeaturedShowcase from './components/FeaturedShowcase';
-import ComparisonSuggestions from './components/ComparisonSuggestions';
 import { finishComparisonRun, startComparisonRun } from './services/trackingService';
 import { saveReport, type SaveReportInput } from './services/reportService';
 import MinimalGrid from './components/react-bits/MinimalGrid';
@@ -60,7 +59,6 @@ export default function App() {
   const [validationError, setValidationError] = useState('');
   const [reportUrl, setReportUrl] = useState<string | null>(null);
   const [reportSaveStatus, setReportSaveStatus] = useState<ReportSaveStatus>('ready');
-  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const formRef = useRef<HTMLFormElement>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
@@ -132,7 +130,6 @@ export default function App() {
     setItemA(a);
     setItemB(b);
     setValidationError('');
-    setShowSuggestions(false);
     // Submit after React applies both selected values. The synchronous ref still rejects duplicates.
     window.setTimeout(() => formRef.current?.requestSubmit(), 0);
   };
@@ -177,7 +174,6 @@ export default function App() {
 
     setSubmittedItems({ itemA: itemASnapshot, itemB: itemBSnapshot });
     setLoading(true);
-    setShowSuggestions(false);
     setPartialResult({});
     setValidationError('');
     setError('');
@@ -269,7 +265,6 @@ export default function App() {
     } finally {
       if (isCurrentGeneration()) {
         setLoading(false);
-        setShowSuggestions(false);
         inFlightRef.current = false;
       }
     }
@@ -325,9 +320,6 @@ export default function App() {
                     setItemA(e.target.value);
                     setValidationError('');
                   }}
-                  onFocus={() => !inFlightRef.current && setShowSuggestions(true)}
-                  onBlur={() => window.setTimeout(() => setShowSuggestions(false), 150)}
-                  onKeyDown={(e) => e.key === 'Escape' && setShowSuggestions(false)}
                   placeholder={t('hero.placeholderA')}
                   aria-label={t('loading.itemA')}
                   aria-describedby={`comparison-input-hint${validationError ? ' comparison-validation-error' : ''}`}
@@ -356,9 +348,6 @@ export default function App() {
                     setItemB(e.target.value);
                     setValidationError('');
                   }}
-                  onFocus={() => !inFlightRef.current && setShowSuggestions(true)}
-                  onBlur={() => window.setTimeout(() => setShowSuggestions(false), 150)}
-                  onKeyDown={(e) => e.key === 'Escape' && setShowSuggestions(false)}
                   placeholder={t('hero.placeholderB')}
                   aria-label={t('loading.itemB')}
                   aria-describedby={`comparison-input-hint${validationError ? ' comparison-validation-error' : ''}`}
@@ -407,10 +396,6 @@ export default function App() {
                 {validationError}
               </p>
             )}
-            <ComparisonSuggestions
-              visible={showSuggestions && !loading}
-              onSelect={handleShowcaseSelect}
-            />
           </form>
         </motion.div>
       </header>
