@@ -44,12 +44,27 @@ export default function ComparisonSuggestions({ onSelect, visible }: ComparisonS
   const [communityRecent, setCommunityRecent] = useState<ComparisonSuggestion[]>([]);
 
   useEffect(() => {
-    fetch('/api/suggestions')
-      .then((res) => res.json())
-      .then((data) => {
-        setCommunityRecent(data.recent || []);
+    const controller = new AbortController();
+    let active = true;
+
+    fetch('/api/suggestions', { signal: controller.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error(`Failed to load suggestions: ${res.status}`);
+        return res.json();
       })
-      .catch(() => {});
+      .then((data) => {
+        if (active) setCommunityRecent(data.recent || []);
+      })
+      .catch((error) => {
+        if (active && error instanceof Error && error.name !== 'AbortError') {
+          setCommunityRecent([]);
+        }
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, []);
 
   if (!visible) return null;
@@ -77,7 +92,7 @@ export default function ComparisonSuggestions({ onSelect, visible }: ComparisonS
                     key={`c-${i}`}
                     type="button"
                     onClick={() => onSelect(item.itemA, item.itemB)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-neutral-300 hover:bg-white/5 hover:text-white transition-colors text-left"
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-neutral-300 hover:bg-white/5 hover:text-white transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
                   >
                     <span className="font-medium">{item.itemA}</span>
                     <span className="text-neutral-600 text-xs font-mono">vs</span>

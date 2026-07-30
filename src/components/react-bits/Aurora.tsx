@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Renderer, Program, Mesh, Color, Triangle } from 'ogl';
+import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 
 const VERT = `#version 300 es
 in vec2 position;
@@ -125,6 +126,7 @@ export default function Aurora(props: AuroraProps) {
   propsRef.current = props;
 
   const ctnDom = useRef<HTMLDivElement>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
   const colorStopCache = useRef<{ key: string; value: [number, number, number][] }>({
     key: '',
     value: []
@@ -198,9 +200,7 @@ export default function Aurora(props: AuroraProps) {
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(ctn);
 
-    let animateId = 0;
-    const update = (t: number) => {
-      animateId = requestAnimationFrame(update);
+    const renderFrame = (t: number) => {
       const { time, speed = 1.0, amplitude, blend, colorStops } = propsRef.current;
       const resolvedTime = time ?? t * 0.01;
       program.uniforms.uTime.value = resolvedTime * speed * 0.1;
@@ -210,18 +210,29 @@ export default function Aurora(props: AuroraProps) {
       renderer.render({ scene: mesh });
     };
 
-    animateId = requestAnimationFrame(update);
+    let animateId = 0;
+    const animate = (t: number) => {
+      renderFrame(t);
+      animateId = requestAnimationFrame(animate);
+    };
+
     resize();
+    if (prefersReducedMotion) {
+      renderFrame(0);
+    } else {
+      animateId = requestAnimationFrame(animate);
+    }
 
     return () => {
-      cancelAnimationFrame(animateId);
+      if (animateId) cancelAnimationFrame(animateId);
       resizeObserver.disconnect();
+      sizeCache.current = { width: 0, height: 0 };
       if (ctn && gl.canvas.parentNode === ctn) {
         ctn.removeChild(gl.canvas);
       }
       gl.getExtension('WEBGL_lose_context')?.loseContext();
     };
-  }, []);
+  }, [prefersReducedMotion]);
 
   const { className } = props;
 

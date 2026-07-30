@@ -117,6 +117,33 @@ test('candidatePairs: updateScore writes full state and sets status=scored', () 
   assert.equal(signals.has_reddit_discussion, true);
 });
 
+test('candidatePairs: rescoring a promoted pair does not regress its status', () => {
+  const { entityStore, candidateStore } = makeStores();
+  entityStore.addEntity('Alpha', 'X');
+  entityStore.addEntity('Beta', 'X');
+  candidateStore.syncFromEntityPool();
+  const id = candidateStore.listCandidates({}).items[0].id;
+  candidateStore.markPromoted(id);
+  candidateStore.updateScore(id, {
+    score: 9,
+    recommendation: 'excellent',
+    signals: {
+      existing_articles_count: 10,
+      has_reddit_discussion: true,
+      has_authoritative_source: true,
+      competition_level: 'high',
+      freshness: 'fresh',
+    },
+    reasoning: 'Strong demand.',
+    topSources: [],
+    partial: false,
+    metrics: { durationMs: 1, totalTokens: 1 },
+  });
+
+  assert.equal(candidateStore.getCandidate(id)!.status, 'promoted');
+  assert.equal(candidateStore.getCandidate(id)!.demandScore, 9);
+});
+
 test('candidatePairs: markPromoted is idempotent and returns boolean', () => {
   const { entityStore, candidateStore } = makeStores();
   entityStore.addEntity('Alpha', 'X');
@@ -126,6 +153,77 @@ test('candidatePairs: markPromoted is idempotent and returns boolean', () => {
   assert.equal(candidateStore.markPromoted(id), true);
   assert.equal(candidateStore.markPromoted(id), false);
   assert.equal(candidateStore.getCandidate(id)!.status, 'promoted');
+});
+
+test('candidatePairs: promotion transaction enforces state and rolls back callback writes', () => {
+  const { db, featuredStore, entityStore, candidateStore } = makeStores();
+  entityStore.addEntity('Alpha', 'X');
+  entityStore.addEntity('Beta', 'X');
+  candidateStore.syncFromEntityPool();
+  const id = candidateStore.listCandidates({}).items[0].id;
+
+  const invalid = candidateStore.promoteCandidate(id, () => {
+    throw new Error('must not run');
+  });
+  assert.deepEqual(invalid, {
+    promoted: false,
+    reason: 'invalid_status',
+    candidate: candidateStore.getCandidate(id),
+  });
+
+  assert.throws(() => candidateStore.promoteCandidate(
+    id,
+    (pair) => {
+      db.prepare(`
+        INSERT INTO featured_comparisons
+          (item_a, item_b, language, description, slug, sort_order, created_at)
+        VALUES (?, ?, 'en', '', 'rollback-slug', 0, ?)
+      `).run(pair.itemAName, pair.itemBName, new Date().toISOString());
+      throw new Error('after insert');
+    },
+    ['pending'],
+  ), /after insert/);
+  assert.equal(featuredStore.listFeatured().length, 0);
+  assert.equal(candidateStore.getCandidate(id)!.status, 'pending');
+
+  const promoted = candidateStore.promoteCandidate(
+    id,
+    (pair) => db.prepare(`
+      INSERT INTO featured_comparisons
+        (item_a, item_b, language, description, slug, sort_order, created_at)
+      VALUES (?, ?, 'en', '', 'success-slug', 0, ?)
+    `).run(pair.itemAName, pair.itemBName, new Date().toISOString()),
+    ['pending'],
+  );
+  assert.equal(promoted.promoted, true);
+  assert.equal(candidateStore.getCandidate(id)!.status, 'promoted');
+  assert.equal(featuredStore.listFeatured().length, 1);
+});
+
+test('candidatePairs: sync is bounded and subsequent calls continue the batch', () => {
+  const { entityStore, candidateStore } = makeStores();
+  for (let index = 0; index < 101; index += 1) {
+    entityStore.addEntity(`Entity ${index}`, 'Large');
+  }
+
+  const first = candidateStore.syncFromEntityPool();
+  const second = candidateStore.syncFromEntityPool();
+  assert.equal(first.total, 5050);
+  assert.equal(first.created, 5000);
+  assert.equal(second.created, 50);
+  assert.equal(candidateStore.listCandidates({ limit: 500 }).total, 5050);
+});
+
+test('candidatePairs: pagination values are clamped', () => {
+  const { entityStore, candidateStore } = makeStores();
+  entityStore.addEntity('A', 'X');
+  entityStore.addEntity('B', 'X');
+  entityStore.addEntity('C', 'X');
+  candidateStore.syncFromEntityPool();
+
+  assert.equal(candidateStore.listCandidates({ limit: 0, offset: -100 }).items.length, 1);
+  assert.equal(candidateStore.listCandidates({ limit: 10_000 }).items.length, 3);
+  assert.equal(candidateStore.listCandidates({ limit: Number.NaN, offset: Number.POSITIVE_INFINITY }).items.length, 3);
 });
 
 test('candidatePairs: listCandidates filters by status and minScore', () => {

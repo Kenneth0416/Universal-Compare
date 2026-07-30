@@ -59,7 +59,9 @@ import {
 } from './adminApi';
 import { generateComparison } from '../services/geminiService';
 import { saveReport } from '../services/reportService';
+import { finishComparisonRun, startComparisonRun } from '../services/trackingService';
 import type {
+  AdminPeriodDays,
   AdminSummary,
   CallListItem,
   CandidatePair,
@@ -71,6 +73,7 @@ import type {
   RunListItem,
   UserListItem,
 } from './types';
+import { parseCandidateSignals } from './types';
 
 type AdminTab = 'overview' | 'runs' | 'calls' | 'users' | 'reports' | 'pool';
 
@@ -102,6 +105,13 @@ function formatCost(value: number) {
   const cost = Math.max(Number(value) || 0, 0);
   if (cost < 0.01) return `$${cost.toFixed(4)}`;
   return `$${cost.toFixed(2)}`;
+}
+
+function createIdempotencyKey(action: string) {
+  const unique = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `admin-${action}-${unique}`;
 }
 
 function statusClass(status: string) {
@@ -299,7 +309,17 @@ function UsersTable({ items }: { items: UserListItem[] }) {
   );
 }
 
-function ReportsTable({ items, onDelete, onFeature }: { items: ReportListItem[]; onDelete: (reportId: string) => void; onFeature: (item: ReportListItem) => void }) {
+function ReportsTable({
+  items,
+  onDelete,
+  onFeature,
+  isFeatureBusy,
+}: {
+  items: ReportListItem[];
+  onDelete: (reportId: string) => void;
+  onFeature: (item: ReportListItem) => void;
+  isFeatureBusy: (reportId: string) => boolean;
+}) {
   if (items.length === 0) return <EmptyState label="No reports saved yet." />;
 
   return (
@@ -330,6 +350,7 @@ function ReportsTable({ items, onDelete, onFeature }: { items: ReportListItem[];
                     href={`/r/${item.reportId}`}
                     target="_blank"
                     rel="noopener noreferrer"
+                    aria-label={`View report ${item.itemA} versus ${item.itemB}`}
                     className="rounded-lg border border-white/10 px-2 py-1 text-xs text-neutral-300 transition hover:bg-white/10"
                   >
                     <FileText size={14} />
@@ -337,7 +358,9 @@ function ReportsTable({ items, onDelete, onFeature }: { items: ReportListItem[];
                   <button
                     type="button"
                     onClick={() => onFeature(item)}
-                    className="rounded-lg border border-indigo-500/20 px-2 py-1 text-xs text-indigo-400 transition hover:bg-indigo-500/20"
+                    disabled={isFeatureBusy(item.reportId)}
+                    aria-label={`Add ${item.itemA} versus ${item.itemB} to featured`}
+                    className="rounded-lg border border-indigo-500/20 px-2 py-1 text-xs text-indigo-400 transition hover:bg-indigo-500/20 disabled:opacity-50"
                     title="Add to featured"
                   >
                     <Sparkles size={14} />
@@ -345,6 +368,7 @@ function ReportsTable({ items, onDelete, onFeature }: { items: ReportListItem[];
                   <button
                     type="button"
                     onClick={() => onDelete(item.reportId)}
+                    aria-label={`Delete report ${item.itemA} versus ${item.itemB}`}
                     className="rounded-lg border border-red-500/20 px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
                   >
                     <Trash2 size={14} />
@@ -370,6 +394,7 @@ export default function AdminApp() {
   const [featured, setFeatured] = useState<FeaturedComparison[]>([]);
   const [generatingIds, setGeneratingIds] = useState<Set<number>>(new Set());
   const [generatingProgress, setGeneratingProgress] = useState<Record<number, string>>({});
+  const [pendingReports, setPendingReports] = useState<Record<number, { reportId: string; runId?: string }>>({});
   const [backfillingIds, setBackfillingIds] = useState<Set<number>>(new Set());
   const [newItemA, setNewItemA] = useState('');
   const [newItemB, setNewItemB] = useState('');
@@ -400,22 +425,63 @@ export default function AdminApp() {
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
-  const [periodDays, setPeriodDays] = useState(1);
-  const [loading, setLoading] = useState(true);
+  const [periodDays, setPeriodDays] = useState<AdminPeriodDays>(1);
+  const [loginSubmitting, setLoginSubmitting] = useState(false);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [poolLoading, setPoolLoading] = useState(false);
+  const [submissionStatus, setSubmissionStatus] = useState('');
   const [error, setError] = useState('');
 
-  const loadDashboard = async (period = periodDays) => {
-    setLoading(true);
+  const actionLocksRef = useRef<Set<string>>(new Set());
+  const [actionLocks, setActionLocks] = useState<Set<string>>(new Set());
+  const loginLockRef = useRef(false);
+  const dashboardRequestRef = useRef<{ generation: number; controller: AbortController } | null>(null);
+  const generationControllersRef = useRef<Map<number, AbortController>>(new Map());
+  const poolRequestRef = useRef<{ generation: number; controller: AbortController } | null>(null);
+  const requestGenerationRef = useRef({ dashboard: 0, pool: 0 });
+  const poolFiltersRef = useRef({
+    category: poolCategoryFilter,
+    status: candidateStatusFilter,
+    minScore: candidateMinScore,
+  });
+  poolFiltersRef.current = {
+    category: poolCategoryFilter,
+    status: candidateStatusFilter,
+    minScore: candidateMinScore,
+  };
+  const errorRef = useRef<HTMLDivElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+
+  const acquireAction = (key: string) => {
+    if (actionLocksRef.current.has(key)) return false;
+    actionLocksRef.current.add(key);
+    setActionLocks(new Set(actionLocksRef.current));
+    return true;
+  };
+
+  const releaseAction = (key: string) => {
+    actionLocksRef.current.delete(key);
+    setActionLocks(new Set(actionLocksRef.current));
+  };
+
+  const loadDashboard = async (period: AdminPeriodDays = periodDays) => {
+    dashboardRequestRef.current?.controller.abort();
+    const generation = ++requestGenerationRef.current.dashboard;
+    const controller = new AbortController();
+    dashboardRequestRef.current = { generation, controller };
+    setDashboardLoading(true);
     setError('');
     try {
+      const options = { signal: controller.signal };
       const [summaryData, runsData, callsData, usersData, reportsData, featuredData] = await Promise.all([
-        getAdminSummary(period),
-        getAdminRuns(),
-        getAdminCalls(),
-        getAdminUsers(),
-        getAdminReports(),
-        getAdminFeatured(),
+        getAdminSummary(period, options),
+        getAdminRuns(options),
+        getAdminCalls(options),
+        getAdminUsers(options),
+        getAdminReports(options),
+        getAdminFeatured(options),
       ]);
+      if (controller.signal.aborted || requestGenerationRef.current.dashboard !== generation) return;
       setSummary(summaryData);
       setRuns(runsData.items);
       setCalls(callsData.items);
@@ -423,38 +489,66 @@ export default function AdminApp() {
       setReports(reportsData.items);
       setFeatured(featuredData.items);
     } catch (loadError: any) {
-      setError(loadError.message || 'Failed to load admin data');
+      if (!controller.signal.aborted && requestGenerationRef.current.dashboard === generation) {
+        setError(loadError.message || 'Failed to load admin data');
+      }
     } finally {
-      setLoading(false);
+      if (requestGenerationRef.current.dashboard === generation) {
+        setDashboardLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    getAdminSession().then((session) => {
+    const controller = new AbortController();
+    getAdminSession({ signal: controller.signal }).then((session) => {
+      if (controller.signal.aborted) return;
       setAuthenticated(session.authenticated);
-      if (session.authenticated) {
-        loadDashboard();
-      } else {
-        setLoading(false);
-      }
-    });
+      if (session.authenticated) loadDashboard();
+    }).catch(() => undefined);
+
+    return () => {
+      controller.abort();
+      dashboardRequestRef.current?.controller.abort();
+      poolRequestRef.current?.controller.abort();
+      for (const generationController of generationControllersRef.current.values()) generationController.abort();
+      generationControllersRef.current.clear();
+    };
+    // The initial dashboard request must only run after the session check.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadPool = async () => {
+    poolRequestRef.current?.controller.abort();
+    const generation = ++requestGenerationRef.current.pool;
+    const controller = new AbortController();
+    poolRequestRef.current = { generation, controller };
+    setPoolLoading(true);
+    const filters = poolFiltersRef.current;
     try {
-      const ents = await getEntities(poolCategoryFilter || undefined);
+      const [ents, cands] = await Promise.all([
+        getEntities(filters.category || undefined, { signal: controller.signal }),
+        listCandidates({
+          category: filters.category || undefined,
+          status: filters.status === 'all' ? undefined : filters.status,
+          minScore: filters.minScore > 0 ? filters.minScore : undefined,
+          limit: 200,
+          offset: 0,
+          signal: controller.signal,
+        }),
+      ]);
+      if (controller.signal.aborted || requestGenerationRef.current.pool !== generation) return;
       setPoolEntities(ents.items);
       setPoolCategories(ents.categories);
-
-      const cands = await listCandidates({
-        category: poolCategoryFilter || undefined,
-        status: candidateStatusFilter === 'all' ? undefined : candidateStatusFilter,
-        minScore: candidateMinScore > 0 ? candidateMinScore : undefined,
-        limit: 200,
-      });
       setCandidates(cands.items);
+      const actionableIds = new Set(cands.items.filter((item) => item.status !== 'promoted').map((item) => item.id));
+      setSelectedCandidateIds((previous) => new Set([...previous].filter((id) => actionableIds.has(id))));
     } catch (loadErr: any) {
-      setError(loadErr.message || 'Failed to load pool');
+      if (!controller.signal.aborted && requestGenerationRef.current.pool === generation) {
+        setError(loadErr.message || 'Failed to load pool');
+      }
+    } finally {
+      if (requestGenerationRef.current.pool === generation) setPoolLoading(false);
     }
   };
 
@@ -465,22 +559,46 @@ export default function AdminApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticated, activeTab, poolCategoryFilter, candidateStatusFilter, candidateMinScore]);
 
+  useEffect(() => {
+    if (error) errorRef.current?.focus();
+  }, [error]);
+
+  const visibleSelectedIds = candidates
+    .filter((candidate) => candidate.status !== 'promoted' && selectedCandidateIds.has(candidate.id))
+    .map((candidate) => candidate.id);
+
   const handleLogin = async (event: FormEvent) => {
     event.preventDefault();
+    if (loginLockRef.current) return;
+    loginLockRef.current = true;
     setError('');
-    setLoading(true);
+    setSubmissionStatus('Signing in...');
+    setLoginSubmitting(true);
     try {
       await loginAdmin(password);
       setAuthenticated(true);
       setPassword('');
+      setSubmissionStatus('Signed in. Loading dashboard...');
       await loadDashboard();
     } catch (loginError: any) {
       setError(loginError.message || 'Invalid password');
-      setLoading(false);
+      setSubmissionStatus('Sign in failed.');
+      requestAnimationFrame(() => passwordRef.current?.focus());
+    } finally {
+      loginLockRef.current = false;
+      setLoginSubmitting(false);
     }
   };
 
   const handleLogout = async () => {
+    dashboardRequestRef.current?.controller.abort();
+    poolRequestRef.current?.controller.abort();
+    for (const controller of generationControllersRef.current.values()) controller.abort();
+    generationControllersRef.current.clear();
+    requestGenerationRef.current.dashboard += 1;
+    requestGenerationRef.current.pool += 1;
+    setDashboardLoading(false);
+    setPoolLoading(false);
     await logoutAdmin().catch(() => undefined);
     setAuthenticated(false);
     setSummary(null);
@@ -489,6 +607,8 @@ export default function AdminApp() {
     setUsers([]);
     setReports([]);
     setFeatured([]);
+    setCandidates([]);
+    setSelectedCandidateIds(new Set());
   };
 
   const handleDeleteReport = async (reportId: string) => {
@@ -502,7 +622,9 @@ export default function AdminApp() {
   };
 
   const handleFeatureReport = async (item: ReportListItem) => {
-    if (featured.some((f) => f.reportId === item.reportId)) return;
+    const actionKey = `feature-report-${item.reportId}`;
+    if (featured.some((f) => f.reportId === item.reportId) || !acquireAction(actionKey)) return;
+    setSubmissionStatus(`Adding ${item.itemA} vs ${item.itemB} to featured...`);
     try {
       const created = await addAdminFeatured(
         item.itemA,
@@ -510,10 +632,15 @@ export default function AdminApp() {
         item.language,
         '',
         item.reportId,
+        createIdempotencyKey('feature-report'),
       );
       setFeatured((prev) => [...prev, created]);
+      setSubmissionStatus(`${item.itemA} vs ${item.itemB} added to featured.`);
     } catch (featureError: any) {
       setError(featureError.message || 'Failed to feature report');
+      setSubmissionStatus('Adding report to featured failed.');
+    } finally {
+      releaseAction(actionKey);
     }
   };
 
@@ -531,18 +658,21 @@ export default function AdminApp() {
   };
 
   const handleImportCsv = async () => {
-    if (!poolCsvText.trim()) return;
+    const csv = poolCsvText.trim();
+    if (!csv || !acquireAction('csv-import')) return;
     setPoolCsvBusy(true);
-    setPoolCsvMsg(null);
+    setPoolCsvMsg('Importing CSV...');
     try {
-      const result = await bulkAddEntities(poolCsvText);
+      const result = await bulkAddEntities(csv, createIdempotencyKey('csv-import'));
       setPoolCsvMsg(`Added ${result.added.length}, skipped ${result.skipped.length}`);
       setPoolCsvText('');
       await loadPool();
     } catch (importError: any) {
       setError(importError.message || 'CSV import failed');
+      setPoolCsvMsg('CSV import failed.');
     } finally {
       setPoolCsvBusy(false);
+      releaseAction('csv-import');
     }
   };
 
@@ -556,16 +686,19 @@ export default function AdminApp() {
   };
 
   const handleSyncCandidates = async () => {
+    if (!acquireAction('candidate-bulk')) return;
     setBulkBusy('syncing');
-    setBulkMsg(null);
+    setBulkMsg('Syncing candidate pairs...');
     try {
-      const result = await syncCandidates(poolCategoryFilter || undefined);
+      const result = await syncCandidates(poolCategoryFilter || undefined, createIdempotencyKey('candidate-sync'));
       setBulkMsg(`${result.created} new pairs added (${result.total} total possible)`);
       await loadPool();
     } catch (syncError: any) {
       setError(syncError.message || 'Sync failed');
+      setBulkMsg('Candidate sync failed.');
     } finally {
       setBulkBusy('idle');
+      releaseAction('candidate-bulk');
     }
   };
 
@@ -579,103 +712,197 @@ export default function AdminApp() {
   };
 
   const handleBulkPreflight = async () => {
-    const ids: number[] = Array.from(selectedCandidateIds);
-    if (ids.length === 0) return;
+    const ids = [...visibleSelectedIds];
+    if (ids.length === 0 || !acquireAction('candidate-bulk')) return;
     if (ids.length > 50) {
-      setError('Max 50 per batch');
+      setError('Max 50 visible pairs per batch');
+      releaseAction('candidate-bulk');
+      return;
+    }
+    if (!confirm(`Run paid demand checks for ${ids.length} currently visible pair${ids.length === 1 ? '' : 's'}?`)) {
+      releaseAction('candidate-bulk');
       return;
     }
     setBulkBusy('preflighting');
-    setBulkMsg(`Scoring ${ids.length} pairs...`);
+    setBulkMsg(`Confirmed ${ids.length} visible pairs. Scoring...`);
     try {
-      const result = await bulkPreflightCandidates(ids, 'en');
+      const result = await bulkPreflightCandidates(ids, 'en', createIdempotencyKey('bulk-preflight'));
       const scored = result.results.filter((r) => r.status === 'scored').length;
       const errs = result.results.filter((r) => r.status === 'error').length;
-      setBulkMsg(`Done: ${scored} scored, ${errs} errors`);
+      setBulkMsg(`Submitted ${ids.length} visible pairs. Done: ${scored} scored, ${errs} errors`);
       setSelectedCandidateIds(new Set());
       await loadPool();
     } catch (pfError: any) {
       setError(pfError.message || 'Bulk preflight failed');
+      setBulkMsg(`Bulk preflight failed for ${ids.length} visible pairs.`);
     } finally {
       setBulkBusy('idle');
+      releaseAction('candidate-bulk');
     }
   };
 
   const handleBulkPromote = async () => {
-    const ids: number[] = Array.from(selectedCandidateIds);
-    if (ids.length === 0) return;
+    const ids = [...visibleSelectedIds];
+    if (ids.length === 0 || !acquireAction('candidate-bulk')) return;
     if (ids.length > 50) {
-      setError('Max 50 per batch');
+      setError('Max 50 visible pairs per batch');
+      releaseAction('candidate-bulk');
+      return;
+    }
+    if (!confirm(`Promote ${ids.length} currently visible pair${ids.length === 1 ? '' : 's'}?`)) {
+      releaseAction('candidate-bulk');
       return;
     }
     setBulkBusy('promoting');
-    setBulkMsg(`Promoting ${ids.length} pairs...`);
+    setBulkMsg(`Confirmed ${ids.length} visible pairs. Promoting...`);
     try {
-      const result = await bulkPromoteCandidates(ids, 'en');
-      setBulkMsg(`Promoted ${result.promoted.length}, skipped ${result.skipped.length}`);
+      const result = await bulkPromoteCandidates(ids, 'en', undefined, createIdempotencyKey('bulk-promote'));
+      setBulkMsg(`Submitted ${ids.length} visible pairs. Promoted ${result.promoted.length}, skipped ${result.skipped.length}`);
       setSelectedCandidateIds(new Set());
       await loadPool();
     } catch (promoteError: any) {
       setError(promoteError.message || 'Bulk promote failed');
+      setBulkMsg(`Bulk promote failed for ${ids.length} visible pairs.`);
     } finally {
       setBulkBusy('idle');
+      releaseAction('candidate-bulk');
     }
   };
 
   const handleCheckDemand = async () => {
-    if (!newItemA.trim() || !newItemB.trim()) return;
+    if (!newItemA.trim() || !newItemB.trim() || !acquireAction('featured-preflight')) return;
     setPreflightState({ kind: 'loading' });
     try {
-      const result = await preflightFeatured(newItemA.trim(), newItemB.trim(), newLang);
+      const result = await preflightFeatured(
+        newItemA.trim(),
+        newItemB.trim(),
+        newLang,
+        createIdempotencyKey('featured-preflight'),
+      );
       setPreflightState({ kind: 'success', result });
     } catch (err: any) {
       setPreflightState({
         kind: 'error',
         message: err.message || 'Demand check failed',
       });
+    } finally {
+      releaseAction('featured-preflight');
     }
   };
 
   const handleAddFeatured = async (event: FormEvent) => {
     event.preventDefault();
-    if (!newItemA.trim() || !newItemB.trim()) return;
+    if (!newItemA.trim() || !newItemB.trim() || !acquireAction('add-featured')) return;
     const itemA = newItemA.trim();
     const itemB = newItemB.trim();
     const lang = newLang;
     const desc = newDesc.trim();
+    setSubmissionStatus(`Adding ${itemA} vs ${itemB}...`);
     try {
-      const created = await addAdminFeatured(itemA, itemB, lang, desc);
+      const created = await addAdminFeatured(
+        itemA,
+        itemB,
+        lang,
+        desc,
+        undefined,
+        createIdempotencyKey('add-featured'),
+      );
       setFeatured((prev) => [...prev, created]);
       setNewItemA('');
       setNewItemB('');
       setNewDesc('');
       setPreflightState({ kind: 'idle' });
+      setSubmissionStatus(`${itemA} vs ${itemB} added. Report generation started.`);
 
-      // Auto-generate report in background
-      generateReportForFeatured(created.id, itemA, itemB, lang);
+      // Auto-generate report in background.
+      void generateReportForFeatured(created.id, itemA, itemB, lang);
     } catch (addError: any) {
       setError(addError.message || 'Failed to add featured comparison');
+      setSubmissionStatus('Adding featured comparison failed.');
+    } finally {
+      releaseAction('add-featured');
     }
   };
 
   const generateReportForFeatured = async (featuredId: number, itemA: string, itemB: string, language: string) => {
+    const actionKey = `generate-report-${featuredId}`;
+    if (!acquireAction(actionKey)) return;
     setGeneratingIds((prev) => new Set(prev).add(featuredId));
     setGeneratingProgress((prev) => ({ ...prev, [featuredId]: 'Starting...' }));
+    setSubmissionStatus(`Generating report for ${itemA} vs ${itemB}...`);
+    const controller = new AbortController();
+    generationControllersRef.current.set(featuredId, controller);
+    let runId: string | undefined;
+    let reportSaved = false;
     try {
+      const pendingReport = pendingReports[featuredId];
+      if (pendingReport) {
+        reportSaved = true;
+        runId = pendingReport.runId;
+        await patchAdminFeatured(featuredId, pendingReport.reportId, { signal: controller.signal });
+        if (pendingReport.runId) {
+          await finishComparisonRun({ runId: pendingReport.runId, status: 'completed' });
+        }
+        setFeatured((prev) => prev.map((item) =>
+          item.id === featuredId ? { ...item, reportId: pendingReport.reportId } : item));
+        setPendingReports((prev) => {
+          const next = { ...prev };
+          delete next[featuredId];
+          return next;
+        });
+        setSubmissionStatus(`Saved report for ${itemA} vs ${itemB} was linked successfully.`);
+        return;
+      }
+
+      const trackedRun = await startComparisonRun({ itemA, itemB, language, signal: controller.signal }).catch(() => null);
+      runId = trackedRun?.runId;
       const result = await generateComparison(
         itemA,
         itemB,
-        (progress) => setGeneratingProgress((prev) => ({ ...prev, [featuredId]: progress.key })),
+        (progress) => {
+          setGeneratingProgress((prev) => ({ ...prev, [featuredId]: progress.key }));
+          setSubmissionStatus(`Generating ${itemA} vs ${itemB}: ${progress.key}.`);
+        },
         undefined,
         language,
+        runId,
+        controller.signal,
       );
-      const saved = await saveReport({ itemA, itemB, language, result });
-      await patchAdminFeatured(featuredId, saved.reportId);
+      const saved = await saveReport({ runId, itemA, itemB, language, result, signal: controller.signal });
+      reportSaved = true;
+      setPendingReports((prev) => ({
+        ...prev,
+        [featuredId]: { reportId: saved.reportId, ...(runId ? { runId } : {}) },
+      }));
+      await patchAdminFeatured(featuredId, saved.reportId, { signal: controller.signal });
       setFeatured((prev) =>
         prev.map((f) => (f.id === featuredId ? { ...f, reportId: saved.reportId } : f)),
       );
+      setPendingReports((prev) => {
+        const next = { ...prev };
+        delete next[featuredId];
+        return next;
+      });
+      if (runId) await finishComparisonRun({ runId, status: 'completed' }).catch(() => undefined);
+      setSubmissionStatus(`Report for ${itemA} vs ${itemB} is ready.`);
     } catch (genError: any) {
+      if (controller.signal.aborted) {
+        if (runId && !reportSaved) {
+          await finishComparisonRun({ runId, status: 'failed', errorMessage: 'Generation cancelled' }).catch(() => undefined);
+        }
+        return;
+      }
+      if (runId && !reportSaved) {
+        await finishComparisonRun({
+          runId,
+          status: 'failed',
+          errorMessage: genError instanceof Error ? genError.message : 'Report generation failed',
+        }).catch(() => undefined);
+      }
       setError(`Report generation failed for "${itemA} vs ${itemB}": ${genError.message}`);
+      setSubmissionStatus(reportSaved
+        ? `Report was saved but could not be linked. Use Generate again to retry linking without another AI run.`
+        : `Report generation failed for ${itemA} vs ${itemB}.`);
     } finally {
       setGeneratingIds((prev) => {
         const next = new Set(prev);
@@ -687,6 +914,43 @@ export default function AdminApp() {
         delete next[featuredId];
         return next;
       });
+      generationControllersRef.current.delete(featuredId);
+      releaseAction(actionKey);
+    }
+  };
+
+  const handleBackfillFeatured = async (item: FeaturedComparison) => {
+    if (!item.reportId) return;
+    const actionKey = `backfill-${item.id}`;
+    if (!acquireAction(actionKey)) return;
+    setBackfillingIds((prev) => new Set(prev).add(item.id));
+    setSubmissionStatus(`Backfilling sources for ${item.itemA} vs ${item.itemB}...`);
+    try {
+      const result = await backfillSources(item.reportId, createIdempotencyKey('backfill-sources'));
+      setFeatured((prev) =>
+        prev.map((featuredItem) =>
+          featuredItem.id === item.id
+            ? {
+                ...featuredItem,
+                hasSources: result.sourcesCount > 0,
+                hasCitations: result.dimensionsUpdated > 0,
+              }
+            : featuredItem,
+        ),
+      );
+      setSubmissionStatus(
+        `Backfilled ${item.itemA} vs ${item.itemB}: ${result.sourcesCount} sources, ${result.dimensionsUpdated} dimensions.`,
+      );
+    } catch (backfillError: any) {
+      setError(`Backfill failed for ${item.itemA} vs ${item.itemB}: ${backfillError.message || 'Unknown error'}`);
+      setSubmissionStatus('Source backfill failed.');
+    } finally {
+      setBackfillingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+      releaseAction(actionKey);
     }
   };
 
@@ -699,12 +963,12 @@ export default function AdminApp() {
     }
   };
 
-  const handlePeriodChange = (days: number) => {
+  const handlePeriodChange = (days: AdminPeriodDays) => {
     setPeriodDays(days);
-    loadDashboard(days);
+    void loadDashboard(days);
   };
 
-  const periodOptions = [
+  const periodOptions: Array<{ value: AdminPeriodDays; label: string }> = [
     { value: 1, label: '24h' },
     { value: 7, label: '7d' },
     { value: 14, label: '14d' },
@@ -733,6 +997,7 @@ export default function AdminApp() {
             Password
           </label>
           <input
+            ref={passwordRef}
             id="admin-password"
             type="password"
             value={password}
@@ -741,13 +1006,24 @@ export default function AdminApp() {
             autoComplete="current-password"
             required
           />
-          {error && <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">{error}</div>}
+          {error && (
+            <div
+              ref={errorRef}
+              role="alert"
+              aria-live="assertive"
+              tabIndex={-1}
+              className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300 outline-none"
+            >
+              {error}
+            </div>
+          )}
+          <div className="sr-only" role="status" aria-live="polite">{submissionStatus}</div>
           <button
             type="submit"
-            disabled={loading}
+            disabled={loginSubmitting}
             className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 font-medium text-white transition hover:bg-indigo-500 disabled:opacity-60"
           >
-            {loading ? <RefreshCw size={18} className="animate-spin" /> : <ShieldCheck size={18} />}
+            {loginSubmitting ? <RefreshCw size={18} className="animate-spin" /> : <ShieldCheck size={18} />}
             Sign in
           </button>
         </form>
@@ -776,11 +1052,11 @@ export default function AdminApp() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={loadDashboard}
-              disabled={loading}
+              onClick={() => void loadDashboard()}
+              disabled={dashboardLoading}
               className="flex h-10 items-center gap-2 rounded-lg border border-white/10 px-3 text-sm text-neutral-200 transition hover:bg-white/10 disabled:opacity-60"
             >
-              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+              <RefreshCw size={16} className={dashboardLoading ? 'animate-spin' : ''} />
               Refresh
             </button>
             <button
@@ -795,19 +1071,26 @@ export default function AdminApp() {
         </header>
 
         {error && (
-          <div className="mb-5 flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">
+          <div
+            ref={errorRef}
+            role="alert"
+            aria-live="assertive"
+            tabIndex={-1}
+            className="mb-5 flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300 outline-none"
+          >
             <AlertTriangle size={16} />
             {error}
           </div>
         )}
+        <div className="sr-only" role="status" aria-live="polite">{submissionStatus}</div>
 
-        <div className="mb-6 flex gap-1 rounded-lg border border-white/10 bg-white/[0.03] p-1">
+        <div className="mb-6 flex gap-1 overflow-x-auto rounded-lg border border-white/10 bg-white/[0.03] p-1">
           {tabs.map((tab) => (
             <button
               type="button"
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`h-9 rounded-md px-3 text-sm transition ${
+              className={`h-9 shrink-0 rounded-md px-3 text-sm transition ${
                 activeTab === tab.key ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-200'
               }`}
             >
@@ -818,13 +1101,13 @@ export default function AdminApp() {
 
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] p-1 self-start">
+            <div className="flex max-w-full items-center gap-1 self-start overflow-x-auto rounded-lg border border-white/10 bg-white/[0.03] p-1">
               {periodOptions.map((opt) => (
                 <button
                   key={opt.value}
                   type="button"
                   onClick={() => handlePeriodChange(opt.value)}
-                  className={`h-8 rounded-md px-3 text-sm transition ${
+                  className={`h-8 shrink-0 rounded-md px-3 text-sm transition ${
                     periodDays === opt.value ? 'bg-indigo-600 text-white' : 'text-neutral-500 hover:text-neutral-200'
                   }`}
                 >
@@ -909,9 +1192,10 @@ export default function AdminApp() {
                 Featured Comparisons
               </div>
               <form onSubmit={handleAddFeatured} className="mb-3 space-y-2">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <input
                     type="text"
+                    aria-label="Featured item A"
                     value={newItemA}
                     onChange={(e) => setNewItemA(e.target.value)}
                     placeholder="Item A"
@@ -921,6 +1205,7 @@ export default function AdminApp() {
                   <span className="text-xs text-neutral-500 font-mono">vs</span>
                   <input
                     type="text"
+                    aria-label="Featured item B"
                     value={newItemB}
                     onChange={(e) => setNewItemB(e.target.value)}
                     placeholder="Item B"
@@ -928,8 +1213,9 @@ export default function AdminApp() {
                     required
                   />
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                   <select
+                    aria-label="Featured comparison language"
                     value={newLang}
                     onChange={(e) => setNewLang(e.target.value)}
                     className="h-9 rounded-lg border border-white/10 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-indigo-400"
@@ -940,6 +1226,7 @@ export default function AdminApp() {
                   </select>
                   <input
                     type="text"
+                    aria-label="Featured comparison description"
                     value={newDesc}
                     onChange={(e) => setNewDesc(e.target.value)}
                     placeholder="Short description (optional)"
@@ -948,7 +1235,7 @@ export default function AdminApp() {
                   <button
                     type="button"
                     onClick={handleCheckDemand}
-                    disabled={preflightState.kind === 'loading' || !newItemA.trim() || !newItemB.trim()}
+                    disabled={actionLocks.has('featured-preflight') || !newItemA.trim() || !newItemB.trim()}
                     className="flex h-9 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 text-sm font-medium text-neutral-200 transition hover:bg-white/10 disabled:opacity-50"
                   >
                     {preflightState.kind === 'loading' ? (
@@ -960,19 +1247,20 @@ export default function AdminApp() {
                   </button>
                   <button
                     type="submit"
-                    className="flex h-9 items-center gap-1 rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white transition hover:bg-indigo-500"
+                    disabled={actionLocks.has('add-featured')}
+                    className="flex h-9 items-center gap-1 rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
                   >
                     <Plus size={14} />
                     Add
                   </button>
                 </div>
                 {preflightState.kind === 'error' && (
-                  <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300">
+                  <div role="alert" aria-live="assertive" className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300">
                     {preflightState.message}
                   </div>
                 )}
                 {preflightState.kind === 'success' && (
-                  <div className="rounded-lg border border-white/10 bg-white/[0.04] p-3 text-xs text-neutral-300">
+                  <div role="status" aria-live="polite" className="rounded-lg border border-white/10 bg-white/[0.04] p-3 text-xs text-neutral-300">
                     <div className="mb-2 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span
@@ -1050,7 +1338,11 @@ export default function AdminApp() {
                               {item.viewCount ?? 0} views
                             </span>
                             {isGenerating ? (
-                              <span className="flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
+                              <span
+                                className="flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300"
+                                role="status"
+                                aria-live="polite"
+                              >
                                 <Loader2 size={10} className="animate-spin" />
                                 {progress || 'Generating...'}
                               </span>
@@ -1068,36 +1360,7 @@ export default function AdminApp() {
                                 {(!item.hasSources || !item.hasCitations) && (
                                   <button
                                     type="button"
-                                    onClick={async () => {
-                                      setBackfillingIds((prev) => {
-                                        const next = new Set(prev);
-                                        next.add(item.id);
-                                        return next;
-                                      });
-                                      try {
-                                        const result = await backfillSources(item.reportId!);
-                                        setFeatured((prev) =>
-                                          prev.map((f) =>
-                                            f.id === item.id
-                                              ? {
-                                                  ...f,
-                                                  hasSources: result.sourcesCount > 0,
-                                                  hasCitations: result.dimensionsUpdated > 0,
-                                                }
-                                              : f,
-                                          ),
-                                        );
-                                        alert(`Backfilled ${item.itemA} vs ${item.itemB}: ${result.sourcesCount} sources, ${result.dimensionsUpdated} dimensions`);
-                                      } catch (err: any) {
-                                        alert(`Failed ${item.itemA} vs ${item.itemB}: ${err.message}`);
-                                      } finally {
-                                        setBackfillingIds((prev) => {
-                                          const next = new Set(prev);
-                                          next.delete(item.id);
-                                          return next;
-                                        });
-                                      }
-                                    }}
+                                    onClick={() => void handleBackfillFeatured(item)}
                                     disabled={backfillingIds.has(item.id)}
                                     className="text-xs text-blue-400 hover:text-blue-300 disabled:text-neutral-600"
                                   >
@@ -1108,8 +1371,9 @@ export default function AdminApp() {
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => generateReportForFeatured(item.id, item.itemA, item.itemB, item.language)}
-                                className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] text-indigo-300 transition hover:bg-indigo-500/20"
+                                onClick={() => void generateReportForFeatured(item.id, item.itemA, item.itemB, item.language)}
+                                disabled={actionLocks.has(`generate-report-${item.id}`)}
+                                className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] text-indigo-300 transition hover:bg-indigo-500/20 disabled:opacity-50"
                               >
                                 Generate
                               </button>
@@ -1120,6 +1384,7 @@ export default function AdminApp() {
                           type="button"
                           onClick={() => handleDeleteFeatured(item.id)}
                           disabled={isGenerating}
+                          aria-label={`Delete featured comparison ${item.itemA} versus ${item.itemB}`}
                           className="ml-2 shrink-0 rounded-lg border border-red-500/20 p-1.5 text-red-400 transition hover:bg-red-500/20 disabled:opacity-30"
                         >
                           <Trash2 size={14} />
@@ -1136,7 +1401,14 @@ export default function AdminApp() {
         )}
 
         {activeTab === 'runs' && <RunsTable items={runs} />}
-        {activeTab === 'reports' && <ReportsTable items={reports} onDelete={handleDeleteReport} onFeature={handleFeatureReport} />}
+        {activeTab === 'reports' && (
+          <ReportsTable
+            items={reports}
+            onDelete={handleDeleteReport}
+            onFeature={handleFeatureReport}
+            isFeatureBusy={(reportId) => actionLocks.has(`feature-report-${reportId}`)}
+          />
+        )}
         {activeTab === 'calls' && <CallsTable items={calls} />}
         {activeTab === 'users' && <UsersTable items={users} />}
 
@@ -1147,9 +1419,10 @@ export default function AdminApp() {
                 <Database size={16} /> Entity Pool
               </div>
 
-              <form onSubmit={handleAddPoolEntity} className="mb-3 flex items-center gap-2">
+              <form onSubmit={handleAddPoolEntity} className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
                 <input
                   type="text"
+                  aria-label="Entity name"
                   value={poolNewName}
                   onChange={(e) => setPoolNewName(e.target.value)}
                   placeholder="Entity name (e.g., ChatGPT)"
@@ -1158,6 +1431,7 @@ export default function AdminApp() {
                 />
                 <input
                   type="text"
+                  aria-label="Entity category"
                   value={poolNewCategory}
                   onChange={(e) => setPoolNewCategory(e.target.value)}
                   placeholder="Category (e.g., AI Assistant)"
@@ -1171,7 +1445,9 @@ export default function AdminApp() {
 
               <details className="mb-3 rounded-lg border border-white/10 bg-white/[0.02] p-3 text-sm">
                 <summary className="cursor-pointer text-neutral-300">Bulk import CSV</summary>
+                <label htmlFor="pool-csv" className="sr-only">Entity CSV data</label>
                 <textarea
+                  id="pool-csv"
                   value={poolCsvText}
                   onChange={(e) => setPoolCsvText(e.target.value)}
                   placeholder="name,category&#10;ChatGPT,AI Assistant&#10;Claude,AI Assistant&#10;Gemini,AI Assistant"
@@ -1180,27 +1456,34 @@ export default function AdminApp() {
                 />
                 <div className="mt-2 flex items-center gap-2">
                   <button
+                    type="button"
                     onClick={handleImportCsv}
-                    disabled={poolCsvBusy || !poolCsvText.trim()}
+                    disabled={poolCsvBusy || actionLocks.has('csv-import') || !poolCsvText.trim()}
                     className="flex h-8 items-center gap-1 rounded-lg bg-indigo-600 px-3 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
                   >
                     {poolCsvBusy ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
                     Import
                   </button>
-                  {poolCsvMsg && <span className="text-xs text-neutral-400">{poolCsvMsg}</span>}
+                  {poolCsvMsg && <span role="status" aria-live="polite" className="text-xs text-neutral-400">{poolCsvMsg}</span>}
                 </div>
               </details>
 
-              <div className="mb-2 flex items-center gap-2">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
                 <select
+                  aria-label="Entity category filter"
                   value={poolCategoryFilter}
-                  onChange={(e) => setPoolCategoryFilter(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedCandidateIds(new Set());
+                    setPoolCategoryFilter(e.target.value);
+                  }}
                   className="h-8 rounded-lg border border-white/10 bg-neutral-900 px-2 text-xs text-white outline-none focus:border-indigo-400"
                 >
                   <option value="">All categories</option>
                   {poolCategories.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <span className="text-xs text-neutral-500">{poolEntities.length} entities</span>
+                <span className="text-xs text-neutral-500">
+                  {poolLoading ? 'Loading pool...' : `${poolEntities.length} entities`}
+                </span>
               </div>
 
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -1211,6 +1494,8 @@ export default function AdminApp() {
                       <div className="text-[10px] uppercase tracking-wide text-neutral-500">{entity.category}</div>
                     </div>
                     <button
+                      type="button"
+                      aria-label={`Delete ${entity.name}`}
                       onClick={() => handleDeleteEntity(entity.id)}
                       className="rounded-lg p-1 text-neutral-500 hover:bg-red-500/10 hover:text-red-300"
                     >
@@ -1222,13 +1507,14 @@ export default function AdminApp() {
             </section>
 
             <section>
-              <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2 text-sm font-medium text-neutral-200">
                   <Layers size={16} /> Candidate Pairs
                 </div>
                 <button
+                  type="button"
                   onClick={handleSyncCandidates}
-                  disabled={bulkBusy !== 'idle'}
+                  disabled={bulkBusy !== 'idle' || actionLocks.has('candidate-bulk')}
                   className="flex h-8 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-neutral-200 hover:bg-white/10 disabled:opacity-50"
                 >
                   {bulkBusy === 'syncing' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
@@ -1238,8 +1524,12 @@ export default function AdminApp() {
 
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <select
+                  aria-label="Candidate status filter"
                   value={candidateStatusFilter}
-                  onChange={(e) => setCandidateStatusFilter(e.target.value as any)}
+                  onChange={(e) => {
+                    setSelectedCandidateIds(new Set());
+                    setCandidateStatusFilter(e.target.value as CandidatePairStatus | 'all');
+                  }}
                   className="h-8 rounded-lg border border-white/10 bg-neutral-900 px-2 text-xs text-white outline-none focus:border-indigo-400"
                 >
                   <option value="all">All statuses</option>
@@ -1249,8 +1539,12 @@ export default function AdminApp() {
                   <option value="rejected">Rejected</option>
                 </select>
                 <select
+                  aria-label="Candidate minimum score filter"
                   value={candidateMinScore}
-                  onChange={(e) => setCandidateMinScore(Number(e.target.value))}
+                  onChange={(e) => {
+                    setSelectedCandidateIds(new Set());
+                    setCandidateMinScore(Number(e.target.value));
+                  }}
                   className="h-8 rounded-lg border border-white/10 bg-neutral-900 px-2 text-xs text-white outline-none focus:border-indigo-400"
                 >
                   <option value="0">Min score: any</option>
@@ -1259,36 +1553,38 @@ export default function AdminApp() {
                   <option value="8">≥ 8</option>
                 </select>
                 <span className="text-xs text-neutral-500">
-                  {candidates.length} pairs · {selectedCandidateIds.size} selected
+                  {poolLoading ? 'Loading candidates...' : `${candidates.length} pairs`} · {visibleSelectedIds.length} visible selected
                 </span>
-                <div className="ml-auto flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
                   <button
+                    type="button"
                     onClick={handleBulkPreflight}
-                    disabled={bulkBusy !== 'idle' || selectedCandidateIds.size === 0}
+                    disabled={bulkBusy !== 'idle' || actionLocks.has('candidate-bulk') || visibleSelectedIds.length === 0}
                     className="flex h-8 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-neutral-200 hover:bg-white/10 disabled:opacity-50"
                   >
                     {bulkBusy === 'preflighting' ? <Loader2 size={12} className="animate-spin" /> : <Gauge size={12} />}
-                    Bulk Preflight ({selectedCandidateIds.size})
+                    Bulk Preflight ({visibleSelectedIds.length})
                   </button>
                   <button
+                    type="button"
                     onClick={handleBulkPromote}
-                    disabled={bulkBusy !== 'idle' || selectedCandidateIds.size === 0}
+                    disabled={bulkBusy !== 'idle' || actionLocks.has('candidate-bulk') || visibleSelectedIds.length === 0}
                     className="flex h-8 items-center gap-1 rounded-lg bg-indigo-600 px-3 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
                   >
                     {bulkBusy === 'promoting' ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                    Bulk Promote ({selectedCandidateIds.size})
+                    Bulk Promote ({visibleSelectedIds.length})
                   </button>
                 </div>
               </div>
 
               {bulkMsg && (
-                <div className="mb-3 rounded-lg border border-white/10 bg-white/[0.04] p-2 text-xs text-neutral-300">
+                <div role="status" aria-live="polite" className="mb-3 rounded-lg border border-white/10 bg-white/[0.04] p-2 text-xs text-neutral-300">
                   {bulkMsg}
                 </div>
               )}
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
+              <div className="max-w-full overflow-x-auto rounded-lg border border-white/10">
+                <table className="w-full min-w-[820px] text-xs">
                   <thead>
                     <tr className="border-b border-white/10 text-left text-neutral-500">
                       <th className="px-2 py-2 w-8"></th>
@@ -1302,7 +1598,7 @@ export default function AdminApp() {
                   </thead>
                   <tbody>
                     {candidates.map((pair) => {
-                      const signals = pair.signalsJson ? JSON.parse(pair.signalsJson) : null;
+                      const signals = parseCandidateSignals(pair.signalsJson);
                       const checked = selectedCandidateIds.has(pair.id);
                       const canSelect = pair.status !== 'promoted';
                       return (
@@ -1310,6 +1606,7 @@ export default function AdminApp() {
                           <td className="px-2 py-2">
                             <input
                               type="checkbox"
+                              aria-label={`Select ${pair.itemAName} versus ${pair.itemBName}`}
                               checked={checked}
                               disabled={!canSelect}
                               onChange={() => toggleSelected(pair.id)}
@@ -1343,12 +1640,14 @@ export default function AdminApp() {
                           </td>
                           <td className="px-2 py-2 text-neutral-400">{pair.recommendation || '—'}</td>
                           <td className="px-2 py-2 text-[10px] text-neutral-500">
-                            {signals && (
+                            {signals ? (
                               <span>
                                 art:{signals.existing_articles_count} ·
                                 rdt:{signals.has_reddit_discussion ? '✓' : '✗'} ·
                                 auth:{signals.has_authoritative_source ? '✓' : '✗'}
                               </span>
+                            ) : (
+                              <span>unavailable</span>
                             )}
                           </td>
                         </tr>

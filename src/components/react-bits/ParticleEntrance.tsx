@@ -1,5 +1,5 @@
-import { useAnimationFrame } from 'motion/react';
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePrefersReducedMotion, useRespectfulAnimationFrame } from './usePrefersReducedMotion';
 
 interface ParticleEntranceProps {
   children: ReactNode;
@@ -93,13 +93,14 @@ export default function ParticleEntrance({
 }: ParticleEntranceProps) {
   const wrapperRef = useRef<HTMLSpanElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
   const particlesRef = useRef<Particle[]>([]);
   const viewportRef = useRef({ width: 0, height: 0, dpr: 1 });
   const centerRef = useRef({ x: 0, y: 0 });
   const startTimeRef = useRef<number | null>(null);
   const finishedRef = useRef(false);
-  const [showCanvas, setShowCanvas] = useState(true);
-  const [textOpacity, setTextOpacity] = useState(0);
+  const [showCanvas, setShowCanvas] = useState(!prefersReducedMotion);
+  const [textOpacity, setTextOpacity] = useState(prefersReducedMotion ? 1 : 0);
 
   const normalizedCount = useMemo(() => clamp(Math.round(particleCount), 120, 600), [particleCount]);
   const totalDuration = Math.max(800, duration);
@@ -111,6 +112,17 @@ export default function ParticleEntrance({
     const canvas = canvasRef.current;
     const wrapper = wrapperRef.current;
     if (!canvas || !wrapper) return;
+
+    if (prefersReducedMotion) {
+      const ctx = canvas.getContext('2d');
+      ctx?.clearRect(0, 0, canvas.width, canvas.height);
+      particlesRef.current = [];
+      startTimeRef.current = null;
+      finishedRef.current = true;
+      setShowCanvas(false);
+      setTextOpacity(1);
+      return;
+    }
 
     const width = window.innerWidth;
     const height = window.innerHeight;
@@ -139,7 +151,7 @@ export default function ParticleEntrance({
     finishedRef.current = false;
     setShowCanvas(true);
     setTextOpacity(0);
-  }, [normalizedCount]);
+  }, [normalizedCount, prefersReducedMotion]);
 
   useEffect(() => {
     initialize();
@@ -155,10 +167,11 @@ export default function ParticleEntrance({
     return () => {
       window.removeEventListener('resize', handleResize);
       observer.disconnect();
+      particlesRef.current = [];
     };
   }, [initialize]);
 
-  useAnimationFrame((time) => {
+  useRespectfulAnimationFrame((time) => {
     if (finishedRef.current) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -215,13 +228,11 @@ export default function ParticleEntrance({
 
   return (
     <span ref={wrapperRef} className="relative inline-block align-middle" style={{ opacity: textOpacity }}>
-      {showCanvas && (
-        <canvas
-          ref={canvasRef}
-          className="fixed inset-0 z-20 pointer-events-none"
-          aria-hidden="true"
-        />
-      )}
+      <canvas
+        ref={canvasRef}
+        className={`fixed inset-0 z-20 pointer-events-none ${showCanvas ? '' : 'hidden'}`}
+        aria-hidden="true"
+      />
       {children}
     </span>
   );

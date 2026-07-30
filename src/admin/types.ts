@@ -1,3 +1,5 @@
+export type AdminPeriodDays = 0 | 1 | 7 | 14 | 30;
+
 export type AdminMetricSummary = {
   users: number;
   comparisons: number;
@@ -131,6 +133,33 @@ export type DemandSenseResult = {
   partial: boolean;
   metrics: { durationMs: number; totalTokens: number };
 };
+
+export function parseCandidateSignals(value: string | null): DemandSenseSignals | null {
+  if (!value) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object') return null;
+
+    const signals = parsed as Record<string, unknown>;
+    const validCompetition = ['low', 'medium', 'high'].includes(String(signals.competition_level));
+    const validFreshness = ['stale', 'recent', 'fresh'].includes(String(signals.freshness));
+    if (
+      typeof signals.existing_articles_count !== 'number'
+      || !Number.isFinite(signals.existing_articles_count)
+      || typeof signals.has_reddit_discussion !== 'boolean'
+      || typeof signals.has_authoritative_source !== 'boolean'
+      || !validCompetition
+      || !validFreshness
+    ) {
+      return null;
+    }
+
+    return signals as DemandSenseSignals;
+  } catch {
+    return null;
+  }
+}
 
 export type Entity = {
   id: number;

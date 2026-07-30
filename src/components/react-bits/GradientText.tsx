@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, ReactNode } from 'react';
-import { motion, useAnimationFrame, useMotionValue, useTransform } from 'motion/react';
+import { motion, useMotionValue, useTransform } from 'motion/react';
+import { useRespectfulAnimationFrame } from './usePrefersReducedMotion';
 
 interface GradientTextProps {
   children: ReactNode;
@@ -27,7 +28,7 @@ export default function GradientText({
 
   const animationDuration = Math.max(animationSpeed, 0.1) * 1000;
 
-  useAnimationFrame((time) => {
+  const prefersReducedMotion = useRespectfulAnimationFrame((time) => {
     if (isPaused) {
       lastTimeRef.current = null;
       return;
@@ -58,8 +59,9 @@ export default function GradientText({
 
   useEffect(() => {
     elapsedRef.current = 0;
+    lastTimeRef.current = null;
     progress.set(0);
-  }, [animationSpeed, yoyo, progress]);
+  }, [animationSpeed, yoyo, progress, prefersReducedMotion]);
 
   const backgroundPosition = useTransform(progress, (value) => {
     if (direction === 'vertical') {

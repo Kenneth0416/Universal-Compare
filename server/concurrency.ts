@@ -3,6 +3,10 @@ export async function mapConcurrent<T, R>(
   concurrency: number,
   fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
+  if (!Number.isFinite(concurrency) || concurrency <= 0) {
+    throw new RangeError('concurrency must be a positive finite number');
+  }
+
   const results: R[] = new Array(items.length);
   let nextIndex = 0;
 
@@ -14,7 +18,7 @@ export async function mapConcurrent<T, R>(
     }
   }
 
-  const workerCount = Math.min(concurrency, items.length);
+  const workerCount = Math.min(Math.max(1, Math.floor(concurrency)), items.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
   return results;
 }

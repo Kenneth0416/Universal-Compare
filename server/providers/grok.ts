@@ -11,7 +11,7 @@ export class GrokProvider implements AIProvider {
     this.client = client;
   }
 
-  async research(query: string, rawParams?: ResearchRawParams): Promise<{ text: string; sources: Source[]; metrics: AiCallMetrics }> {
+  async research(query: string, rawParams?: ResearchRawParams, signal?: AbortSignal): Promise<{ text: string; sources: Source[]; metrics: AiCallMetrics }> {
     const model = 'grok-4-1-fast-non-reasoning';
     const start = Date.now();
 
@@ -43,7 +43,7 @@ Provide detailed, factual information with sources.`,
           tool_choice: 'auto',
         };
 
-    const response = await this.client.responses.create(requestParams as any, { timeout: LLM_TIMEOUT_MS });
+    const response = await this.client.responses.create(requestParams as any, { timeout: LLM_TIMEOUT_MS, signal });
 
     const text = (response as any).output_text || '';
     const usage = (response as any).usage || {};
@@ -88,8 +88,12 @@ Provide detailed, factual information with sources.`,
     schema: JsonSchema;
     schemaName: string;
     temperature?: number;
+    enableThinking?: boolean;
+    signal?: AbortSignal;
   }): Promise<{ json: string; metrics: AiCallMetrics }> {
-    const model = 'grok-4-1-fast-reasoning';
+    const model = params.enableThinking === false
+      ? 'grok-4-1-fast-non-reasoning'
+      : 'grok-4-1-fast-reasoning';
     const start = Date.now();
 
     const response = await this.client.chat.completions.create({
@@ -104,7 +108,7 @@ Provide detailed, factual information with sources.`,
           schema: params.schema,
         },
       },
-    } as any, { timeout: LLM_TIMEOUT_MS });
+    } as any, { timeout: LLM_TIMEOUT_MS, signal: params.signal });
 
     const content = (response as any).choices?.[0]?.message?.content || '{}';
     const usage = (response as any).usage || {};

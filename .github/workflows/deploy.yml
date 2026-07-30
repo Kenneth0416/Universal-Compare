@@ -1,49 +1,138 @@
-name: Deploy to Server
+name: CI and deploy
 
 on:
   push:
-    branches:
-      - main  # 或改為你的主分支名稱
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  verify:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
+      - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '22'
+          cache: npm
 
-      - name: Install dependencies
+      - name: Install locked dependencies
         run: npm ci
 
-      - name: Build project
+      - name: Type check
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build without runtime secrets
         run: npm run build
+
+      - name: Audit all dependencies
+        run: npm audit --audit-level=high
+
+      - name: Enforce production audit threshold
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Scan current tree for secrets (redacted output)
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.24.3 \
+            detect --source=/repo --no-git --redact --no-banner --exit-code=1
+          python3 - <<'PY'
+          import pathlib, re, sys
+          jwt = re.compile(rb'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}')
+          excluded = {'.git', 'node_modules', 'dist'}
+          found = []
+          for path in pathlib.Path('.').rglob('*'):
+              if not path.is_file() or any(part in excluded for part in path.parts):
+                  continue
+              try:
+                  if jwt.search(path.read_bytes()): found.append(str(path))
+              except OSError:
+                  pass
+          if found:
+              print('JWT-like secret detected in: ' + ', '.join(found), file=sys.stderr)
+              raise SystemExit(1)
+          print('No JWT-like secrets found in the current tree')
+          PY
+
+      - name: Validate Nginx security configuration
+        run: docker run --rm -v "$PWD/deployment/nginx-site.conf:/etc/nginx/conf.d/default.conf:ro" nginx:1.27-alpine nginx -t
+
+      - name: Package complete runtime artifact
+        run: |
+          mkdir -p .deploy-artifact
+          cp -a package.json package-lock.json tsconfig.json server shared dist .deploy-artifact/
+          tar -C .deploy-artifact -czf "deploy-artifact-${GITHUB_SHA}.tar.gz" .
+
+      - name: Upload deployment artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: compare-ai-${{ github.sha }}
+          path: deploy-artifact-${{ github.sha }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SERVER_HOST: ${{ secrets.SERVER_HOST }}
+      SERVER_USER: ${{ secrets.SERVER_USER }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      PUBLIC_HEALTHCHECK_URL: ${{ secrets.PUBLIC_HEALTHCHECK_URL }}
+    steps:
+      - name: Check out deployment script
+        uses: actions/checkout@v4
+
+      - name: Download verified artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: compare-ai-${{ github.sha }}
+
+      - name: Configure pinned SSH trust
         env:
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SERVER_KNOWN_HOSTS: ${{ secrets.SERVER_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SERVER_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
-      - name: Deploy to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: 207.148.116.138
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "dist/*"
-          target: ${{ secrets.DEPLOY_PATH }}
-          strip_components: 1
+      - name: Upload complete artifact and deploy atomically
+        run: |
+          [[ "$SERVER_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$SERVER_USER" =~ ^[A-Za-z0-9._-]+$ ]]
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          remote_incoming="$DEPLOY_PATH/incoming/${GITHUB_RUN_ID}"
+          ssh "$SERVER_USER@$SERVER_HOST" "mkdir -p '$remote_incoming'"
+          scp "deploy-artifact-${GITHUB_SHA}.tar.gz" deploy.sh \
+            "$SERVER_USER@$SERVER_HOST:$remote_incoming/"
+          ssh "$SERVER_USER@$SERVER_HOST" \
+            "DEPLOY_ROOT='$DEPLOY_PATH' GITHUB_SHA='$GITHUB_SHA' GITHUB_RUN_ID='$GITHUB_RUN_ID' bash '$remote_incoming/deploy.sh' --artifact '$remote_incoming/deploy-artifact-${GITHUB_SHA}.tar.gz'"
+          ssh "$SERVER_USER@$SERVER_HOST" "rm -rf '$remote_incoming'"
 
-      - name: Restart server service (optional)
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: 207.148.116.138
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            cd ${{ secrets.DEPLOY_PATH }}
-            # 如果使用 PM2 或其他進程管理器，在這裡重啟
-            # pm2 restart compare-ai
+      - name: Verify public health and security headers
+        run: |
+          [[ "$PUBLIC_HEALTHCHECK_URL" == https://* ]]
+          headers="$(mktemp)"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            --connect-timeout 10 --max-time 30 -D "$headers" -o /dev/null "$PUBLIC_HEALTHCHECK_URL"
+          for header in content-security-policy x-content-type-options referrer-policy permissions-policy; do
+            grep -qi "^${header}:" "$headers" || { echo "Missing required response header: $header" >&2; exit 1; }
+          done
+          echo "Public health check and security-header checks passed"

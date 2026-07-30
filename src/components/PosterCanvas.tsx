@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { ComparisonResult } from '../services/geminiService';
 import { useTranslation } from 'react-i18next';
+import { averagePosterScores, formatPosterScore, normalizeComparisonScore, stableDimensionKeys } from './poster/posterUtils';
+import { normalizeHttpUrl } from '../services/shareService';
 
 interface PosterCanvasProps {
   result: ComparisonResult;
@@ -9,15 +11,15 @@ interface PosterCanvasProps {
   width?: number;
   /** 高度，默认 720 (设计尺寸 1440 的一半) */
   height?: number;
+  /** Persisted public report URL. QR is omitted until this exists. */
+  shareUrl?: string | null;
 }
-
-const isFiniteNumber = (value: unknown): value is number =>
-  typeof value === 'number' && isFinite(value);
 
 export const PosterCanvas: React.FC<PosterCanvasProps> = ({
   result,
   width = 540,
   height = 720,
+  shareUrl,
 }) => {
   const { t } = useTranslation();
   const [mounted, setMounted] = useState(false);
@@ -28,32 +30,36 @@ export const PosterCanvas: React.FC<PosterCanvasProps> = ({
 
   if (!mounted) return null;
 
-  // 计算总分
-  const totalA = result.dimensions.reduce((sum, dim) => {
-    const score = dim.analysis?.optional_score_a;
-    return sum + (isFiniteNumber(score) ? score : 0);
-  }, 0);
-  const totalB = result.dimensions.reduce((sum, dim) => {
-    const score = dim.analysis?.optional_score_b;
-    return sum + (isFiniteNumber(score) ? score : 0);
-  }, 0);
-  const avgA = result.dimensions.length > 0 ? totalA / result.dimensions.length : 0;
-  const avgB = result.dimensions.length > 0 ? totalB / result.dimensions.length : 0;
+  const dimensions = Array.isArray(result.dimensions) ? result.dimensions : [];
+  const dimensionKeys = stableDimensionKeys(dimensions);
+  const avgA = averagePosterScores(dimensions.map((dim) => dim.analysis?.optional_score_a));
+  const avgB = averagePosterScores(dimensions.map((dim) => dim.analysis?.optional_score_b));
+  const publicUrl = normalizeHttpUrl(shareUrl);
 
-  // Top 3 维度
-  const topDimensions = [...result.dimensions]
-    .map((dim) => ({
-      ...dim,
-      diff: Math.abs(
-        (dim.analysis?.optional_score_a ?? 0) - (dim.analysis?.optional_score_b ?? 0)
-      ),
-    }))
-    .sort((a, b) => b.diff - a.diff)
+  // Top 3 维度；任一评分缺失时不制造分差。
+  const topDimensions = dimensions
+    .map((dim, index) => {
+      const scoreA = normalizeComparisonScore(dim.analysis?.optional_score_a);
+      const scoreB = normalizeComparisonScore(dim.analysis?.optional_score_b);
+      return {
+        ...dim,
+        stableKey: dimensionKeys[index],
+        scoreA,
+        scoreB,
+        diff: scoreA !== null && scoreB !== null ? Math.abs(scoreA - scoreB) : null,
+      };
+    })
+    .sort((a, b) => (b.diff ?? -1) - (a.diff ?? -1))
     .slice(0, 3);
 
   // 胜出者
-  const winner = avgA > avgB ? result.entityA.name : avgB > avgA ? result.entityB.name : null;
-  const loser = avgA > avgB ? result.entityB.name : avgB > avgA ? result.entityA.name : null;
+  const hasCompleteScores = dimensions.length > 0 && dimensions.every((dimension) =>
+    normalizeComparisonScore(dimension.analysis?.optional_score_a) !== null &&
+    normalizeComparisonScore(dimension.analysis?.optional_score_b) !== null
+  );
+  const winner = hasCompleteScores && avgA !== null && avgB !== null
+    ? avgA > avgB ? result.entityA.name : avgB > avgA ? result.entityB.name : null
+    : null;
 
   return (
     <div
@@ -84,12 +90,12 @@ export const PosterCanvas: React.FC<PosterCanvasProps> = ({
       {/* Score Summary */}
       <div className="flex-shrink-0 flex justify-center gap-8 mb-4">
         <div className="text-center">
-          <div className="text-4xl font-bold text-indigo-300">{avgA.toFixed(1)}</div>
+          <div className="text-4xl font-bold text-indigo-300">{formatPosterScore(avgA)}</div>
           <div className="text-xs text-white/50">{result.entityA.name}</div>
         </div>
         <div className="flex items-center text-2xl text-white/30">:</div>
         <div className="text-center">
-          <div className="text-4xl font-bold text-purple-300">{avgB.toFixed(1)}</div>
+          <div className="text-4xl font-bold text-purple-300">{formatPosterScore(avgB)}</div>
           <div className="text-xs text-white/50">{result.entityB.name}</div>
         </div>
       </div>
@@ -111,15 +117,14 @@ export const PosterCanvas: React.FC<PosterCanvasProps> = ({
         <div className="text-xs font-bold text-white/40 uppercase tracking-wider mb-1">
           {t('poster.coreDimensions')}
         </div>
-        {topDimensions.map((dim, idx) => {
-          const scoreA = dim.analysis?.optional_score_a ?? 0;
-          const scoreB = dim.analysis?.optional_score_b ?? 0;
-          const isAWinner = scoreA > scoreB;
-          const isBWinner = scoreB > scoreA;
+        {topDimensions.map((dim) => {
+          const { scoreA, scoreB } = dim;
+          const isAWinner = scoreA !== null && scoreB !== null && scoreA > scoreB;
+          const isBWinner = scoreA !== null && scoreB !== null && scoreB > scoreA;
 
           return (
             <div
-              key={dim.key || idx}
+              key={dim.stableKey}
               className="flex items-center gap-3 p-2 rounded-lg bg-white/5"
             >
               <div className="flex-1 min-w-0">
@@ -138,7 +143,7 @@ export const PosterCanvas: React.FC<PosterCanvasProps> = ({
                       : 'bg-white/10 text-white/50'
                   }`}
                 >
-                  {scoreA.toFixed(1)}
+                  {formatPosterScore(scoreA)}
                 </span>
                 <span className="text-white/30">|</span>
                 <span
@@ -150,7 +155,7 @@ export const PosterCanvas: React.FC<PosterCanvasProps> = ({
                       : 'bg-white/10 text-white/50'
                   }`}
                 >
-                  {scoreB.toFixed(1)}
+                  {formatPosterScore(scoreB)}
                 </span>
               </div>
             </div>
@@ -169,17 +174,19 @@ export const PosterCanvas: React.FC<PosterCanvasProps> = ({
         <div className="flex items-center gap-3">
           <div className="text-right">
             <div className="text-[10px] text-white/50">{t('poster.scanCreate')}</div>
-            <div className="text-[10px] text-white/30">{window.location.host}</div>
+            <div className="text-[10px] text-white/30">{publicUrl ? new URL(publicUrl).host : ''}</div>
           </div>
-          <div className="p-1 bg-white rounded">
-            <QRCodeCanvas
-              value={typeof window !== 'undefined' ? window.location.href : ''}
-              size={56}
-              bgColor="#ffffff"
-              fgColor="#000000"
-              level="M"
-            />
-          </div>
+          {publicUrl && (
+            <div className="p-1 bg-white rounded">
+              <QRCodeCanvas
+                value={publicUrl}
+                size={56}
+                bgColor="#ffffff"
+                fgColor="#000000"
+                level="M"
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

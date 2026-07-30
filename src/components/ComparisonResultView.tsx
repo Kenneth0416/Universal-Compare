@@ -1,4 +1,4 @@
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { Search, CheckCircle2, XCircle, AlertCircle, ChevronRight, Info } from 'lucide-react';
 import { ComparisonGrid } from './ComparisonGrid';
 import { ComparisonCard } from './ComparisonCard';
@@ -7,8 +7,8 @@ import { ShareButton } from './ShareButton';
 import Counter from './react-bits/Counter';
 import { useTranslation } from 'react-i18next';
 import type { ComparisonResult } from '../services/geminiService';
-
-const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && isFinite(value);
+import { normalizeHttpUrl } from '../services/shareService';
+import { normalizeComparisonScore, stableDimensionKeys } from './poster/posterUtils';
 
 const buildDimensionSummary = (dimension: ComparisonResult['dimensions'][number]) =>
   [
@@ -24,14 +24,40 @@ interface ComparisonResultViewProps {
   result: ComparisonResult;
   reportUrl?: string | null;
   showShare?: boolean;
+  reportStatus?: 'saving' | 'ready' | 'error';
+  onRetrySave?: () => void;
 }
 
-export default function ComparisonResultView({ result, reportUrl, showShare = true }: ComparisonResultViewProps) {
+export default function ComparisonResultView({
+  result,
+  reportUrl,
+  showShare = true,
+  reportStatus,
+  onRetrySave,
+}: ComparisonResultViewProps) {
   const { t } = useTranslation();
+  const prefersReducedMotion = useReducedMotion();
+  const dimensions = Array.isArray(result.dimensions) ? result.dimensions : [];
+  const dimensionKeys = stableDimensionKeys(dimensions);
+  const hasOverview = Boolean(
+    result.recommendation?.short_verdict || result.recommendation?.long_verdict ||
+    result.relationship?.relationship_type || result.relationship?.reasoning ||
+    result.relationship?.comparison_goal || result.recommendation?.when_not_to_compare_directly
+  );
+  const hasRelationshipInfo = Boolean(result.relationship?.relationship_type || result.relationship?.reasoning);
+  const hasComparisonGoal = Boolean(result.relationship?.comparison_goal || (
+    result.relationship?.can_directly_compare === false && result.recommendation?.when_not_to_compare_directly
+  ));
+  const hasProsA = Boolean(result.prosCons?.item_a_pros?.length || result.prosCons?.item_a_cons?.length);
+  const hasProsB = Boolean(result.prosCons?.item_b_pros?.length || result.prosCons?.item_b_cons?.length);
+  const hasBestA = Boolean(result.recommendation?.best_for_a?.length);
+  const hasBestB = Boolean(result.recommendation?.best_for_b?.length);
+  const hasWhoShouldChoose = Boolean(hasBestA || hasBestB || result.recommendation?.which_to_choose_first);
 
   return (
     <div className="space-y-12">
       {/* 1. Verdict & Relationship */}
+      {hasOverview && (
       <section className="bg-white/5 backdrop-blur-xl rounded-3xl p-8 sm:p-10 shadow-2xl border border-white/10">
         <div className="text-center mb-8">
           {result.recommendation?.short_verdict && (
@@ -46,7 +72,9 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
           )}
         </div>
 
+        {(hasRelationshipInfo || hasComparisonGoal) && (
         <div className="grid md:grid-cols-2 gap-6 pt-8 border-t border-white/10">
+          {hasRelationshipInfo && (
           <div className="bg-white/5 rounded-2xl p-6 border border-white/5">
             <div className="flex items-center gap-2 text-xs font-bold text-neutral-500 uppercase tracking-wider mb-3 font-mono">
               <Info size={16} />
@@ -63,6 +91,8 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
               <p className="text-neutral-400 text-sm">{result.relationship.reasoning}</p>
             )}
           </div>
+          )}
+          {hasComparisonGoal && (
           <div className="bg-white/5 rounded-2xl p-6 border border-white/5">
             <div className="flex items-center gap-2 text-xs font-bold text-neutral-500 uppercase tracking-wider mb-3 font-mono">
               <Search size={16} />
@@ -79,15 +109,18 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
                 </p>
               )}
           </div>
+          )}
         </div>
+        )}
       </section>
+      )}
 
       {/* 2. Dimensions Comparison */}
+      {dimensions.length > 0 && (
       <section className="space-y-8">
         <h3 className="text-2xl font-bold text-white mb-6 px-2">{t('result.keyDimensions')}</h3>
 
-        {(result.dimensions?.length ?? 0) > 0 &&
-          result.entityA?.name &&
+        {result.entityA?.name &&
           result.entityB?.name && (
             <DimensionChart
               dimensions={result.dimensions}
@@ -97,16 +130,16 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
           )}
 
         <ComparisonGrid>
-          {result.dimensions?.map((dim, idx) => {
+          {dimensions.map((dim, idx) => {
             const scoreA = dim.analysis?.optional_score_a;
             const scoreB = dim.analysis?.optional_score_b;
-            const safeScoreA = isFiniteNumber(scoreA) ? scoreA : 0;
-            const safeScoreB = isFiniteNumber(scoreB) ? scoreB : 0;
+            const safeScoreA = normalizeComparisonScore(scoreA);
+            const safeScoreB = normalizeComparisonScore(scoreB);
             const summary = buildDimensionSummary(dim);
 
             return (
               <ComparisonCard
-                key={dim.key || idx}
+                key={dimensionKeys[idx]}
                 title={dim.label}
                 summary={summary}
                 scoreA={scoreA}
@@ -123,7 +156,7 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
                       {result.entityA?.name && (
                         <p className="font-semibold text-white text-sm pr-2">{result.entityA.name}</p>
                       )}
-                      {scoreA != null && (
+                      {safeScoreA !== null && (
                         <span className="font-mono text-xs font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">
                           <Counter from={0} to={safeScoreA} duration={0.8} fontSize={12} />
                           /10
@@ -139,7 +172,7 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
                       {result.entityB?.name && (
                         <p className="font-semibold text-white text-sm pr-2">{result.entityB.name}</p>
                       )}
-                      {scoreB != null && (
+                      {safeScoreB !== null && (
                         <span className="font-mono text-xs font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">
                           <Counter from={0} to={safeScoreB} duration={0.8} fontSize={12} />
                           /10
@@ -158,7 +191,7 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
                       {dim.analysis.key_difference}
                     </div>
                   )}
-                  {dim.analysis?.better_for && (
+                  {dim.analysis?.better_for && safeScoreA !== null && safeScoreB !== null && (
                     <div className="shrink-0">
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/10 text-white text-[10px] font-bold uppercase tracking-wide border border-white/10">
                         {t('result.winner')}{' '}
@@ -175,20 +208,26 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
                 {Array.isArray((dim.analysis as any)?.citations) && (dim.analysis as any).citations.length > 0 && (
                   <div className="text-[10px] text-neutral-500 mt-2 pt-2 border-t border-white/5">
                     {t('result.sourcesLabel')}{' '}
-                    {((dim.analysis as any).citations as Array<{ url: string; title: string }>)
-                      .map((c, ci) => (
-                        <span key={ci}>
+                    {((dim.analysis as any).citations as Array<{ url: string; title: string }>).map((citation, ci) => {
+                      const safeUrl = normalizeHttpUrl(citation.url);
+                      return (
+                        <span key={`${citation.title || 'citation'}-${ci}`}>
                           {ci > 0 && ', '}
-                          <a
-                            href={c.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-indigo-400/60 hover:text-indigo-300 transition-colors"
-                          >
-                            {c.title}
-                          </a>
+                          {safeUrl ? (
+                            <a
+                              href={safeUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-indigo-400/60 hover:text-indigo-300 transition-colors"
+                            >
+                              {citation.title || safeUrl}
+                            </a>
+                          ) : (
+                            <span>{citation.title || String(citation.url || '')}</span>
+                          )}
                         </span>
-                      ))}
+                      );
+                    })}
                   </div>
                 )}
               </ComparisonCard>
@@ -196,15 +235,18 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
           })}
         </ComparisonGrid>
       </section>
+      )}
 
       {/* 3. Pros & Cons */}
+      {(hasProsA || hasProsB) && (
       <motion.section
         className="grid md:grid-cols-2 gap-6"
-        initial={{ opacity: 0, y: 16 }}
+        initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.15 }}
+        transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: 0.15 }}
       >
         {/* Entity A */}
+        {hasProsA && (
         <div className="bg-white/5 backdrop-blur-xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/10">
           {result.entityA?.name && (
             <h3 className="text-xl font-bold text-white mb-6 pb-4 border-b border-white/10">
@@ -222,9 +264,9 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
                     <li key={i}>
                       <motion.div
                         className="flex items-start gap-2 text-sm text-neutral-300 rounded-xl px-2 py-1 active:bg-emerald-500/20 sm:hover:bg-emerald-500/20 transition-colors"
-                        initial={{ opacity: 0, y: 8 }}
+                        initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.35, delay: i * 0.1 }}
+                        transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.35, delay: i * 0.1 }}
                       >
                         <span className="text-emerald-500 mt-0.5">•</span>
                         <span>{pro}</span>
@@ -244,9 +286,9 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
                     <li key={i}>
                       <motion.div
                         className="flex items-start gap-2 text-sm text-neutral-300 rounded-xl px-2 py-1 active:bg-rose-500/20 sm:hover:bg-rose-500/20 transition-colors"
-                        initial={{ opacity: 0, y: 8 }}
+                        initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.35, delay: i * 0.1 }}
+                        transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.35, delay: i * 0.1 }}
                       >
                         <span className="text-rose-500 mt-0.5">•</span>
                         <span>{con}</span>
@@ -258,8 +300,10 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
             )}
           </div>
         </div>
+        )}
 
         {/* Entity B */}
+        {hasProsB && (
         <div className="bg-white/5 backdrop-blur-xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/10">
           {result.entityB?.name && (
             <h3 className="text-xl font-bold text-white mb-6 pb-4 border-b border-white/10">
@@ -277,9 +321,9 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
                     <li key={i}>
                       <motion.div
                         className="flex items-start gap-2 text-sm text-neutral-300 rounded-xl px-2 py-1 active:bg-emerald-500/20 sm:hover:bg-emerald-500/20 transition-colors"
-                        initial={{ opacity: 0, y: 8 }}
+                        initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.35, delay: i * 0.1 }}
+                        transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.35, delay: i * 0.1 }}
                       >
                         <span className="text-emerald-500 mt-0.5">•</span>
                         <span>{pro}</span>
@@ -299,9 +343,9 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
                     <li key={i}>
                       <motion.div
                         className="flex items-start gap-2 text-sm text-neutral-300 rounded-xl px-2 py-1 active:bg-rose-500/20 sm:hover:bg-rose-500/20 transition-colors"
-                        initial={{ opacity: 0, y: 8 }}
+                        initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.35, delay: i * 0.1 }}
+                        transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.35, delay: i * 0.1 }}
                       >
                         <span className="text-rose-500 mt-0.5">•</span>
                         <span>{con}</span>
@@ -313,14 +357,18 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
             )}
           </div>
         </div>
+        )}
       </motion.section>
+      )}
 
       {/* 4. Who is it for? */}
+      {hasWhoShouldChoose && (
       <section className="bg-indigo-950/40 backdrop-blur-xl text-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-indigo-500/20">
         <h3 className="text-2xl font-bold mb-8 text-center">{t('result.whoShouldChoose')}</h3>
         <div className="grid md:grid-cols-2 gap-8 relative">
           <div className="hidden md:block absolute top-0 bottom-0 left-1/2 w-px bg-indigo-500/20 -translate-x-1/2" />
 
+          {hasBestA && (
           <div>
             {result.entityA?.name && (
               <h4 className="text-xl font-semibold text-indigo-300 mb-4">{result.entityA.name}</h4>
@@ -336,7 +384,9 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
               </ul>
             )}
           </div>
+          )}
 
+          {hasBestB && (
           <div>
             {result.entityB?.name && (
               <h4 className="text-xl font-semibold text-indigo-300 mb-4">{result.entityB.name}</h4>
@@ -352,6 +402,7 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
               </ul>
             )}
           </div>
+          )}
         </div>
 
         {result.recommendation?.which_to_choose_first && (
@@ -365,6 +416,7 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
           </div>
         )}
       </section>
+      )}
 
       {/* 5. Share Section */}
       {showShare && (
@@ -373,7 +425,12 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
             <h3 className="text-xl font-bold text-white mb-2">{t('report.shareTitle')}</h3>
             <p className="text-sm text-neutral-400">{t('report.shareSubtitle')}</p>
           </div>
-          <ShareButton result={result} reportUrl={reportUrl} />
+          <ShareButton
+            result={result}
+            reportUrl={reportUrl}
+            reportStatus={reportStatus}
+            onRetrySave={onRetrySave}
+          />
         </section>
       )}
 
@@ -384,18 +441,25 @@ export default function ComparisonResultView({ result, reportUrl, showShare = tr
             {t('result.sources')} ({result.sources.length})
           </h3>
           <ol className="space-y-1.5 list-decimal list-inside">
-            {result.sources.map((source, i) => (
-              <li key={i} className="text-sm text-neutral-400">
-                <a
-                  href={source.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-indigo-400/80 hover:text-indigo-300 transition-colors"
-                >
-                  {source.title}
-                </a>
-              </li>
-            ))}
+            {result.sources.map((source, i) => {
+              const safeUrl = normalizeHttpUrl(source.url);
+              return (
+                <li key={`${source.title || 'source'}-${i}`} className="text-sm text-neutral-400">
+                  {safeUrl ? (
+                    <a
+                      href={safeUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-indigo-400/80 hover:text-indigo-300 transition-colors"
+                    >
+                      {source.title || safeUrl}
+                    </a>
+                  ) : (
+                    <span>{source.title || String(source.url || '')}</span>
+                  )}
+                </li>
+              );
+            })}
           </ol>
         </section>
       )}

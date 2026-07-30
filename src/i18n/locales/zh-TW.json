@@ -245,6 +245,8 @@
     "title": "熱門 AI 對比",
     "description": "瀏覽 AI 助手、程式設計工具、搜尋和生產力工具對比。",
     "loading": "正在載入對比...",
+    "resultsLabel": "對比結果",
+    "error": "暫時無法載入對比，請稍後再試。",
     "viewReport": "查看報告",
     "empty": "新的公開對比報告即將在這裡顯示。",
     "pageTitle": "熱門 AI 對比 | CompareAI"

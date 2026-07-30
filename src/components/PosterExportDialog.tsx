@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Check, ChevronDown, Eye, FileArchive, Image as ImageIcon, Loader2, Share2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ComparisonResult } from '../services/geminiService';
@@ -24,6 +24,7 @@ interface PosterExportDialogProps {
   success: string | null;
   error: string | null;
   onClose: () => void;
+  onCancel: () => void;
   onOption: (id: PosterExportOption['id']) => void;
   onNativeShare: () => void;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -39,6 +40,7 @@ export default function PosterExportDialog({
   success,
   error,
   onClose,
+  onCancel,
   onOption,
   onNativeShare,
   t,
@@ -50,6 +52,7 @@ export default function PosterExportDialog({
   const onCloseRef = useRef(onClose);
   const busyRef = useRef(false);
   const [showMobilePreview, setShowMobilePreview] = useState(false);
+  const prefersReducedMotion = useReducedMotion();
   const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   useEffect(() => {
@@ -65,7 +68,8 @@ export default function PosterExportDialog({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (!busyRef.current) onCloseRef.current();
+        if (busyRef.current) onCancel();
+        else onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab' || !dialogRef.current) return;
@@ -104,16 +108,17 @@ export default function PosterExportDialog({
       {open && (
         <motion.div
           className="fixed inset-0 z-50 flex items-end justify-center md:items-center md:p-6"
-          initial={{ opacity: 0 }}
+          initial={prefersReducedMotion ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+          exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+          transition={prefersReducedMotion ? { duration: 0 } : undefined}
         >
           <motion.button
             type="button"
             aria-label={t('share.close')}
             tabIndex={-1}
             className="absolute inset-0 cursor-default bg-black/75 backdrop-blur-md"
-            onClick={() => !busy && onClose()}
+            onClick={() => busy ? onCancel() : onClose()}
           />
 
           <motion.section
@@ -122,10 +127,10 @@ export default function PosterExportDialog({
             aria-modal="true"
             aria-labelledby={titleId}
             aria-busy={busy}
-            initial={{ y: 80, opacity: 0, scale: 0.98 }}
+            initial={prefersReducedMotion ? false : { y: 80, opacity: 0, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 80, opacity: 0, scale: 0.98 }}
-            transition={{ type: 'spring', stiffness: 380, damping: 34 }}
+            exit={prefersReducedMotion ? undefined : { y: 80, opacity: 0, scale: 0.98 }}
+            transition={prefersReducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 380, damping: 34 }}
             className="relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[28px] border border-white/10 bg-[#0c0a18] shadow-[0_-20px_80px_rgba(0,0,0,0.55)] md:max-w-4xl md:rounded-[28px] md:shadow-2xl"
           >
             <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-white/20 md:hidden" />
@@ -140,10 +145,9 @@ export default function PosterExportDialog({
               <button
                 ref={closeButtonRef}
                 type="button"
-                onClick={onClose}
-                disabled={busy}
-                aria-label={t('share.close')}
-                className="grid min-h-11 min-w-11 place-items-center rounded-full bg-white/5 text-white/60 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40"
+                onClick={() => busy ? onCancel() : onClose()}
+                aria-label={busy ? t('share.cancel', { defaultValue: 'Cancel export' }) : t('share.close')}
+                className="grid min-h-11 min-w-11 place-items-center rounded-full bg-white/5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
               >
                 <X size={19} />
               </button>
@@ -177,9 +181,10 @@ export default function PosterExportDialog({
                 <AnimatePresence initial={false}>
                   {showMobilePreview && (
                     <motion.div
-                      initial={{ height: 0, opacity: 0 }}
+                      initial={prefersReducedMotion ? false : { height: 0, opacity: 0 }}
                       animate={{ height: 232, opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
+                      exit={prefersReducedMotion ? undefined : { height: 0, opacity: 0 }}
+                      transition={prefersReducedMotion ? { duration: 0 } : undefined}
                       className="mb-4 overflow-hidden rounded-2xl bg-black/30 md:hidden"
                     >
                       <div className="mx-auto h-[216px] w-[162px] overflow-hidden rounded-xl shadow-xl">
@@ -250,9 +255,10 @@ export default function PosterExportDialog({
                   {(success || error) && (
                     <motion.div
                       role="status"
-                      initial={{ opacity: 0, y: 8 }}
+                      initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 8 }}
+                      exit={prefersReducedMotion ? undefined : { opacity: 0, y: 8 }}
+                      transition={prefersReducedMotion ? { duration: 0 } : undefined}
                       className={`mt-3 flex items-start gap-2 rounded-xl border p-3 text-sm ${
                         success
                           ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200'

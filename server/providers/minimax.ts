@@ -38,6 +38,7 @@ export async function callMinimaxSearch(
   apiKey: string,
   query: string,
   baseUrl = 'https://api.minimaxi.com',
+  signal?: AbortSignal,
 ): Promise<{ text: string; sources: Source[] }> {
   const response = await fetch(`${baseUrl}/v1/coding_plan/search`, {
     method: 'POST',
@@ -46,7 +47,9 @@ export async function callMinimaxSearch(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ q: query }),
-    signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(SEARCH_TIMEOUT_MS)])
+      : AbortSignal.timeout(SEARCH_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -107,6 +110,7 @@ export class MinimaxProvider implements AIProvider {
   async research(
     query: string,
     _rawParams?: ResearchRawParams,
+    signal?: AbortSignal,
   ): Promise<{ text: string; sources: Source[]; metrics: AiCallMetrics }> {
     const start = Date.now();
     let totalPromptTokens = 0;
@@ -137,7 +141,7 @@ Respond with ONLY a JSON object: {"queries": ["query1", "query2", ...]}`,
       temperature: 0.3,
       response_format: { type: 'json_object' },
       thinking: { type: 'disabled' },
-    } as any, { timeout: LLM_TIMEOUT_MS });
+    } as any, { timeout: LLM_TIMEOUT_MS, signal });
 
     const planUsage = (planResponse as any).usage || {};
     totalPromptTokens += planUsage.prompt_tokens || 0;
@@ -148,7 +152,12 @@ Respond with ONLY a JSON object: {"queries": ["query1", "query2", ...]}`,
     let queries: string[];
     try {
       const parsed = extractJson(planContent);
-      queries = (parsed.queries as string[]) || [query];
+      queries = Array.isArray(parsed.queries)
+        ? parsed.queries
+            .filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+            .map((item) => item.trim().slice(0, 300))
+            .slice(0, 8)
+        : [];
       if (queries.length === 0) queries = [query];
     } catch {
       queries = [query, `${query} overview`, `${query} latest news`];
@@ -157,14 +166,20 @@ Respond with ONLY a JSON object: {"queries": ["query1", "query2", ...]}`,
     // Step 2: Execute all searches in parallel via MiniMax Search API
     const searchResults = await Promise.all(
       queries.map((q) =>
-        callMinimaxSearch(this.searchApiKey, q, this.searchBaseUrl).catch(
+        callMinimaxSearch(this.searchApiKey, q, this.searchBaseUrl, signal).catch(
           (err) => ({ text: `Search failed for "${q}": ${err.message}`, sources: [] as Source[] }),
         ),
       ),
     );
-    const allSources = deduplicateSourcesByUrl(searchResults.flatMap((r) => r.sources));
-    const combinedResults = queries
-      .map((q, i) => `### Search: "${q}"\n${searchResults[i].text}`)
+    const successfulSearches = searchResults.filter((result) => result.sources.length > 0 && result.text.trim());
+    if (successfulSearches.length === 0) {
+      throw new Error('MiniMax research failed: no search query returned a usable source');
+    }
+    const allSources = deduplicateSourcesByUrl(successfulSearches.flatMap((r) => r.sources));
+    const combinedResults = searchResults
+      .flatMap((result, index) => result.sources.length > 0 && result.text.trim()
+        ? [`### Search: "${queries[index]}"\n${result.text}`]
+        : [])
       .join('\n\n---\n\n');
 
     // Step 3: DeepSeek synthesizes all results
@@ -182,7 +197,7 @@ Respond with ONLY a JSON object: {"queries": ["query1", "query2", ...]}`,
       ],
       temperature: 0.2,
       thinking: { type: 'disabled' },
-    } as any, { timeout: LLM_TIMEOUT_MS });
+    } as any, { timeout: LLM_TIMEOUT_MS, signal });
 
     const synthUsage = (synthResponse as any).usage || {};
     totalPromptTokens += synthUsage.prompt_tokens || 0;
@@ -208,6 +223,7 @@ Respond with ONLY a JSON object: {"queries": ["query1", "query2", ...]}`,
     schemaName: string;
     temperature?: number;
     enableThinking?: boolean;
+    signal?: AbortSignal;
   }): Promise<{ json: string; metrics: AiCallMetrics }> {
     const model = this.chatModel;
     const start = Date.now();
@@ -233,7 +249,10 @@ ${JSON.stringify(params.schema, null, 2)}`;
         temperature: params.enableThinking ? undefined : (params.temperature ?? 0.2),
         response_format: { type: 'json_object' },
         thinking: { type: thinkingMode },
-      } as any, { timeout: params.enableThinking ? LLM_TIMEOUT_MS * 2 : LLM_TIMEOUT_MS });
+      } as any, {
+        timeout: params.enableThinking ? LLM_TIMEOUT_MS * 2 : LLM_TIMEOUT_MS,
+        signal: params.signal,
+      });
 
       const usage = (response as any).usage || {};
       totalPromptTokens += usage.prompt_tokens || usage.input_tokens || 0;

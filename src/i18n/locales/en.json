@@ -245,6 +245,8 @@
     "title": "Popular AI Comparisons",
     "description": "Browse AI assistant, coding tool, search, and productivity comparisons.",
     "loading": "Loading comparisons...",
+    "resultsLabel": "Comparison results",
+    "error": "Comparisons could not be loaded. Please try again later.",
     "viewReport": "View report",
     "empty": "New public comparison reports will appear here soon.",
     "pageTitle": "Popular AI Comparisons | CompareAI"

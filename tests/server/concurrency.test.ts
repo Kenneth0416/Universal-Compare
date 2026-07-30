@@ -27,6 +27,28 @@ test('mapConcurrent: handles empty array', async () => {
   assert.deepEqual(result, []);
 });
 
+test('mapConcurrent: rejects non-positive and non-finite limits', async () => {
+  for (const limit of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    await assert.rejects(
+      () => mapConcurrent([], limit, async (n) => n),
+      RangeError,
+    );
+  }
+});
+
+test('mapConcurrent: floors positive fractional limits without creating zero workers', async () => {
+  const result = await mapConcurrent([1, 2], 1.9, async (n) => n);
+  assert.deepEqual(result, [1, 2]);
+
+  let calls = 0;
+  const subOneResult = await mapConcurrent([1, 2], 0.5, async (n) => {
+    calls += 1;
+    return n;
+  });
+  assert.deepEqual(subOneResult, [1, 2]);
+  assert.equal(calls, 2);
+});
+
 test('mapConcurrent: surfaces thrown error', async () => {
   await assert.rejects(
     () => mapConcurrent([1, 2, 3], 2, async (n) => {

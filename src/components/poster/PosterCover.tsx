@@ -11,8 +11,11 @@ import {
   averagePosterScores,
   clampPosterText,
   formatPosterScore,
+  MAX_POSTER_DIMENSIONS,
   normalizePosterScore,
+  stableDimensionKeys,
 } from './posterUtils';
+import { normalizeHttpUrl } from '../../services/shareService';
 
 interface PosterCoverProps {
   result: ComparisonResult;
@@ -108,16 +111,21 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
   language,
   shareUrl,
 }) => {
-  const url = shareUrl || (typeof window !== 'undefined' ? window.location.href : '');
+  const url = normalizeHttpUrl(shareUrl) ?? '';
 
   // 计算数据：异常或缺失评分不参与平均值，越界评分会收敛到 0-10。
-  const dimensions = Array.isArray(result.dimensions) ? result.dimensions : [];
+  const dimensions = (Array.isArray(result.dimensions) ? result.dimensions : []).slice(0, MAX_POSTER_DIMENSIONS);
+  const dimensionKeys = stableDimensionKeys(dimensions);
   const avgA = averagePosterScores(dimensions.map((dim) => dim.analysis?.optional_score_a));
   const avgB = averagePosterScores(dimensions.map((dim) => dim.analysis?.optional_score_b));
 
   const posterWidth = width || POSTER_WIDTH;
   const posterHeight = height || POSTER_HEIGHT;
-  const winner = avgA !== null && avgB !== null
+  const hasCompleteScores = dimensions.length > 0 && dimensions.every((dimension) =>
+    normalizePosterScore(dimension.analysis?.optional_score_a) !== null &&
+    normalizePosterScore(dimension.analysis?.optional_score_b) !== null
+  );
+  const winner = hasCompleteScores && avgA !== null && avgB !== null
     ? avgA > avgB ? result.entityA.name : avgB > avgA ? result.entityB.name : null
     : null;
   const loser = winner === result.entityA.name
@@ -135,7 +143,7 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
   const accessUrl = normalizePosterUrl(url);
   const accessUrlLines = splitPosterUrl(accessUrl);
 
-  const dimensionLegend = dimensions.slice(0, 6).map((dim, index) => {
+  const dimensionLegend = dimensions.map((dim, index) => {
     const shortLabel = compactPosterLabel(dim.label);
     const legendLabel = clampPosterText(flattenPosterLabel(shortLabel), 22);
 
@@ -143,15 +151,16 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
       index: index + 1,
       legendLabel,
       chartLabel: String(index + 1),
-      scoreA: normalizePosterScore(dim.analysis?.optional_score_a) ?? 0,
-      scoreB: normalizePosterScore(dim.analysis?.optional_score_b) ?? 0,
+      key: dimensionKeys[index],
+      scoreA: normalizePosterScore(dim.analysis?.optional_score_a),
+      scoreB: normalizePosterScore(dim.analysis?.optional_score_b),
     };
   });
 
   const radarData = dimensionLegend.map((dim) => ({
     subject: dim.chartLabel,
-    [result.entityA.name]: dim.scoreA,
-    [result.entityB.name]: dim.scoreB,
+    scoreA: dim.scoreA,
+    scoreB: dim.scoreB,
   }));
 
   return (
@@ -372,7 +381,7 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
         <div className="grid grid-cols-2 gap-2.5">
           {dimensionLegend.map((dim) => (
             <div
-              key={dim.index}
+              key={dim.key}
               className="rounded-2xl px-3 py-2"
               style={{
                 background: 'rgba(255,255,255,0.045)',
@@ -451,13 +460,15 @@ export const PosterCover: React.FC<PosterCoverProps> = ({
             className="p-1.5 rounded-xl"
             style={{ background: 'rgba(255,255,255,0.95)' }}
           >
-            <QRCodeCanvas
-              value={url}
-              size={56}
-              bgColor="transparent"
-              fgColor="#1a1a2e"
-              level="M"
-            />
+            {url && (
+              <QRCodeCanvas
+                value={url}
+                size={56}
+                bgColor="transparent"
+                fgColor="#1a1a2e"
+                level="M"
+              />
+            )}
           </div>
         </div>
       </div>

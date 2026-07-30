@@ -10,7 +10,9 @@ interface AILoadingStateProps {
 }
 
 const usePrefersReducedMotion = () => {
-  const [prefersReducedMotion, setPrefersReducedMotion] = React.useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = React.useState(() =>
+    typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+  );
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) {
@@ -51,12 +53,17 @@ export const AILoadingState: React.FC<AILoadingStateProps> = ({ itemA, itemB, st
   const prefersReducedMotion = usePrefersReducedMotion();
 
   React.useEffect(() => {
-    const interval = setInterval(() => {
+    if (prefersReducedMotion) {
+      setActiveStep(0);
+      return;
+    }
+
+    const interval = window.setInterval(() => {
       setActiveStep((prev) => (prev + 1) % steps.length);
     }, 2200);
 
-    return () => clearInterval(interval);
-  }, [steps.length]);
+    return () => window.clearInterval(interval);
+  }, [prefersReducedMotion, steps.length]);
 
   const gridCells = React.useMemo(
     () =>
@@ -69,7 +76,12 @@ export const AILoadingState: React.FC<AILoadingStateProps> = ({ itemA, itemB, st
   );
 
   return (
-    <div className="py-20 sm:py-24 flex flex-col items-center justify-center w-full max-w-3xl mx-auto gap-10">
+    <div
+      className="py-20 sm:py-24 flex flex-col items-center justify-center w-full max-w-3xl mx-auto gap-10"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
       {/* Visualizer: Item A <--> Item B */}
       <div className="flex items-center justify-center gap-4 sm:gap-8 w-full px-4">
         <motion.div

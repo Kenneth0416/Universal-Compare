@@ -6,15 +6,18 @@ export async function startComparisonRun({
   itemA,
   itemB,
   language,
+  signal,
 }: {
   itemA: string;
   itemB: string;
   language: string;
+  signal?: AbortSignal;
 }) {
   const response = await fetch(`${API_BASE}/comparison-runs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ itemA, itemB, language }),
+    signal,
   });
 
   if (!response.ok) {
@@ -29,15 +32,18 @@ export async function finishComparisonRun({
   runId,
   status,
   errorMessage,
+  signal,
 }: {
   runId: string;
   status: ComparisonRunStatus;
   errorMessage?: string;
+  signal?: AbortSignal;
 }) {
   const response = await fetch(`${API_BASE}/comparison-runs/${encodeURIComponent(runId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status, errorMessage }),
+    signal,
   });
 
   if (!response.ok) {

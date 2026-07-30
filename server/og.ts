@@ -4,32 +4,39 @@ import { Resvg } from '@resvg/resvg-js';
 import satori from 'satori';
 import type { createFeaturedStore } from './featured';
 import type { createReportStore } from './reports';
+import { normalizeComparisonResult } from '../shared/comparisonSchema';
 
 type ReportStore = ReturnType<typeof createReportStore>;
 type FeaturedStore = ReturnType<typeof createFeaturedStore>;
 
-// Load a system font for rendering (Inter or fallback to a bundled font)
-let fontData: Buffer;
-try {
-  fontData = readFileSync(path.resolve(process.cwd(), 'public', 'fonts', 'Inter-Bold.ttf'));
-} catch {
-  // Fallback: try system font paths
-  const systemPaths = [
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-    '/System/Library/Fonts/Helvetica.ttc',
-    '/usr/share/fonts/TTF/DejaVuSans-Bold.ttf',
-  ];
-  for (const p of systemPaths) {
+type SatoriFont = { name: string; data: Buffer; weight: 700; style: 'normal' };
+
+function probeFont(name: string, candidates: string[]): SatoriFont | null {
+  for (const candidate of candidates) {
     try {
-      fontData = readFileSync(p);
-      break;
-    } catch { /* continue */ }
+      const data = readFileSync(candidate);
+      if (data.length > 0) return { name, data, weight: 700, style: 'normal' };
+    } catch { /* Optional system and bundled fonts vary by deployment. */ }
   }
-  if (!fontData!) {
-    // Minimal empty font - OG images will still work but with fallback rendering
-    fontData = Buffer.alloc(0);
-  }
+  return null;
 }
+
+// Inter does not cover CJK. Probe a separate Unicode font without making a
+// missing platform-specific font fatal at module startup.
+const latinFont = probeFont('Inter', [
+  path.resolve(process.cwd(), 'public', 'fonts', 'Inter-Bold.ttf'),
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+  '/usr/share/fonts/TTF/DejaVuSans-Bold.ttf',
+]);
+const cjkFont = probeFont('CJK Fallback', [
+  path.resolve(process.cwd(), 'public', 'fonts', 'NotoSansCJK-Bold.ttf'),
+  path.resolve(process.cwd(), 'public', 'fonts', 'NotoSansCJK-Bold.otf'),
+  '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+  '/Library/Fonts/Arial Unicode.ttf',
+  '/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttf',
+  '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.otf',
+]);
+const ogFonts = [latinFont, cjkFont].filter((font): font is SatoriFont => font !== null);
 
 type OgData = {
   itemA: string;
@@ -53,7 +60,7 @@ function buildOgElement(data: OgData) {
         height: '100%',
         background: 'linear-gradient(135deg, #0a0f1f 0%, #1a1040 50%, #0d1530 100%)',
         padding: '60px',
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: 'Inter, CJK Fallback, sans-serif',
         color: 'white',
       },
       children: [
@@ -160,27 +167,27 @@ function buildOgElement(data: OgData) {
             },
             children: [
               // Scores
-              scoreA && scoreB
+              scoreA || scoreB
                 ? {
                     type: 'div',
                     props: {
                       style: { display: 'flex', gap: '24px', fontSize: '18px' },
                       children: [
-                        {
+                        scoreA ? {
                           type: 'div',
                           props: {
                             style: { color: '#a5b4fc' },
                             children: `${itemA.slice(0, 15)}: ${scoreA}/10`,
                           },
-                        },
-                        {
+                        } : null,
+                        scoreB ? {
                           type: 'div',
                           props: {
                             style: { color: '#c4b5fd' },
                             children: `${itemB.slice(0, 15)}: ${scoreB}/10`,
                           },
-                        },
-                      ],
+                        } : null,
+                      ].filter(Boolean),
                     },
                   }
                 : dimensionCount
@@ -218,24 +225,46 @@ function buildOgElement(data: OgData) {
 
 const ogCache = new Map<string, { png: Buffer; ts: number }>();
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_MAX_ENTRIES = 100;
+
+function getCachedImage(slug: string, now: number) {
+  for (const [key, value] of ogCache) {
+    if (now - value.ts >= CACHE_TTL_MS) ogCache.delete(key);
+  }
+  const cached = ogCache.get(slug);
+  if (!cached) return null;
+  // Reinsertion makes Map iteration order an LRU order.
+  ogCache.delete(slug);
+  ogCache.set(slug, cached);
+  return cached.png;
+}
+
+function cacheImage(slug: string, png: Buffer, now: number) {
+  ogCache.delete(slug);
+  ogCache.set(slug, { png, ts: now });
+  while (ogCache.size > CACHE_MAX_ENTRIES) {
+    const oldest = ogCache.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    ogCache.delete(oldest);
+  }
+}
 
 export async function generateOgImage(slug: string, reportStore: ReportStore, featuredStore: FeaturedStore): Promise<Buffer | null> {
-  // Check cache
-  const cached = ogCache.get(slug);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    return cached.png;
-  }
+  const now = Date.now();
+  const cached = getCachedImage(slug, now);
+  if (cached) return cached;
 
   const featured = featuredStore.getFeaturedBySlug(slug);
   const report = featured?.reportId ? reportStore.getReport(featured.reportId) : null;
   if (!report) return null;
 
-  const result = (report.result && typeof report.result === 'object' ? report.result : {}) as any;
-  const itemA = result.entityA?.name?.trim() || report.itemA;
-  const itemB = result.entityB?.name?.trim() || report.itemB;
+  const result = normalizeComparisonResult(report.result, { allowLegacyDimensionCount: true });
+  if (!result) return null;
+  const itemA = result.entityA.name;
+  const itemB = result.entityB.name;
 
   // Compute scores
-  const dimensions = result.dimensions || [];
+  const dimensions = result.dimensions;
   let sumA = 0, sumB = 0, countA = 0, countB = 0;
   for (const d of dimensions) {
     if (typeof d.analysis?.optional_score_a === 'number') { sumA += d.analysis.optional_score_a; countA++; }
@@ -257,9 +286,7 @@ export async function generateOgImage(slug: string, reportStore: ReportStore, fe
     const svg = await satori(element as any, {
       width: 1200,
       height: 630,
-      fonts: fontData.length > 0
-        ? [{ name: 'Inter', data: fontData, weight: 700, style: 'normal' as const }]
-        : [],
+      fonts: ogFonts,
     });
 
     const resvg = new Resvg(svg, {
@@ -267,8 +294,9 @@ export async function generateOgImage(slug: string, reportStore: ReportStore, fe
     });
     const png = resvg.render().asPng();
 
-    ogCache.set(slug, { png: Buffer.from(png), ts: Date.now() });
-    return Buffer.from(png);
+    const buffer = Buffer.from(png);
+    cacheImage(slug, buffer, now);
+    return buffer;
   } catch (err) {
     console.error('OG image generation failed:', err);
     return null;

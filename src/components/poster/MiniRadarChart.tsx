@@ -14,7 +14,8 @@ import {
 interface MiniRadarChartProps {
   data: Array<{
     subject: string;
-    [key: string]: string | number;
+    scoreA: number | null;
+    scoreB: number | null;
   }>;
   entityA: string;
   entityB: string;
@@ -96,7 +97,7 @@ export const MiniRadarChart: React.FC<MiniRadarChartProps> = ({
         />
         <Radar
           name={entityA}
-          dataKey={entityA}
+          dataKey="scoreA"
           stroke="#818cf8"
           fill="#818cf8"
           fillOpacity={0.42}
@@ -104,7 +105,7 @@ export const MiniRadarChart: React.FC<MiniRadarChartProps> = ({
         />
         <Radar
           name={entityB}
-          dataKey={entityB}
+          dataKey="scoreB"
           stroke="#c084fc"
           fill="#c084fc"
           fillOpacity={0.42}

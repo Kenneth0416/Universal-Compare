@@ -1,11 +1,11 @@
 /**
- * API Service - Client-side proxy caller
- * Calls the backend proxy instead of direct OpenAI SDK
+ * Client for the server-owned, allowlisted comparison agent phases.
+ * Prompts, schemas, models, and provider tools are intentionally not accepted here.
  */
 
-import { buildResearchRequest, normalizeXSearchMode } from './researchConfig';
-
 const API_BASE = '/api';
+
+type Language = 'en' | 'zh-CN' | 'zh-TW';
 
 interface EntityProfile {
   name: string;
@@ -15,30 +15,36 @@ interface EntityProfile {
   likely_domain: string;
   short_definition: string;
   key_attributes: string[];
+  __proof?: string;
+}
+
+interface Dimension {
+  key: string;
+  label: string;
+  why_it_matters: string;
+  comparison_angle: string;
+  __proof?: string;
 }
 
 interface FrameworkResult {
   relationship: {
-    relationship_type: string;
+    relationship_type: 'same_category' | 'cross_category' | 'alternatives' | 'complements' | 'analogy' | 'not_comparable';
     comparison_goal: string;
     can_directly_compare: boolean;
     reasoning: string;
+    __proof?: string;
   };
-  dimensions: Array<{
-    key: string;
-    label: string;
-    why_it_matters: string;
-    comparison_angle: string;
-  }>;
+  dimensions: Dimension[];
 }
 
 interface AnalysisResult {
   item_a_summary: string;
   item_b_summary: string;
   key_difference: string;
-  better_for: string;
+  better_for: 'A' | 'B' | 'Both' | 'Neither';
   optional_score_a: number;
   optional_score_b: number;
+  citations: Source[];
 }
 
 interface ProsConsResult {
@@ -46,6 +52,7 @@ interface ProsConsResult {
   item_a_cons: string[];
   item_b_pros: string[];
   item_b_cons: string[];
+  __proof?: string;
 }
 
 interface RecommendationResult {
@@ -55,372 +62,130 @@ interface RecommendationResult {
   when_not_to_compare_directly: string;
   short_verdict: string;
   long_verdict: string;
+  __proof?: string;
 }
 
 export interface Source {
   url: string;
   title: string;
   snippet?: string;
+  /** Opaque server proof that this source came from the research phase. */
+  proof?: string;
 }
 
-// Shared type for comparison result
 export interface ComparisonResult {
-  entityA: {
-    name: string;
-    normalized_name: string;
-    category: string;
-    subcategory: string;
-    likely_domain: string;
-    short_definition: string;
-  };
-  entityB: {
-    name: string;
-    normalized_name: string;
-    category: string;
-    subcategory: string;
-    likely_domain: string;
-    short_definition: string;
-  };
-  relationship: {
-    relationship_type: string;
-    comparison_goal: string;
-    can_directly_compare: boolean;
-    reasoning: string;
-  };
-  dimensions: Array<{
-    key: string;
-    label: string;
-    why_it_matters: string;
-    comparison_angle: string;
-    analysis: {
-      item_a_summary: string;
-      item_b_summary: string;
-      key_difference: string;
-      better_for: string;
-      optional_score_a: number;
-      optional_score_b: number;
-    };
-  }>;
-  prosCons: {
-    item_a_pros: string[];
-    item_a_cons: string[];
-    item_b_pros: string[];
-    item_b_cons: string[];
-  };
-  recommendation: {
-    best_for_a: string[];
-    best_for_b: string[];
-    which_to_choose_first: string;
-    when_not_to_compare_directly: string;
-    short_verdict: string;
-    long_verdict: string;
-  };
+  entityA: Omit<EntityProfile, 'key_attributes'>;
+  entityB: Omit<EntityProfile, 'key_attributes'>;
+  relationship: FrameworkResult['relationship'];
+  dimensions: Array<Dimension & { analysis: AnalysisResult }>;
+  prosCons: ProsConsResult;
+  recommendation: RecommendationResult;
   sources?: Source[];
+  /** Short-lived server grant required when persisting a generated report. */
+  reportToken?: string;
 }
 
-// --- Phase 1: Schema definitions (shared with geminiService) ---
+type AgentPhase = 'researcher' | 'architect' | 'analyst' | 'pros-cons' | 'recommendation' | 'finalize';
 
-const entitySchema = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    name: { type: 'string' },
-    normalized_name: { type: 'string' },
-    category: { type: 'string' },
-    subcategory: { type: 'string' },
-    likely_domain: { type: 'string' },
-    short_definition: { type: 'string' },
-    key_attributes: { type: 'array', items: { type: 'string' } }
-  },
-  required: ["name", "normalized_name", "category", "subcategory", "likely_domain", "short_definition", "key_attributes"]
-};
+function normalizeLanguage(value?: string): Language {
+  return value === 'zh-CN' || value === 'zh-TW' ? value : 'en';
+}
 
-const frameworkSchema = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    relationship: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        relationship_type: { type: 'string', description: 'same_category, cross_category, etc.' },
-        comparison_goal: { type: 'string' },
-        can_directly_compare: { type: 'boolean' },
-        reasoning: { type: 'string' },
-      },
-      required: ["relationship_type", "comparison_goal", "can_directly_compare", "reasoning"]
-    },
-    dimensions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          key: { type: 'string' },
-          label: { type: 'string' },
-          why_it_matters: { type: 'string' },
-          comparison_angle: { type: 'string' },
-        },
-        required: ["key", "label", "why_it_matters", "comparison_angle"]
-      }
-    }
-  },
-  required: ["relationship", "dimensions"]
-};
-
-const analysisSchema = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    item_a_summary: { type: 'string' },
-    item_b_summary: { type: 'string' },
-    key_difference: { type: 'string' },
-    better_for: { type: 'string', description: "'A', 'B', 'Both', or 'Neither'" },
-    optional_score_a: { type: 'number' },
-    optional_score_b: { type: 'number' },
-    citations: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          url: { type: 'string' },
-          title: { type: 'string' },
-        },
-        required: ['url', 'title'],
-      },
-    },
-  },
-  required: ["item_a_summary", "item_b_summary", "key_difference", "better_for", "optional_score_a", "optional_score_b", "citations"]
-};
-
-const prosConsSchema = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    item_a_pros: { type: 'array', items: { type: 'string' } },
-    item_a_cons: { type: 'array', items: { type: 'string' } },
-    item_b_pros: { type: 'array', items: { type: 'string' } },
-    item_b_cons: { type: 'array', items: { type: 'string' } },
-  },
-  required: ["item_a_pros", "item_a_cons", "item_b_pros", "item_b_cons"]
-};
-
-const recommendationSchema = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    best_for_a: { type: 'array', items: { type: 'string' } },
-    best_for_b: { type: 'array', items: { type: 'string' } },
-    which_to_choose_first: { type: 'string' },
-    when_not_to_compare_directly: { type: 'string' },
-    short_verdict: { type: 'string' },
-    long_verdict: { type: 'string' },
-  },
-  required: ["best_for_a", "best_for_b", "which_to_choose_first", "when_not_to_compare_directly", "short_verdict", "long_verdict"]
-};
-
-// --- Helper: Call proxy API ---
-
-async function callAI<T>(callType: 'responses' | 'chat', params: any, runId?: string): Promise<T> {
-  const response = await fetch(`${API_BASE}/ai`, {
+async function callAgent<T>(
+  phase: AgentPhase,
+  payload: Record<string, unknown>,
+  runId?: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  const response = await fetch(`${API_BASE}/ai/phases/${phase}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ callType, params, runId }),
+    body: JSON.stringify({ ...payload, ...(runId ? { runId } : {}) }),
+    signal,
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    const error = await response.json().catch(() => ({ error: 'Unknown error' })) as { error?: string };
     throw new Error(error.error || `API call failed with status ${response.status}`);
   }
 
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
-// --- Agent Functions ---
-
-export async function runResearcherAgent(itemName: string, language?: string, runId?: string): Promise<{ profile: EntityProfile; sources: Source[] }> {
-  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
-  const xSearchMode = normalizeXSearchMode(env?.VITE_X_SEARCH_MODE);
-  const researchRequest = buildResearchRequest(itemName, xSearchMode);
-  const researchResponse = await callAI<{ output_text: string; sources?: Source[] }>('responses', {
-    model: 'grok-4-1-fast-non-reasoning',
-    ...researchRequest,
-  }, runId);
-
-  const researchResults = researchResponse.output_text || '';
-  const sources = researchResponse.sources || [];
-
-  // Structured profiling via chat
-  const structuredResponse = await callAI<{ choices: Array<{ message: { content: string } }> }>('chat', {
-    model: 'grok-4-1-fast-reasoning',
-    messages: [
-      {
-        role: 'user',
-        content: `Based on the following research information, create a structured profile for "${itemName}":
-
-RESEARCH RESULTS:
-${researchResults}
-
-Extract and synthesize:
-1. Normalized name and category classification
-2. Key characteristics and defining attributes from authoritative sources
-3. Domain and subcategory classification
-4. Concise definition incorporating factual information and public perception when the research includes useful social signals
-5. Key attributes list combining objective facts and notable observations
-
-IMPORTANT: Respond in ${language === 'zh-CN' ? 'Simplified Chinese (简体中文)' : language === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English'}.`
-      }
-    ],
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'entity_response',
-        strict: true,
-        schema: entitySchema
-      }
-    },
-    temperature: 0.1
-  }, runId);
-
-  const parsedProfile: EntityProfile = JSON.parse(structuredResponse.choices[0].message.content || '{}');
-  return { profile: parsedProfile, sources };
+export async function runResearcherAgent(
+  itemName: string,
+  language?: string,
+  runId?: string,
+  signal?: AbortSignal,
+): Promise<{ profile: EntityProfile; sources: Source[] }> {
+  return callAgent('researcher', { itemName, language: normalizeLanguage(language) }, runId, signal);
 }
 
-export async function runArchitectAgent(profileA: any, profileB: any, language?: string, runId?: string): Promise<FrameworkResult> {
-  const prompt = `You are an Architect Agent. Based on the following entity profiles, determine their relationship and generate 4 to 6 key dimensions to compare them on.
-
-First entity: ${JSON.stringify(profileA)}
-Second entity: ${JSON.stringify(profileB)}
-
-These entities can be anything: products, countries, people, animals, concepts, events, or any other comparable subjects. Analyze their nature and generate dimensions that are specifically tailored to these particular entities. Do not use generic templates.
-
-IMPORTANT: In all your outputs, always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use generic labels like "Entity A", "Entity B", "A", "B", "Item A", "Item B", or similar placeholders.`;
-
-  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh-CN' ? 'Simplified Chinese (简体中文)' : language === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
-  const fullPrompt = `${prompt}${languagePrompt}`;
-
-  const response = await callAI<{ choices: Array<{ message: { content: string } }> }>('chat', {
-    model: 'grok-4-1-fast-reasoning',
-    messages: [{ role: 'user', content: fullPrompt }],
-    temperature: 0.2,
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'framework_response',
-        strict: true,
-        schema: frameworkSchema
-      }
-    }
-  }, runId);
-  return JSON.parse(response.choices[0].message.content || '{}');
+export async function runArchitectAgent(
+  profileA: EntityProfile,
+  profileB: EntityProfile,
+  language?: string,
+  runId?: string,
+  signal?: AbortSignal,
+): Promise<FrameworkResult> {
+  return callAgent('architect', { profileA, profileB, language: normalizeLanguage(language) }, runId, signal);
 }
 
-export async function runAnalystAgent(profileA: any, profileB: any, dimension: any, sources: Source[] = [], language?: string, runId?: string): Promise<any> {
-  const prompt = `You are an Analyst Agent. Compare the following two entities strictly on the dimension: "${dimension.label}".
-
-${profileA.name}: ${profileA.short_definition}
-${profileB.name}: ${profileB.short_definition}
-Dimension Context: ${dimension.why_it_matters}
-Comparison Angle: ${dimension.comparison_angle}
-
-Analyze their differences, summarize each entity's characteristics on this dimension, and provide a score out of 10 for both.
-
-SCORING RULE: Scores must always represent desirability or advantage (10 = best possible outcome for that entity on this dimension). For negative dimensions such as risk, cost, complexity, or danger, a lower value is better — so an entity with lower risk/cost/complexity should receive a HIGHER score. Never score "how much" of a negative trait exists; always score "how favorable" the entity's position is.
-
-IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders in your analysis text.`;
-
-  const sourcesPrompt = sources.length > 0
-    ? `\n\nAVAILABLE SOURCES (cite 1-2 most relevant in your "citations" array):
-${sources.slice(0, 20).map((s, i) => `[${i + 1}] ${s.title} — ${s.url}`).join('\n')}
-
-CITATION RULE: Include 1-2 sources from the list above that directly support your analysis for this dimension. Only cite genuinely relevant sources. If none are relevant, return an empty array.`
-    : '';
-
-  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh-CN' ? 'Simplified Chinese (简体中文)' : language === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
-  const fullPrompt = `${prompt}${sourcesPrompt}${languagePrompt}`;
-
-  const response = await callAI<{ choices: Array<{ message: { content: string } }> }>('chat', {
-    model: 'grok-4-1-fast-non-reasoning',
-    messages: [{ role: 'user', content: fullPrompt }],
-    temperature: 0.2,
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'analysis_response',
-        strict: true,
-        schema: analysisSchema
-      }
-    }
-  }, runId);
-  return { ...dimension, analysis: JSON.parse(response.choices[0].message.content || '{}') };
+export async function runAnalystAgent(
+  profileA: EntityProfile,
+  profileB: EntityProfile,
+  dimension: Dimension,
+  sources: Source[] = [],
+  language?: string,
+  runId?: string,
+  signal?: AbortSignal,
+): Promise<Dimension & { analysis: AnalysisResult }> {
+  return callAgent('analyst', { profileA, profileB, dimension, sources, language: normalizeLanguage(language) }, runId, signal);
 }
 
-export async function runProsConsAgent(profileA: any, profileB: any, dimensions: any[], language?: string, runId?: string): Promise<ProsConsResult> {
-  const prompt = `You are a Judge Agent. Based on the entity profiles and the multidimensional analysis below, extract the key strengths and weaknesses for both entities.
-
-${profileA.name}: ${profileA.short_definition}
-${profileB.name}: ${profileB.short_definition}
-Analysis: ${JSON.stringify(dimensions)}
-
-IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders.`;
-
-  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh-CN' ? 'Simplified Chinese (简体中文)' : language === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
-  const fullPrompt = `${prompt}${languagePrompt}`;
-
-  const response = await callAI<{ choices: Array<{ message: { content: string } }> }>('chat', {
-    model: 'grok-4-1-fast-reasoning',
-    messages: [{ role: 'user', content: fullPrompt }],
-    temperature: 0.2,
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'proscons_response',
-        strict: true,
-        schema: prosConsSchema
-      }
-    }
-  }, runId);
-  return JSON.parse(response.choices[0].message.content || '{}');
+export async function runProsConsAgent(
+  profileA: EntityProfile,
+  profileB: EntityProfile,
+  dimensions: Array<Dimension & { analysis: AnalysisResult }>,
+  language?: string,
+  runId?: string,
+  signal?: AbortSignal,
+  sources: Source[] = [],
+): Promise<ProsConsResult> {
+  return callAgent('pros-cons', { profileA, profileB, dimensions, sources, language: normalizeLanguage(language) }, runId, signal);
 }
 
-export async function runRecommendationAgent(profileA: any, profileB: any, dimensions: any[], prosCons: any, language?: string, runId?: string): Promise<RecommendationResult> {
-  const prompt = `You are a Judge Agent. Based on all the gathered data, provide a final verdict and recommendation on when to prefer each entity.
-
-${profileA.name}: ${profileA.short_definition}
-${profileB.name}: ${profileB.short_definition}
-Analysis: ${JSON.stringify(dimensions)}
-Strengths & Weaknesses: ${JSON.stringify(prosCons)}
-
-IMPORTANT: Always refer to entities by their actual names ("${profileA.name}" and "${profileB.name}"). Never use "Entity A", "Entity B", "A", "B", or similar placeholders in your verdict and recommendations.`;
-
-  const languagePrompt = `\n\nIMPORTANT: All text fields in your response must be in ${language === 'zh-CN' ? 'Simplified Chinese (简体中文)' : language === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English'}.`;
-  const fullPrompt = `${prompt}${languagePrompt}`;
-
-  const response = await callAI<{ choices: Array<{ message: { content: string } }> }>('chat', {
-    model: 'grok-4-1-fast-reasoning',
-    messages: [{ role: 'user', content: fullPrompt }],
-    temperature: 0.2,
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'recommendation_response',
-        strict: true,
-        schema: recommendationSchema
-      }
-    }
-  }, runId);
-  return JSON.parse(response.choices[0].message.content || '{}');
+export async function runRecommendationAgent(
+  profileA: EntityProfile,
+  profileB: EntityProfile,
+  dimensions: Array<Dimension & { analysis: AnalysisResult }>,
+  _prosCons: ProsConsResult | null,
+  language?: string,
+  runId?: string,
+  signal?: AbortSignal,
+  sources: Source[] = [],
+): Promise<RecommendationResult> {
+  return callAgent('recommendation', { profileA, profileB, dimensions, sources, language: normalizeLanguage(language) }, runId, signal);
 }
 
-// --- Helper for concurrency limit (client-side) ---
+export async function runFinalizeAgent(
+  result: ComparisonResult,
+  language?: string,
+  runId?: string,
+  signal?: AbortSignal,
+): Promise<{ reportToken: string }> {
+  return callAgent('finalize', { result, language: normalizeLanguage(language) }, runId, signal);
+}
 
-export async function mapConcurrent<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+export async function mapConcurrent<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
   const results: R[] = [];
-  for (let i = 0; i < items.length; i += limit) {
-    const chunk = items.slice(i, i + limit);
-    const chunkResults = await Promise.all(chunk.map(fn));
-    results.push(...chunkResults);
+  for (let index = 0; index < items.length; index += limit) {
+    const chunk = items.slice(index, index + limit);
+    results.push(...await Promise.all(chunk.map(fn)));
   }
   return results;
 }

@@ -1,5 +1,5 @@
 import { ReactNode, useId, useRef } from 'react';
-import { useAnimationFrame } from 'motion/react';
+import { useRespectfulAnimationFrame } from './usePrefersReducedMotion';
 
 interface FuzzyTextProps {
   children: ReactNode;
@@ -29,8 +29,8 @@ export default function FuzzyText({
   const blurAmount = Math.max(0.2, scale * 0.06);
   const overlayOpacity = Math.min(0.75, 0.35 + scale * 0.02);
 
-  useAnimationFrame((time) => {
-    if (!animated || !showFuzz || !fineNoiseRef.current || !coarseNoiseRef.current) return;
+  useRespectfulAnimationFrame((time) => {
+    if (!fineNoiseRef.current || !coarseNoiseRef.current) return;
 
     const t = time / 1000;
     const fineBase = clamp(0.82 + Math.sin(t * 1.15) * 0.08, 0.6, 0.98);
@@ -45,7 +45,7 @@ export default function FuzzyText({
       fineNoiseRef.current.setAttribute('seed', String(seed));
       coarseNoiseRef.current.setAttribute('seed', String((seed + 11) % 97));
     }
-  });
+  }, animated && showFuzz);
 
   return (
     <span className={`relative inline-block ${className}`}>

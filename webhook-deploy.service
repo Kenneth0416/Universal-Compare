@@ -1,25 +1,46 @@
 [Unit]
-Description=GitHub Webhook Deployment Server
-After=network.target
+Description=CompareAI authenticated GitHub webhook receiver
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=www-data
-WorkingDirectory=/var/www/compare-ai
-ExecStart=/usr/bin/node /var/www/compare-ai/webhook-server.js
-Restart=always
+User=compare-ai-deploy
+Group=compare-ai-deploy
+WorkingDirectory=/var/www/compare-ai/source
+ExecStart=/usr/bin/node /var/www/compare-ai/source/webhook-server.js
+Restart=on-failure
 RestartSec=10
+UMask=0027
 
-# 環境變量
 Environment=NODE_ENV=production
+Environment=WEBHOOK_HOST=127.0.0.1
 Environment=WEBHOOK_PORT=9000
-Environment=WEBHOOK_SECRET=your-webhook-secret-here
-Environment=DEPLOY_SCRIPT=/var/www/compare-ai/deploy.sh
-Environment=LOG_FILE=/var/log/webhook-deploy.log
+Environment=DEPLOY_SCRIPT=/var/www/compare-ai/source/deploy.sh
+Environment=SOURCE_DIR=/var/www/compare-ai/source
+Environment=DEPLOY_ROOT=/var/www/compare-ai
+Environment=APP_RESTART_METHOD=systemd
+Environment=APP_SERVICE=compare-ai.service
+Environment=LOG_FILE=/var/log/compare-ai/webhook-deploy.log
+Environment=WEBHOOK_REPLAY_FILE=/var/lib/compare-ai/webhook-deliveries.json
+Environment=NPM_CONFIG_CACHE=/var/lib/compare-ai/npm-cache
+# Must contain WEBHOOK_SECRET (>=32 random chars) and WEBHOOK_REPOSITORY=owner/repository.
+# The service exits immediately if either value is absent or a placeholder.
+EnvironmentFile=/etc/compare-ai/webhook.env
 
-# 安全設置
-NoNewPrivileges=true
+# A narrowly scoped sudoers rule permits only restarting compare-ai.service.
+# NoNewPrivileges cannot be enabled because it would make that rule unusable.
 PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/www/compare-ai /var/log/compare-ai /var/lib/compare-ai
 
 [Install]
 WantedBy=multi-user.target

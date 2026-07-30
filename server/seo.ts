@@ -1,5 +1,6 @@
 import type { FeaturedComparison } from './featured';
 import type { ReportData, ReportListItem } from './reports';
+import { normalizeComparisonResult, normalizeSafeHttpUrl } from '../shared/comparisonSchema';
 
 const DEFAULT_SITE_URL = 'https://compare-anythings.com';
 const OG_IMAGE_PATH = '/og-image.png';
@@ -41,17 +42,25 @@ export type SitemapReport = Pick<ReportListItem, 'createdAt'> & { slug: string }
 export type SeoComparisonLink = Pick<FeaturedComparison, 'itemA' | 'itemB' | 'description' | 'slug'>;
 
 function normalizeSiteUrl(siteUrl = DEFAULT_SITE_URL) {
-  return siteUrl.replace(/\/+$/, '');
+  const normalized = normalizeSafeHttpUrl(siteUrl);
+  if (!normalized) return DEFAULT_SITE_URL;
+  const parsed = new URL(normalized);
+  const basePath = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/+$/, '');
+  return `${parsed.origin}${basePath}`;
 }
 
-function renderHreflangTags(path: string, siteUrl: string) {
-  const base = `${siteUrl}${path}`;
-  const sep = path.includes('?') ? '&' : '?';
-  return `
-    <link rel="alternate" hreflang="en" href="${escapeHtml(base)}${sep}hl=en" />
-    <link rel="alternate" hreflang="zh-Hans" href="${escapeHtml(base)}${sep}hl=zh-Hans" />
-    <link rel="alternate" hreflang="zh-Hant" href="${escapeHtml(base)}${sep}hl=zh-Hant" />
-    <link rel="alternate" hreflang="x-default" href="${escapeHtml(base)}" />`;
+// Do not claim translated alternates until distinct localized URLs actually exist.
+function renderHreflangTags(_path: string, _siteUrl: string) {
+  return '';
+}
+
+function normalizeHtmlLanguage(value: unknown) {
+  const language = typeof value === 'string' ? value.trim() : '';
+  return /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(language) ? language : 'en';
+}
+
+function safeExternalUrl(value: unknown) {
+  return normalizeSafeHttpUrl(value);
 }
 
 function renderSiteNav(_siteUrl: string) {
@@ -102,7 +111,7 @@ function truncateSentence(value: string, maxLength: number) {
 }
 
 function getReportResult(report: ReportData): SeoReportResult {
-  return (report.result && typeof report.result === 'object' ? report.result : {}) as SeoReportResult;
+  return (normalizeComparisonResult(report.result, { allowLegacyDimensionCount: true }) || {}) as SeoReportResult;
 }
 
 function getEntityNames(report: ReportData) {
@@ -132,7 +141,10 @@ function getIsoDate(value: string) {
 }
 
 function jsonLd(value: unknown) {
-  return JSON.stringify(value).replace(/</g, '\\u003c');
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
 }
 
 function renderJsonLdBlocks(blocks: unknown[]) {
@@ -149,7 +161,7 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
   const url = featured?.slug
     ? `${siteUrl}/compare/${encodeURIComponent(featured.slug)}`
     : `${siteUrl}/r/${encodeURIComponent(report.reportId)}`;
-  const language = report.language || 'en';
+  const language = normalizeHtmlLanguage(report.language);
   const isoDate = report.createdAt;
   const image = featured?.slug
     ? `${siteUrl}/og/${encodeURIComponent(featured.slug)}.png`
@@ -201,7 +213,9 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
   };
 
   const reportSources = result.sources || [];
-  const validReportSources = reportSources.filter((s) => s.url && s.title);
+  const validReportSources = reportSources
+    .map((s) => ({ ...s, url: safeExternalUrl(s.url) }))
+    .filter((s) => s.url && s.title);
   if (validReportSources.length > 0) {
     (article as any).citation = validReportSources.map((s) => ({
       '@type': 'WebPage', url: s.url, name: s.title,
@@ -231,7 +245,8 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
       };
 
       if (typeof scoreA === 'number' || typeof scoreB === 'number') {
-        const avg = ((scoreA ?? 0) + (scoreB ?? 0)) / 2;
+        const presentScores = [scoreA, scoreB].filter((score): score is number => typeof score === 'number');
+        const avg = presentScores.reduce((sum, score) => sum + score, 0) / presentScores.length;
         review.reviewRating = {
           '@type': 'Rating',
           ratingValue: String(avg),
@@ -255,7 +270,11 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
       }
 
       const dimCitations = (d.analysis as any)?.citations || [];
-      const validDimCitations = dimCitations.filter((c: any) => c?.url && c?.title);
+      const validDimCitations = Array.isArray(dimCitations)
+        ? dimCitations
+            .map((c: any) => ({ ...c, url: safeExternalUrl(c?.url) }))
+            .filter((c: any) => c.url && c.title)
+        : [];
       if (validDimCitations.length > 0) {
         review.citation = validDimCitations.map((c: any) => ({
           '@type': 'WebPage', url: c.url, name: c.title,
@@ -384,7 +403,7 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
     });
   }
 
-  const blocks: unknown[] = [
+  const nodes: unknown[] = [
     {
       '@context': 'https://schema.org',
       '@type': 'Organization',
@@ -429,14 +448,21 @@ function buildStructuredData(report: ReportData, featured: FeaturedComparison | 
 
   // Add FAQPage only if we have Q&A pairs
   if (faqEntities.length > 0) {
-    blocks.push({
-      '@context': 'https://schema.org',
+    nodes.push({
       '@type': 'FAQPage',
       mainEntity: faqEntities,
     });
   }
 
-  return blocks;
+  // A single graph gives every Review (and all other nodes) a valid schema context.
+  return [{
+    '@context': 'https://schema.org',
+    '@graph': nodes.map((node) => {
+      if (!node || typeof node !== 'object' || Array.isArray(node)) return node;
+      const { '@context': _context, ...withoutContext } = node as Record<string, unknown>;
+      return withoutContext;
+    }),
+  }];
 }
 
 function computeDimensionScores(report: ReportData) {
@@ -505,17 +531,21 @@ function renderDimensionSummary(report: ReportData) {
     if (summaryB) parts.push(`<strong>${escapeHtml(itemB)}:</strong> ${escapeHtml(summaryB)}`);
     if (typeof scoreA === 'number' || typeof scoreB === 'number') {
       const scores: string[] = [];
-      if (typeof scoreA === 'number') scores.push(`${itemA}: ${scoreA}/10`);
-      if (typeof scoreB === 'number') scores.push(`${itemB}: ${scoreB}/10`);
+      if (typeof scoreA === 'number') scores.push(`${escapeHtml(itemA)}: ${scoreA}/10`);
+      if (typeof scoreB === 'number') scores.push(`${escapeHtml(itemB)}: ${scoreB}/10`);
       parts.push(`<em>Scores — ${scores.join(', ')}</em>`);
     }
     if (why && why !== keyDiff) parts.push(escapeHtml(why));
 
     const citations = (dimension.analysis as any)?.citations || [];
-    const validCitations = citations.filter((c: any) => c?.url && c?.title);
+    const validCitations = Array.isArray(citations)
+      ? citations
+          .map((c: any) => ({ ...c, url: safeExternalUrl(c?.url) }))
+          .filter((c: any) => c.url && c.title)
+      : [];
     if (validCitations.length > 0) {
       const citationLinks = validCitations
-        .map((c: any) => `<a href="${escapeHtml(c.url)}" rel="noopener" target="_blank">${escapeHtml(c.title)}</a>`)
+        .map((c: any) => `<a href="${escapeHtml(c.url)}" rel="noopener noreferrer" target="_blank">${escapeHtml(c.title)}</a>`)
         .join(', ');
       parts.push(`<p class="seo-citations">Sources: ${citationLinks}</p>`);
     }
@@ -604,11 +634,13 @@ function renderRecommendation(report: ReportData) {
 function renderSources(report: ReportData) {
   const result = getReportResult(report);
   const sources = result.sources || [];
-  const validSources = sources.filter((s) => s.url && s.title);
+  const validSources = sources
+    .map((s) => ({ ...s, url: safeExternalUrl(s.url) }))
+    .filter((s) => s.url && s.title);
   if (!validSources.length) return '';
 
   const items = validSources
-    .map((s) => `<li><a href="${escapeHtml(s.url!)}" rel="noopener" target="_blank">${escapeHtml(s.title!)}</a></li>`)
+    .map((s) => `<li><a href="${escapeHtml(s.url!)}" rel="noopener noreferrer" target="_blank">${escapeHtml(s.title!)}</a></li>`)
     .join('');
 
   return `<section class="seo-section" id="sources"><h2>Where does this data come from?</h2><ol>${items}</ol></section>`;
@@ -629,8 +661,12 @@ function renderReportSummary(report: ReportData, featured: FeaturedComparison | 
   const dimCount = (result.dimensions || []).length;
   const srcCount = (result.sources || []).length;
   const sourcesClause = srcCount > 0 ? ` with ${srcCount} sources` : '';
-  const blufSentence = hasScores && dimCount > 0
-    ? `Based on our analysis across ${dimCount} dimensions${sourcesClause}, ${escapeHtml(itemA)} scores ${avgA}/10 overall while ${escapeHtml(itemB)} scores ${avgB}/10.`
+  const scoreSummary = [
+    avgA ? `${escapeHtml(itemA)} scores ${avgA}/10 overall` : '',
+    avgB ? `${escapeHtml(itemB)} scores ${avgB}/10 overall` : '',
+  ].filter(Boolean).join(avgA && avgB ? ' while ' : '');
+  const blufSentence = hasScores && dimCount > 0 && scoreSummary
+    ? `Based on our analysis across ${dimCount} dimensions${sourcesClause}, ${scoreSummary}.`
     : '';
 
   return `
@@ -690,14 +726,19 @@ function renderPopularComparisonsBody(comparisons: SeoComparisonLink[], descript
   `;
 }
 
-function injectSeoIntoHtml(html: string, head: string, body: string) {
+function injectSeoIntoHtml(html: string, head: string, body: string, language = 'en') {
   const cleaned = html
     .replace(/<title>[\s\S]*?<\/title>\s*/i, '')
     .replace(/<meta\s+(?:name|property|http-equiv)="(?:title|description|keywords|robots|theme-color|twitter:card|twitter:url|twitter:title|twitter:description|twitter:image|twitter:image:alt|og:type|og:site_name|og:url|og:title|og:description|og:image|og:image:alt|og:image:width|og:image:height|og:language|language|last-modified)"[^>]*>\s*/gi, '')
     .replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '')
     .replace(/<script\s+type="application\/ld\+json">[\s\S]*?<\/script>\s*/gi, '');
 
+  const safeLanguage = escapeHtml(normalizeHtmlLanguage(language));
   return cleaned
+    .replace(/<html([^>]*)>/i, (_match, attributes: string) => {
+      const withoutLang = attributes.replace(/\s+lang\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+      return `<html${withoutLang} lang="${safeLanguage}">`;
+    })
     .replace(/<head>/i, `<head>\n${head}`)
     .replace('<div id="root"></div>', `<div id="root">${body}</div>`);
 }
@@ -739,7 +780,7 @@ export function renderReportSeoHtml({
     <meta name="title" content="${escapeHtml(title)}" />
     <meta name="description" content="${escapeHtml(description)}" />
     <meta name="robots" content="${robots}" />
-    <meta name="language" content="${escapeHtml(report.language || 'en')}" />
+    <meta name="language" content="${escapeHtml(normalizeHtmlLanguage(report.language))}" />
     <meta http-equiv="last-modified" content="${getIsoDate(report.createdAt)}" />
     <link rel="canonical" href="${escapeHtml(url)}" />
     ${renderHreflangTags(reportPath, siteUrl)}
@@ -761,6 +802,7 @@ export function renderReportSeoHtml({
     indexHtml,
     head,
     `${renderSiteNav(siteUrl)}${renderReportSummary(report, featured, feedbackStats)}${renderComparisonLinks(relatedComparisons || [], 'Related AI comparisons')}${renderSiteFooter(siteUrl)}`,
+    report.language,
   );
 }
 

@@ -37,10 +37,14 @@ function createTestApp(overrides?: {
       name: 'test',
       research: async () => ({
         text: 'ok',
+        sources: [{ url: 'https://example.com/research', title: 'Research' }],
         metrics: { model: 'test-model', promptTokens: 100, completionTokens: 25, totalTokens: 130, durationMs: 50 },
       }),
       chatCompletion: async () => ({
-        json: '{}',
+        json: JSON.stringify({
+          name: 'Claude', normalized_name: 'Claude', category: 'AI', subcategory: 'Assistant',
+          likely_domain: 'Software', short_definition: 'An AI assistant.', key_attributes: ['Reasoning'],
+        }),
         metrics: { model: 'test-model', promptTokens: 100, completionTokens: 25, totalTokens: 130, durationMs: 50 },
       }),
     },
@@ -71,40 +75,45 @@ function extractCookie(setCookieHeader: string, name: string) {
 }
 
 function createComparisonResult(itemA = 'Claude', itemB = 'ChatGPT') {
+  const profile = (name: string) => ({
+    name, normalized_name: name, category: 'AI', subcategory: 'Assistant',
+    likely_domain: 'Software', short_definition: `${name} is an AI assistant.`,
+  });
   return {
-    entityA: { name: itemA },
-    entityB: { name: itemB },
+    entityA: profile(itemA),
+    entityB: profile(itemB),
     relationship: {
-      relationship_type: 'alternatives',
-      comparison_goal: `Choose between ${itemA} and ${itemB}`,
-      reasoning: 'Both tools can be evaluated as AI assistants.',
+      relationship_type: 'alternatives', comparison_goal: `Choose between ${itemA} and ${itemB}`,
+      can_directly_compare: true, reasoning: 'Both tools can be evaluated as AI assistants.',
     },
-    dimensions: [
-      {
-        key: 'reasoning',
-        label: 'Reasoning quality',
-        why_it_matters: 'Reasoning quality affects complex decisions.',
-        analysis: {
-          item_a_summary: `${itemA} is strong for careful written analysis.`,
-          item_b_summary: `${itemB} is strong for broad everyday tasks.`,
-          key_difference: `${itemA} favors depth while ${itemB} favors versatility.`,
-        },
+    dimensions: Array.from({ length: 4 }, (_, index) => ({
+      key: index === 0 ? 'reasoning' : `dimension-${index + 1}`,
+      label: index === 0 ? 'Reasoning quality' : `Dimension ${index + 1}`,
+      why_it_matters: 'This dimension affects the decision.',
+      comparison_angle: 'Compare practical desirability.',
+      analysis: {
+        item_a_summary: `${itemA} is strong for careful written analysis.`,
+        item_b_summary: `${itemB} is strong for broad everyday tasks.`,
+        key_difference: `${itemA} favors depth while ${itemB} favors versatility.`,
+        better_for: 'Both', optional_score_a: 8, optional_score_b: 8,
+        citations: [{ url: 'https://example.com/research', title: 'Research' }],
       },
-    ],
+    })),
     prosCons: {
-      item_a_pros: ['Careful long-form answers'],
-      item_a_cons: ['Less familiar to some users'],
-      item_b_pros: ['Broad ecosystem'],
-      item_b_cons: ['Can be less focused'],
+      item_a_pros: ['Careful long-form answers'], item_a_cons: ['Less familiar to some users'],
+      item_b_pros: ['Broad ecosystem'], item_b_cons: ['Can be less focused'],
     },
     recommendation: {
+      best_for_a: ['Deep analysis'], best_for_b: ['Broad daily workflows'],
+      which_to_choose_first: `Choose ${itemA} for depth.`, when_not_to_compare_directly: '',
       short_verdict: `${itemA} is better for careful analysis.`,
       long_verdict: `Choose ${itemA} for deep reasoning and ${itemB} for broad daily workflows.`,
     },
+    sources: [{ url: 'https://example.com/research', title: 'Research' }],
   };
 }
 
-test('tracks comparison runs and logs AI proxy calls', async () => {
+test('tracks comparison runs and logs allowlisted AI phase calls', async () => {
   const { app, analyticsStore } = createTestApp();
 
   await withServer(app, async (baseUrl) => {
@@ -118,13 +127,13 @@ test('tracks comparison runs and logs AI proxy calls', async () => {
     const { runId } = (await startResponse.json()) as { runId: string };
     assert.match(runId, /^run_/);
 
-    const aiResponse = await fetch(`${baseUrl}/api/ai`, {
+    const aiResponse = await fetch(`${baseUrl}/api/ai/phases/researcher`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         cookie: visitorCookie,
       },
-      body: JSON.stringify({ runId, callType: 'chat', params: { model: 'grok-test' } }),
+      body: JSON.stringify({ runId, itemName: 'Claude', language: 'en' }),
     });
     assert.equal(aiResponse.status, 200);
 
@@ -142,10 +151,10 @@ test('tracks comparison runs and logs AI proxy calls', async () => {
   const summary = analyticsStore.getSummary();
   assert.equal(summary.today.users, 1);
   assert.equal(summary.today.comparisons, 1);
-  assert.equal(summary.today.aiCalls, 1);
-  assert.equal(summary.today.promptTokens, 100);
-  assert.equal(summary.today.completionTokens, 25);
-  assert.equal(summary.today.totalTokens, 130);
+  assert.equal(summary.today.aiCalls, 2);
+  assert.equal(summary.today.promptTokens, 200);
+  assert.equal(summary.today.completionTokens, 50);
+  assert.equal(summary.today.totalTokens, 260);
   assert.equal(summary.today.cachedTokens, 0);
   assert.equal(summary.today.reasoningTokens, 0);
   assert.equal(summary.today.aiCostUsd, 0);
@@ -191,26 +200,15 @@ test('protects admin summary behind password login', async () => {
 });
 
 test('returns linked report view counts for admin featured comparisons', async () => {
-  const { app } = createTestApp();
+  const { app, reportStore } = createTestApp();
+  const saved = reportStore.saveReport({
+    itemA: 'Claude', itemB: 'ChatGPT', language: 'en',
+    result: createComparisonResult('Claude', 'ChatGPT'),
+  });
+  assert.ok(saved);
 
   await withServer(app, async (baseUrl) => {
-    const reportResponse = await fetch(`${baseUrl}/api/reports`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        itemA: 'Claude',
-        itemB: 'ChatGPT',
-        language: 'en',
-        result: {
-          entityA: { name: 'Claude' },
-          entityB: { name: 'ChatGPT' },
-          dimensions: [],
-          recommendation: { winner: 'tie' },
-        },
-      }),
-    });
-    assert.equal(reportResponse.status, 201);
-    const { reportId } = (await reportResponse.json()) as { reportId: string };
+    const reportId = saved.reportId;
 
     assert.equal((await fetch(`${baseUrl}/api/reports/${reportId}`)).status, 200);
     assert.equal((await fetch(`${baseUrl}/api/reports/${reportId}`)).status, 200);

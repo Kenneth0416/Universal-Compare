@@ -8,6 +8,7 @@ export interface SaveReportInput {
   itemB: string;
   language: string;
   result: ComparisonResult;
+  signal?: AbortSignal;
 }
 
 export interface SaveReportResponse {
@@ -17,21 +18,22 @@ export interface SaveReportResponse {
 
 export interface ReportData {
   reportId: string;
-  runId: string | null;
   itemA: string;
   itemB: string;
   language: string;
   result: ComparisonResult;
-  visitorId: string;
   createdAt: string;
   viewCount: number;
 }
 
 export async function saveReport(input: SaveReportInput): Promise<SaveReportResponse> {
+  const { signal, ...body } = input;
+  const reportToken = input.result.reportToken;
   const response = await fetch(`${API_BASE}/reports`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...body, reportToken }),
+    signal,
   });
 
   if (!response.ok) {

@@ -245,6 +245,8 @@
     "title": "热门 AI 对比",
     "description": "浏览 AI 助手、编程工具、搜索和效率工具对比。",
     "loading": "正在加载对比...",
+    "resultsLabel": "对比结果",
+    "error": "暂时无法加载对比，请稍后重试。",
     "viewReport": "查看报告",
     "empty": "新的公开对比报告即将在这里显示。",
     "pageTitle": "热门 AI 对比 | CompareAI"

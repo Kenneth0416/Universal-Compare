@@ -59,6 +59,83 @@ test('records a visitor, comparison run, and successful AI call', () => {
   assert.equal(runs.items[0].status, 'completed');
 });
 
+test('comparison runs preserve ownership and finish only existing owned runs', () => {
+  const store = createTempStore();
+  const first = store.startComparisonRun({
+    runId: 'run_shared',
+    visitorId: 'v_owner',
+    itemA: 'Original A',
+    itemB: 'Original B',
+  });
+  assert.equal(first.created, true);
+  assert.equal(first.owned, true);
+
+  const collision = store.startComparisonRun({
+    runId: 'run_shared',
+    visitorId: 'v_attacker',
+    itemA: 'Overwritten A',
+    itemB: 'Overwritten B',
+  });
+  assert.equal(collision.created, false);
+  assert.equal(collision.owned, false);
+  assert.equal(store.listRuns().items[0].visitorId, 'v_owner');
+  assert.equal(store.listRuns().items[0].itemA, 'Original A');
+
+  assert.deepEqual(store.finishComparisonRun({
+    runId: 'run_shared',
+    visitorId: 'v_attacker',
+    status: 'completed',
+  }), { updated: false });
+  assert.equal(store.listRuns().items[0].status, 'started');
+
+  assert.deepEqual(store.finishComparisonRun({
+    runId: 'run_missing',
+    visitorId: 'v_owner',
+    status: 'failed',
+  }), { updated: false });
+  assert.equal(store.listRuns().total, 1);
+
+  assert.deepEqual(store.finishComparisonRun({
+    runId: 'run_shared',
+    visitorId: 'v_owner',
+    status: 'completed',
+  }), { updated: true });
+  assert.equal(store.listRuns().items[0].status, 'completed');
+});
+
+test('server-generated comparison run IDs are new and owned by the caller', () => {
+  const store = createTempStore();
+  const first = store.startComparisonRun({ visitorId: 'v_1', itemA: 'A', itemB: 'B' });
+  const second = store.startComparisonRun({ visitorId: 'v_1', itemA: 'A', itemB: 'B' });
+  assert.match(first.runId, /^run_[a-f0-9]{24}$/);
+  assert.notEqual(first.runId, second.runId);
+  assert.equal(first.created, true);
+  assert.equal(first.owned, true);
+});
+
+test('summary accepts only explicit bounded periods and keeps all-time period zero', () => {
+  const store = createTempStore();
+  for (const invalid of [-1, 2, 31, 1_000_000, Number.POSITIVE_INFINITY]) {
+    assert.throws(() => store.getSummary(invalid), RangeError);
+  }
+
+  assert.equal(store.getSummary(0).trend.length, 7);
+  assert.equal(store.getSummary(7).trend.length, 7);
+  assert.equal(store.getSummary(14).trend.length, 14);
+  assert.equal(store.getSummary(30).trend.length, 30);
+});
+
+test('24-hour summary uses full UTC hour keys and one consistent window', () => {
+  const store = createTempStore();
+  store.startComparisonRun({ visitorId: 'v_utc', itemA: 'A', itemB: 'B' });
+  const summary = store.getSummary(1);
+
+  assert.equal(summary.trend.length, 24);
+  assert.ok(summary.trend.every((point) => /^\d{4}-\d{2}-\d{2}T\d{2}:00$/.test(point.date)));
+  assert.equal(new Set(summary.trend.map((point) => point.date)).size, 24);
+  assert.equal(summary.trend.reduce((sum, point) => sum + point.comparisons, 0), summary.today.comparisons);
+});
+
 test('records token usage and cost for AI calls', () => {
   const store = createTempStore();
   store.logAiCall({

@@ -1,5 +1,5 @@
-import { useAnimationFrame } from 'motion/react';
 import { ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import { usePrefersReducedMotion, useRespectfulAnimationFrame } from './usePrefersReducedMotion';
 
 interface ParticleTextProps {
   children: ReactNode;
@@ -74,6 +74,7 @@ export default function ParticleText({
 }: ParticleTextProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
   const particlesRef = useRef<Particle[]>([]);
   const sizeRef = useRef({ width: 0, height: 0, dpr: 1 });
   const startTimeRef = useRef<number | null>(null);
@@ -94,6 +95,14 @@ export default function ParticleText({
     const canvas = canvasRef.current;
     const textEl = textRef.current;
     if (!canvas || !textEl) return;
+
+    if (prefersReducedMotion) {
+      const ctx = canvas.getContext('2d');
+      ctx?.clearRect(0, 0, canvas.width, canvas.height);
+      particlesRef.current = [];
+      startTimeRef.current = null;
+      return;
+    }
 
     const rect = textEl.getBoundingClientRect();
     const width = Math.max(1, Math.round(rect.width));
@@ -168,7 +177,7 @@ export default function ParticleText({
     startTimeRef.current = null;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
-  }, [density, palette, text]);
+  }, [density, palette, text, prefersReducedMotion]);
 
   useEffect(() => {
     const textEl = textRef.current;
@@ -177,7 +186,11 @@ export default function ParticleText({
     let raf = 0;
     const observer = new ResizeObserver(() => {
       cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(buildParticles);
+      if (prefersReducedMotion) {
+        buildParticles();
+      } else {
+        raf = requestAnimationFrame(buildParticles);
+      }
     });
 
     observer.observe(textEl);
@@ -187,9 +200,9 @@ export default function ParticleText({
       cancelAnimationFrame(raf);
       observer.disconnect();
     };
-  }, [buildParticles]);
+  }, [buildParticles, prefersReducedMotion]);
 
-  useAnimationFrame((time) => {
+  useRespectfulAnimationFrame((time) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -232,13 +245,17 @@ export default function ParticleText({
     <span className={`relative inline-block align-middle ${className}`.trim()}>
       <span
         ref={textRef}
-        className="block text-transparent select-none pointer-events-none"
-        aria-hidden="true"
+        className={`block select-none pointer-events-none ${prefersReducedMotion ? '' : 'text-transparent'}`}
+        aria-hidden={prefersReducedMotion ? undefined : 'true'}
       >
         {text}
       </span>
-      <canvas ref={canvasRef} className="absolute inset-0 block" aria-hidden="true" />
-      <span className="sr-only">{text}</span>
+      <canvas
+        ref={canvasRef}
+        className={`absolute inset-0 ${prefersReducedMotion ? 'hidden' : 'block'}`}
+        aria-hidden="true"
+      />
+      {!prefersReducedMotion && <span className="sr-only">{text}</span>}
     </span>
   );
 }

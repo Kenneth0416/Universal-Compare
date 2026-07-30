@@ -1,5 +1,6 @@
 type DatabaseConnection = {
   exec: (sql: string) => void;
+  readonly inTransaction?: boolean;
   prepare: (sql: string) => {
     run: (...params: unknown[]) => { changes: number };
     get: (...params: unknown[]) => any;
@@ -49,6 +50,27 @@ function buildSlugBase(itemA: string, itemB: string) {
   return base || 'comparison';
 }
 
+function tableExists(db: DatabaseConnection, name: string) {
+  return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+}
+
+function inTransaction<T>(db: DatabaseConnection, action: () => T): T {
+  // Candidate promotion already wraps featured creation and state transition in
+  // one better-sqlite3 transaction. Reuse that transaction instead of issuing a
+  // nested BEGIN, which SQLite rejects.
+  if (db.inTransaction) return action();
+
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const result = action();
+    db.exec('COMMIT');
+    return result;
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch { /* preserve the original error */ }
+    throw error;
+  }
+}
+
 function initializeSchema(db: DatabaseConnection) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS featured_comparisons (
@@ -82,6 +104,19 @@ function initializeSchema(db: DatabaseConnection) {
   }
 
   db.exec('CREATE INDEX IF NOT EXISTS idx_featured_lang ON featured_comparisons(language)');
+
+  // Older databases did not enforce this relationship. Null broken links rather than
+  // deleting the curated entry while migrating them to read-safe state.
+  if (tableExists(db, 'comparison_reports')) {
+    db.exec(`
+      UPDATE featured_comparisons SET report_id = NULL
+      WHERE report_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM comparison_reports r
+          WHERE r.report_id = featured_comparisons.report_id
+        )
+    `);
+  }
 }
 
 export function createFeaturedStore(db: DatabaseConnection) {
@@ -176,16 +211,22 @@ export function createFeaturedStore(db: DatabaseConnection) {
     return withReportMeta(items);
   };
 
+  const reportExists = (reportId: string): boolean => {
+    if (!tableExists(db, 'comparison_reports')) return false;
+    return !!db.prepare('SELECT 1 FROM comparison_reports WHERE report_id = ?').get(reportId);
+  };
+
   const addFeatured = (
     itemA: string,
     itemB: string,
     options: { language?: string; description?: string; sortOrder?: number; reportId?: string } = {},
-  ): FeaturedComparison => {
+  ): FeaturedComparison => inTransaction(db, () => {
     const now = isoNow();
     const lang = options.language || 'en';
     const desc = truncate(options.description, 200);
     const order = options.sortOrder ?? 0;
     const rId = options.reportId || null;
+    if (rId && !reportExists(rId)) throw new Error('Cannot feature a missing report');
     const slug = createUniqueSlug(itemA, itemB);
 
     const result = db.prepare(`
@@ -208,7 +249,7 @@ export function createFeaturedStore(db: DatabaseConnection) {
       hasSources: meta.hasSources,
       hasCitations: meta.hasCitations,
     };
-  };
+  });
 
   const getFeaturedBySlug = (slug: string): FeaturedComparison | null => {
     const item = db.prepare(`
@@ -230,10 +271,10 @@ export function createFeaturedStore(db: DatabaseConnection) {
     return item ? withReportMeta([item])[0] : null;
   };
 
-  const updateReportId = (id: number, reportId: string): boolean => {
-    const result = db.prepare('UPDATE featured_comparisons SET report_id = ? WHERE id = ?').run(reportId, id);
-    return result.changes > 0;
-  };
+  const updateReportId = (id: number, reportId: string): boolean => inTransaction(db, () => {
+    if (!reportId || !reportExists(reportId)) return false;
+    return db.prepare('UPDATE featured_comparisons SET report_id = ? WHERE id = ?').run(reportId, id).changes > 0;
+  });
 
   const removeFeatured = (id: number): boolean => {
     const result = db.prepare('DELETE FROM featured_comparisons WHERE id = ?').run(id);

@@ -69,8 +69,9 @@ test('happy path: dual search succeeds, DeepSeek returns valid score', async () 
   assert.equal(result.signals.existing_articles_count, 12);
   assert.equal(result.signals.has_reddit_discussion, true);
   assert.equal(result.partial, false);
-  assert.equal(result.topSources.length, 2);
+  assert.equal(result.topSources.length, 3);
   assert.equal(result.topSources[0].url, 'https://example.com/a');
+  assert.equal(result.topSources[2].url, 'https://reddit.com/r/x/1');
   assert.ok(result.metrics.durationMs >= 0);
   assert.ok(result.metrics.totalTokens > 0);
 });
@@ -329,6 +330,74 @@ test('deepseek invalid JSON twice: throws DemandSensingError 502', async () => {
       err.statusCode === 502 &&
       /DeepSeek/.test(err.message),
   );
+});
+
+test('merges and de-duplicates top sources from both searches', async () => {
+  const valid = JSON.stringify({
+    score: 7, recommendation: 'good',
+    signals: {
+      existing_articles_count: 2, has_reddit_discussion: true,
+      has_authoritative_source: false, competition_level: 'medium', freshness: 'recent',
+    },
+    reasoning: 'Good signal.',
+  });
+  const service = new DemandSensingService({
+    minimaxSearchApiKey: 'fake-key',
+    deepseekClient: makeMockDeepseekClient(valid) as any,
+    searchFn: async (_key, query) => ({
+      text: '',
+      sources: query.endsWith(' reddit')
+        ? [
+            { url: 'https://example.com/shared/', title: 'Duplicate', snippet: '' },
+            { url: 'https://reddit.com/thread', title: 'Thread', snippet: '' },
+          ]
+        : [{ url: 'https://example.com/shared', title: 'Original', snippet: '' }],
+    }),
+  });
+
+  const result = await service.scorePair('A', 'B');
+  assert.deepEqual(result.topSources, [
+    { url: 'https://example.com/shared', title: 'Original' },
+    { url: 'https://reddit.com/thread', title: 'Thread' },
+  ]);
+});
+
+test('rejects invalid score response field types and ranges after retry', async () => {
+  const base = {
+    score: 7,
+    recommendation: 'good',
+    signals: {
+      existing_articles_count: 5,
+      has_reddit_discussion: true,
+      has_authoritative_source: false,
+      competition_level: 'medium',
+      freshness: 'recent',
+    },
+    reasoning: 'Good signal.',
+  };
+  const invalidResponses = [
+    { ...base, score: -1 },
+    { ...base, score: 11 },
+    { ...base, recommendation: 'maybe' },
+    { ...base, signals: { ...base.signals, has_reddit_discussion: 1 } },
+    { ...base, signals: { ...base.signals, has_authoritative_source: 'yes' } },
+    { ...base, signals: { ...base.signals, competition_level: 'extreme' } },
+    { ...base, signals: { ...base.signals, freshness: 'new' } },
+    { ...base, signals: { ...base.signals, existing_articles_count: 1.5 } },
+    { ...base, reasoning: 'x'.repeat(1001) },
+  ];
+
+  for (const response of invalidResponses) {
+    const service = new DemandSensingService({
+      minimaxSearchApiKey: 'fake-key',
+      deepseekClient: makeMockDeepseekClient(JSON.stringify(response)) as any,
+      searchFn: async () => ({ text: '', sources: [] }),
+    });
+    await assert.rejects(
+      () => service.scorePair('A', 'B'),
+      (err: any) => err.name === 'DemandSensingError' && err.statusCode === 502,
+    );
+  }
 });
 
 test('deepseek missing required field (score): retries with stricter prompt', async () => {

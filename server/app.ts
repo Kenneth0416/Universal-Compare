@@ -5,14 +5,16 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import {
   ADMIN_SESSION_COOKIE,
   createAdminSessionToken,
+  createVisitorIdToken,
   getAdminSessionCookieOptions,
   parseCookieHeader,
   verifyAdminSessionToken,
+  verifyVisitorIdToken,
 } from './adminAuth';
-import { extractAiUsageMetrics } from './aiUsage';
+import { createComparisonAgentRouter, verifyReportToken } from './comparisonAgentApi';
 import type { createAnalyticsStore } from './analytics';
 import type { createFeaturedStore } from './featured';
-import type { createReportStore } from './reports';
+import { toPublicReportDto, type createReportStore } from './reports';
 import { generateOgImage } from './og';
 import {
   renderAboutHtml,
@@ -32,6 +34,8 @@ import { DemandSensingError, type DemandSensingService } from './demandSensing';
 import { parseEntityCsv, type EntityPoolStore } from './entityPool';
 import type { CandidatePairStore } from './candidatePairs';
 import { mapConcurrent } from './concurrency';
+import { normalizeSafeHttpUrl, serializeComparisonResult } from '../shared/comparisonSchema';
+import { consumePersistentLimit } from './rateLimit';
 
 const VISITOR_COOKIE = 'compareai_visitor_id';
 const VISITOR_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
@@ -58,11 +62,23 @@ type CreateAppOptions = {
 };
 
 function getRequestIp(req: Request) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.trim()) {
-    return forwarded.split(',')[0].trim();
-  }
   return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+function applyRateLimit(res: Response, result: { allowed: boolean; retryAfterSeconds: number }) {
+  if (result.allowed) return false;
+  res.set('Retry-After', String(result.retryAfterSeconds)).status(429).json({ error: 'Too many requests' });
+  return true;
+}
+
+function requestAbortController(req: Request, res: Response) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  req.once('aborted', abort);
+  res.once('close', () => {
+    if (!res.writableEnded) abort();
+  });
+  return controller;
 }
 
 function getQueryNumber(value: unknown, fallback: number) {
@@ -98,8 +114,42 @@ export function createApp({
   siteUrl = process.env.SITE_URL || process.env.APP_URL,
 }: CreateAppOptions) {
   const app = express();
+  app.set('trust proxy', 'loopback');
+  const rateLimit = (
+    bucket: string,
+    identity: string,
+    limit: number,
+    windowMs: number,
+  ) => consumePersistentLimit({
+    db: analyticsStore.getDb(), secret: adminSessionSecret,
+    key: `${bucket}:${identity}`, limit, windowMs,
+  });
+  const limitByIpAndVisitor = (
+    req: RequestWithVisitor,
+    res: Response,
+    bucket: string,
+    limit: number,
+    windowMs: number,
+  ) => {
+    const results = [rateLimit(bucket, `ip:${getRequestIp(req)}`, limit, windowMs)];
+    if (req.visitorId) results.push(rateLimit(bucket, `visitor:${req.visitorId}`, limit, windowMs));
+    const blocked = results.find((result) => !result.allowed);
+    return blocked ? applyRateLimit(res, blocked) : false;
+  };
+  const adminIdempotency = new Map<string, { status: 'processing' | 'done'; statusCode?: number; body?: unknown; expiresAt: number }>();
 
-  app.use(express.json({ limit: '1mb' }));
+  app.use((_req, res, next) => {
+    res.set({
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'X-Frame-Options': 'DENY',
+      'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+    });
+    next();
+  });
+  app.use(express.json({ limit: '512kb' }));
 
   app.get('/robots.txt', (_req, res) => {
     res.set('Cache-Control', 'public, max-age=3600');
@@ -262,15 +312,23 @@ export function createApp({
   app.use('/api', (req: RequestWithVisitor, res, next) => {
     try {
       const cookies = parseCookieHeader(req.headers.cookie);
+      const verifiedVisitorId = verifyVisitorIdToken(cookies[VISITOR_COOKIE], adminSessionSecret) || undefined;
+      if (!verifiedVisitorId) {
+        const identityCreation = rateLimit('visitor-create', `ip:${getRequestIp(req)}`, 20, 24 * 60 * 60 * 1_000);
+        if (!identityCreation.allowed) {
+          next();
+          return;
+        }
+      }
       const visitor = analyticsStore.ensureVisitor({
-        visitorId: cookies[VISITOR_COOKIE],
+        visitorId: verifiedVisitorId,
         userAgent: req.get('user-agent') || '',
         ipAddress: getRequestIp(req),
       });
 
       req.visitorId = visitor.visitorId;
-      if (!cookies[VISITOR_COOKIE] || visitor.isNew) {
-        res.cookie(VISITOR_COOKIE, visitor.visitorId, {
+      if (!verifiedVisitorId || visitor.isNew) {
+        res.cookie(VISITOR_COOKIE, createVisitorIdToken(visitor.visitorId, adminSessionSecret), {
           httpOnly: true,
           sameSite: 'lax',
           secure: process.env.NODE_ENV === 'production',
@@ -286,6 +344,7 @@ export function createApp({
   });
 
   app.post('/api/comparison-runs', (req: RequestWithVisitor, res) => {
+    if (limitByIpAndVisitor(req, res, 'comparison-run', 30, 60 * 60 * 1_000)) return;
     const { runId, itemA, itemB, language } = req.body || {};
 
     if (typeof itemA !== 'string' || typeof itemB !== 'string' || !itemA.trim() || !itemB.trim()) {
@@ -293,8 +352,13 @@ export function createApp({
       return;
     }
 
+    if (runId !== undefined) {
+      res.status(403).json({ error: 'runId is generated by the server' });
+      return;
+    }
+
     const run = analyticsStore.startComparisonRun({
-      runId: typeof runId === 'string' ? runId : undefined,
+      runId: undefined,
       visitorId: req.visitorId || '',
       itemA,
       itemB,
@@ -312,13 +376,17 @@ export function createApp({
       return;
     }
 
-    analyticsStore.finishComparisonRun({
+    const finished = analyticsStore.finishComparisonRun({
       runId: req.params.runId,
       visitorId: req.visitorId,
       status,
       errorMessage: typeof errorMessage === 'string' ? errorMessage : undefined,
     });
 
+    if (!finished.updated) {
+      res.status(404).json({ error: 'Comparison run not found' });
+      return;
+    }
     res.json({ ok: true });
   });
 
@@ -342,90 +410,16 @@ export function createApp({
     }
   });
 
-  app.post('/api/ai', async (req: RequestWithVisitor, res) => {
-    const { callType, params, runId } = req.body || {};
-
-    if (!callType || !params) {
-      res.status(400).json({ error: 'Missing callType or params' });
-      return;
-    }
-
-    const startedAt = Date.now();
-    const resolvedRunId = typeof runId === 'string' ? runId : undefined;
-
-    try {
-      let response: unknown;
-      let model = '';
-
-      switch (callType) {
-        case 'responses': {
-          const input = params.input || [];
-          const tools = params.tools || [];
-          const result = await provider.research('', {
-            input,
-            tools,
-            tool_choice: params.tool_choice,
-          });
-          model = result.metrics.model;
-          response = { output_text: result.text, sources: result.sources };
-          break;
-        }
-
-        case 'chat': {
-          const result = await provider.chatCompletion({
-            messages: params.messages || [],
-            schema: params.response_format?.json_schema?.schema || {},
-            schemaName: params.response_format?.json_schema?.name || 'response',
-            temperature: params.temperature,
-          });
-          model = result.metrics.model;
-          response = {
-            choices: [{ message: { content: result.json } }],
-            usage: {
-              prompt_tokens: result.metrics.promptTokens,
-              completion_tokens: result.metrics.completionTokens,
-              total_tokens: result.metrics.totalTokens,
-            },
-          };
-          break;
-        }
-
-        default:
-          res.status(400).json({ error: `Unknown callType: ${callType}` });
-          return;
-      }
-
-      analyticsStore.logAiCall({
-        runId: resolvedRunId,
-        visitorId: req.visitorId,
-        callType,
-        model,
-        status: 'success',
-        statusCode: 200,
-        durationMs: Date.now() - startedAt,
-        ...extractAiUsageMetrics(response, model),
-      });
-
-      res.json(response);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'AI API call failed';
-      console.error('AI API error:', error);
-      analyticsStore.logAiCall({
-        runId: resolvedRunId,
-        visitorId: req.visitorId,
-        callType,
-        model: '',
-        status: 'error',
-        statusCode: 500,
-        durationMs: Date.now() - startedAt,
-        errorMessage: message,
-      });
-
-      res.status(500).json({ error: message });
-    }
-  });
+  // Only named comparison phases are exposed. Prompts, schemas, models, and tools
+  // are selected in the server router and cannot be supplied by callers.
+  app.use('/api/ai/phases', createComparisonAgentRouter({
+    provider,
+    analyticsStore,
+    rateLimitSecret: adminSessionSecret,
+  }));
 
   app.post('/api/admin/login', (req, res) => {
+    if (applyRateLimit(res, rateLimit('admin-login', `ip:${getRequestIp(req)}`, 8, 15 * 60 * 1_000))) return;
     if (!adminPassword) {
       res.status(503).json({ error: 'Admin password is not configured' });
       return;
@@ -452,6 +446,49 @@ export function createApp({
   };
 
   app.use('/api/admin', requireAdmin);
+  app.use('/api/admin', (req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      next();
+      return;
+    }
+    const rawKey = req.body?.idempotencyKey;
+    if (rawKey === undefined) {
+      next();
+      return;
+    }
+    if (typeof rawKey !== 'string' || !/^[A-Za-z0-9:_-]{16,200}$/.test(rawKey)) {
+      res.status(400).json({ error: 'Invalid idempotencyKey' });
+      return;
+    }
+    const now = Date.now();
+    for (const [key, value] of adminIdempotency) {
+      if (value.expiresAt <= now) adminIdempotency.delete(key);
+    }
+    const cacheKey = `${req.method}:${req.path}:${rawKey}`;
+    const cached = adminIdempotency.get(cacheKey);
+    if (cached?.status === 'processing') {
+      res.status(409).json({ error: 'Identical operation is already in progress' });
+      return;
+    }
+    if (cached?.status === 'done') {
+      res.status(cached.statusCode || 200).json(cached.body);
+      return;
+    }
+    adminIdempotency.set(cacheKey, { status: 'processing', expiresAt: now + 24 * 60 * 60 * 1_000 });
+    const originalJson = res.json.bind(res);
+    res.json = ((body: unknown) => {
+      if (res.statusCode < 500) {
+        adminIdempotency.set(cacheKey, {
+          status: 'done', statusCode: res.statusCode, body, expiresAt: Date.now() + 24 * 60 * 60 * 1_000,
+        });
+      } else adminIdempotency.delete(cacheKey);
+      return originalJson(body);
+    }) as typeof res.json;
+    res.once('close', () => {
+      if (adminIdempotency.get(cacheKey)?.status === 'processing') adminIdempotency.delete(cacheKey);
+    });
+    next();
+  });
 
   app.post('/api/admin/logout', (_req, res) => {
     res.clearCookie(ADMIN_SESSION_COOKIE, getAdminSessionCookieOptions(0));
@@ -463,8 +500,16 @@ export function createApp({
   });
 
   app.get('/api/admin/summary', (req, res) => {
-    const period = req.query.period ? Number(req.query.period) : 1;
-    res.json(analyticsStore.getSummary(period || 1));
+    const period = req.query.period === undefined ? 1 : Number(req.query.period);
+    try {
+      res.json(analyticsStore.getSummary(period));
+    } catch (error) {
+      if (error instanceof RangeError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
   });
 
   app.get('/api/admin/runs', (req, res) => {
@@ -554,9 +599,10 @@ export function createApp({
     }
 
     const { itemA, itemB, language } = req.body || {};
+    const controller = requestAbortController(req, res);
 
     try {
-      const result = await demandSensingService.scorePair(itemA, itemB, language);
+      const result = await demandSensingService.scorePair(itemA, itemB, language, controller.signal);
       res.json(result);
     } catch (err) {
       if (err instanceof DemandSensingError) {
@@ -681,10 +727,11 @@ export function createApp({
       .filter((p): p is NonNullable<typeof p> => p !== null && p.status !== 'promoted');
 
     const lang = typeof language === 'string' ? language : 'en';
+    const controller = requestAbortController(req, res);
 
     const results = await mapConcurrent(pairs, 5, async (pair) => {
       try {
-        const result = await demandSensingService.scorePair(pair.itemAName, pair.itemBName, lang);
+        const result = await demandSensingService.scorePair(pair.itemAName, pair.itemBName, lang, controller.signal);
         candidateStore.updateScore(pair.id, result);
         return { id: pair.id, status: 'scored' as const, result };
       } catch (err) {
@@ -716,23 +763,23 @@ export function createApp({
       const id = Number(rawId);
       if (!Number.isFinite(id)) continue;
 
-      const pair = candidateStore.getCandidate(id);
-      if (!pair) {
-        skipped.push({ candidateId: id, reason: 'not_found' });
-        continue;
-      }
-      if (pair.status === 'promoted') {
-        skipped.push({ candidateId: id, reason: 'already_promoted' });
-        continue;
-      }
-
       try {
-        const featured = featuredStore.addFeatured(pair.itemAName, pair.itemBName, {
-          language: lang,
-          description: desc,
-        });
-        candidateStore.markPromoted(id);
-        promoted.push(featured);
+        const promotion = candidateStore.promoteCandidate(
+          id,
+          (pair) => featuredStore.addFeatured(pair.itemAName, pair.itemBName, {
+            language: lang,
+            description: desc,
+          }),
+          ['pending', 'scored'],
+        );
+        if (!promotion.promoted && 'reason' in promotion) {
+          skipped.push({
+            candidateId: id,
+            reason: promotion.reason === 'not_found' ? 'not_found' : 'already_promoted',
+          });
+          continue;
+        }
+        promoted.push(promotion.value);
       } catch (err) {
         console.error(`bulk-promote create_failed for candidate ${id}:`, err);
         skipped.push({ candidateId: id, reason: 'create_failed' });
@@ -743,6 +790,7 @@ export function createApp({
   });
 
   app.post('/api/admin/reports/:reportId/backfill-sources', async (req, res) => {
+    const controller = requestAbortController(req, res);
     const report = reportStore.getReport(req.params.reportId);
     if (!report) {
       res.status(404).json({ error: 'Report not found' });
@@ -754,17 +802,19 @@ export function createApp({
 
       // Research both items to get sources
       const [resA, resB] = await Promise.all([
-        provider.research(report.itemA),
-        provider.research(report.itemB),
+        provider.research(report.itemA, undefined, controller.signal),
+        provider.research(report.itemB, undefined, controller.signal),
       ]);
 
       const allSourcesRaw = [...(resA.sources || []), ...(resB.sources || [])];
       const seen = new Set<string>();
-      const allSources = allSourcesRaw.filter((s) => {
-        const norm = (s.url || '').replace(/\/+$/, '').toLowerCase();
-        if (!norm || seen.has(norm)) return false;
-        seen.add(norm);
-        return true;
+      const allSources = allSourcesRaw.flatMap((source) => {
+        const url = normalizeSafeHttpUrl(source?.url);
+        if (!url || typeof source?.title !== 'string' || !source.title.trim()) return [];
+        const normalized = url.replace(/\/+$/, '').toLowerCase();
+        if (seen.has(normalized)) return [];
+        seen.add(normalized);
+        return [{ url, title: source.title.trim().slice(0, 500) }];
       }).slice(0, 20);
 
       // For each dimension, match citations
@@ -812,11 +862,20 @@ Return ONLY the citations array.`,
           },
           schemaName: 'citation_match',
           temperature: 0.1,
+          enableThinking: false,
+          signal: controller.signal,
         });
 
         try {
-          const parsed = JSON.parse(citationResult.json);
-          dim.analysis.citations = parsed.citations || [];
+          const parsed = JSON.parse(citationResult.json) as { citations?: unknown };
+          const allowed = new Map(allSources.map((source) => [source.url.replace(/\/+$/, '').toLowerCase(), source]));
+          const citations = Array.isArray(parsed.citations) ? parsed.citations.slice(0, 2) : [];
+          dim.analysis.citations = citations.flatMap((citation) => {
+            if (!citation || typeof citation !== 'object') return [];
+            const url = normalizeSafeHttpUrl((citation as { url?: unknown }).url);
+            const matched = url && allowed.get(url.replace(/\/+$/, '').toLowerCase());
+            return matched ? [matched] : [];
+          });
           dimensionsUpdated++;
         } catch {
           dim.analysis.citations = [];
@@ -843,9 +902,11 @@ Return ONLY the citations array.`,
   // --- Report endpoints ---
 
   app.post('/api/reports', (req: RequestWithVisitor, res) => {
-    const { runId, itemA, itemB, language, result } = req.body || {};
+    if (limitByIpAndVisitor(req, res, 'report-write', 12, 60 * 60 * 1_000)) return;
+    const { runId, itemA, itemB, language, result, reportToken } = req.body || {};
 
-    if (typeof itemA !== 'string' || typeof itemB !== 'string' || !itemA.trim() || !itemB.trim()) {
+    if (typeof itemA !== 'string' || typeof itemB !== 'string' || !itemA.trim() || !itemB.trim()
+      || itemA.length > 200 || itemB.length > 200) {
       res.status(400).json({ error: 'Missing itemA or itemB' });
       return;
     }
@@ -856,12 +917,45 @@ Return ONLY the citations array.`,
     }
 
     try {
+      const normalizedRunId = typeof runId === 'string' && runId.trim() ? runId.trim() : undefined;
+      if (normalizedRunId) {
+        const ownedRun = analyticsStore.getDb().prepare(`
+          SELECT visitor_id AS visitorId, item_a AS itemA, item_b AS itemB
+          FROM comparison_runs WHERE run_id = ?
+        `).get(normalizedRunId) as { visitorId?: string; itemA?: string; itemB?: string } | undefined;
+        if (!ownedRun || ownedRun.visitorId !== req.visitorId
+          || ownedRun.itemA?.trim() !== itemA.trim() || ownedRun.itemB?.trim() !== itemB.trim()) {
+          res.status(403).json({ error: 'runId does not belong to this report' });
+          return;
+        }
+      }
+      const normalizedLanguage = typeof language === 'string' ? language : 'en';
+      if (!['en', 'zh-CN', 'zh-TW'].includes(normalizedLanguage)) {
+        res.status(400).json({ error: 'Unsupported language' });
+        return;
+      }
+      const serializedResult = serializeComparisonResult(result);
+      const reportScope = `${req.visitorId || `ip:${getRequestIp(req)}`}:${normalizedRunId || ''}`;
+      if (!serializedResult || !verifyReportToken(
+        reportToken,
+        reportScope,
+        normalizedLanguage as 'en' | 'zh-CN' | 'zh-TW',
+        serializedResult,
+      )) {
+        res.status(403).json({ error: 'Missing or invalid report grant' });
+        return;
+      }
+      const normalizedResult = JSON.parse(serializedResult) as {
+        entityA: { name: string };
+        entityB: { name: string };
+      };
+      const idempotencyRunId = normalizedRunId || `grant_${crypto.createHash('sha256').update(String(reportToken)).digest('hex')}`;
       const saved = reportStore.saveReport({
-        runId: typeof runId === 'string' ? runId : undefined,
-        itemA,
-        itemB,
-        language: typeof language === 'string' ? language : 'en',
-        result,
+        runId: idempotencyRunId,
+        itemA: normalizedResult.entityA.name,
+        itemB: normalizedResult.entityB.name,
+        language: normalizedLanguage,
+        result: normalizedResult,
         visitorId: req.visitorId,
       });
 
@@ -887,7 +981,7 @@ Return ONLY the citations array.`,
     }
 
     reportStore.incrementViewCount(report.reportId);
-    res.json(report);
+    res.json(toPublicReportDto(report));
   });
 
   app.get('/api/reports/:reportId', (req, res) => {
@@ -898,10 +992,8 @@ Return ONLY the citations array.`,
       return;
     }
 
-    // Increment view count (fire-and-forget)
     reportStore.incrementViewCount(req.params.reportId);
-
-    res.json(report);
+    res.json(toPublicReportDto(report));
   });
 
   app.get('/api/reports/:reportId/feedback', (req, res) => {
@@ -909,6 +1001,7 @@ Return ONLY the citations array.`,
   });
 
   app.post('/api/reports/:reportId/feedback', (req: RequestWithVisitor, res) => {
+    if (limitByIpAndVisitor(req, res, 'feedback', 30, 60 * 60 * 1_000)) return;
     const { helpful } = req.body || {};
     if (typeof helpful !== 'boolean') {
       res.status(400).json({ error: 'Missing helpful (boolean)' });
@@ -919,7 +1012,15 @@ Return ONLY the citations array.`,
       res.status(400).json({ error: 'Missing visitor identity' });
       return;
     }
-    res.json(reportStore.submitFeedback(req.params.reportId, visitorId, helpful));
+    try {
+      res.json(reportStore.submitFeedback(req.params.reportId, visitorId, helpful));
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('missing report')) {
+        res.status(404).json({ error: 'Report not found' });
+        return;
+      }
+      res.status(400).json({ error: 'Unable to save feedback' });
+    }
   });
 
   app.get('/api/admin/reports', (req, res) => {

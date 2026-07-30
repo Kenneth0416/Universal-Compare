@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, ReactNode } from 'react';
-import { motion, useAnimationFrame, useMotionValue, useTransform } from 'motion/react';
+import { motion, useMotionValue, useTransform } from 'motion/react';
+import { useRespectfulAnimationFrame } from './usePrefersReducedMotion';
 
 interface NeonTextProps {
   children: ReactNode;
@@ -52,7 +53,7 @@ export default function NeonText({
   const pulseDuration = Math.max(pulseSpeed, 0.2) * 1000;
   const palette = colors.length >= 3 ? colors : [...colors, ...DEFAULT_COLORS].slice(0, 3);
 
-  useAnimationFrame((time) => {
+  const prefersReducedMotion = useRespectfulAnimationFrame((time) => {
     if (isPaused) {
       lastTimeRef.current = null;
       return;
@@ -88,9 +89,10 @@ export default function NeonText({
   useEffect(() => {
     elapsedRef.current = 0;
     pulseElapsedRef.current = 0;
+    lastTimeRef.current = null;
     progress.set(0);
     pulse.set(0.5);
-  }, [animationSpeed, pulseSpeed, yoyo, progress, pulse]);
+  }, [animationSpeed, pulseSpeed, yoyo, progress, pulse, prefersReducedMotion]);
 
   const backgroundPosition = useTransform(progress, (value) => {
     if (direction === 'vertical') {

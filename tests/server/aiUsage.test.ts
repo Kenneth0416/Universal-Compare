@@ -55,11 +55,28 @@ test('estimates cost for known xAI fast models when provider cost is absent', ()
   assert.equal(metrics.totalTokens, 1_250_000);
   assert.equal(metrics.cachedTokens, 100_000);
   assert.equal(metrics.reasoningTokens, 50_000);
-  assert.equal(metrics.costUsd, 0.31);
+  assert.equal(metrics.costUsd, 0.285);
   assert.equal(metrics.costSource, 'estimated');
   assert.equal(metrics.webSearchCount, 0);
   assert.equal(metrics.xSearchCount, 0);
   assert.equal(metrics.toolUsageJson, null);
+});
+
+test('does not double-count reasoning tokens when total is inferred', () => {
+  const metrics = extractAiUsageMetrics(
+    {
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 40,
+        completion_tokens_details: { reasoning_tokens: 15 },
+      },
+    },
+    'grok-4-1-fast-reasoning',
+  );
+
+  assert.equal(metrics.totalTokens, 140);
+  assert.equal(metrics.reasoningTokens, 15);
+  assert.equal(metrics.costUsd, 0.00004);
 });
 
 test('estimates cost for MiniMax M2.7 model when provider cost is absent', () => {

@@ -16,8 +16,49 @@ import { DemandSensingService } from './demandSensing';
 import { createEntityPoolStore } from './entityPool';
 import { createCandidatePairStore } from './candidatePairs';
 
-const PORT = process.env.API_SERVER_PORT || 3001;
+const PORT = Number(process.env.API_SERVER_PORT || 3001);
+const HOST = process.env.API_SERVER_HOST || '127.0.0.1';
 const AI_PROVIDER = process.env.AI_PROVIDER || 'grok';
+
+if (!Number.isSafeInteger(PORT) || PORT < 1 || PORT > 65_535) {
+  throw new Error('API_SERVER_PORT must be an integer between 1 and 65535');
+}
+if (!/^(?:127\.0\.0\.1|::1|localhost)$/.test(HOST) && process.env.ALLOW_PUBLIC_API_BIND !== 'true') {
+  throw new Error('API_SERVER_HOST must be loopback unless ALLOW_PUBLIC_API_BIND=true');
+}
+if (process.env.NODE_ENV === 'production') {
+  const requireSecret = (name: string) => {
+    const value = process.env[name]?.trim() || '';
+    if (value.length < 16 || /[<>]/.test(value)
+      || /(?:change[-_ ]?me|replace[-_ ]?me|placeholder|example|server[-_ ]?side[-_ ]?secret|distinct[-_ ]?random[-_ ]?secret|your[-_ ]?(?:api[-_ ]?)?(?:key|secret|token)?)/i.test(value)) {
+      throw new Error(`${name} must be a non-placeholder production secret`);
+    }
+  };
+  if (AI_PROVIDER === 'grok') requireSecret('XAI_API_KEY');
+  else if (AI_PROVIDER === 'minimax') {
+    requireSecret('MINIMAX_API_KEY');
+    requireSecret('DEEPSEEK_API_KEY');
+  } else throw new Error('AI_PROVIDER must be grok or minimax');
+  requireSecret('ADMIN_PASSWORD');
+  requireSecret('ADMIN_SESSION_SECRET');
+  requireSecret('AI_SOURCE_SIGNING_SECRET');
+  const siteUrl = process.env.SITE_URL || process.env.APP_URL || '';
+  try {
+    const parsedSiteUrl = new URL(siteUrl);
+    const forbiddenHosts = new Set([
+      'example.com', 'www.example.com', 'localhost',
+      'your-domain.com', 'www.your-domain.com', 'yourdomain.com', 'domain.com',
+    ]);
+    if (parsedSiteUrl.protocol !== 'https:' || !parsedSiteUrl.hostname || parsedSiteUrl.username
+      || parsedSiteUrl.password || forbiddenHosts.has(parsedSiteUrl.hostname.toLowerCase())
+      || parsedSiteUrl.hostname.endsWith('.example.com')
+      || (parsedSiteUrl.pathname !== '/' && parsedSiteUrl.pathname !== '')) {
+      throw new Error('invalid');
+    }
+  } catch {
+    throw new Error('SITE_URL must be a valid HTTPS origin in production');
+  }
+}
 
 const grokClient = process.env.XAI_API_KEY
   ? new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1' })
@@ -73,6 +114,6 @@ const app = createApp({
   siteUrl: process.env.SITE_URL || process.env.APP_URL,
 });
 
-app.listen(PORT, () => {
-  console.log(`AI comparison server running on port ${PORT} (provider: ${AI_PROVIDER})`);
+app.listen(PORT, HOST, () => {
+  console.log(`AI comparison server running on http://${HOST}:${PORT} (provider: ${AI_PROVIDER})`);
 });

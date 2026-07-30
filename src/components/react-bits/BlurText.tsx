@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useRef, type CSSProperties } from 'react';
-import { motion, useAnimationFrame, useMotionValue } from 'motion/react';
+import { motion, useMotionValue } from 'motion/react';
 import FuzzyText from './FuzzyText';
+import { useRespectfulAnimationFrame } from './usePrefersReducedMotion';
 
 interface BlurTextProps {
   children: ReactNode;
@@ -49,12 +50,7 @@ export default function BlurText({
   const safeGradientSpeed = Math.max(gradientAnimationSpeed, 0);
   const gradientDuration = Math.max(safeGradientSpeed, 0.1) * 1000;
 
-  useAnimationFrame((time) => {
-    if (!enableGradient || safeGradientSpeed === 0) {
-      lastTimeRef.current = null;
-      return;
-    }
-
+  const prefersReducedMotion = useRespectfulAnimationFrame((time) => {
     if (lastTimeRef.current === null) {
       lastTimeRef.current = time;
       return;
@@ -76,7 +72,7 @@ export default function BlurText({
     } else {
       gradientShift.set((elapsedRef.current / gradientDuration) * 100);
     }
-  });
+  }, enableGradient && safeGradientSpeed > 0);
 
   useEffect(() => {
     elapsedRef.current = 0;
@@ -87,12 +83,12 @@ export default function BlurText({
     return (
       <motion.span
         className={`inline-block ${className}`}
-        initial={{ filter: `blur(${safeBlur}px)` }}
+        initial={prefersReducedMotion ? false : { filter: `blur(${safeBlur}px)` }}
         animate={{ filter: 'blur(0px)' }}
         transition={{
-          duration: safeDuration,
+          duration: prefersReducedMotion ? 0 : safeDuration,
           ease: [0.22, 0.8, 0.22, 1],
-          repeat: loop ? Infinity : 0,
+          repeat: loop && !prefersReducedMotion ? Infinity : 0,
           repeatType: 'reverse'
         }}
       >
@@ -160,7 +156,7 @@ export default function BlurText({
 
     if (enableFuzzy && displayChar !== '\u00A0') {
       content = (
-        <FuzzyText intensity={fuzzyIntensity} animated={fuzzyAnimated} className="inline-block">
+        <FuzzyText intensity={fuzzyIntensity} animated={fuzzyAnimated && !prefersReducedMotion} className="inline-block">
           {content}
         </FuzzyText>
       );
@@ -178,13 +174,13 @@ export default function BlurText({
         <motion.span
           key={`${char}-${index}`}
           className="inline-block"
-          initial={{ filter: `blur(${safeBlur}px)` }}
+          initial={prefersReducedMotion ? false : { filter: `blur(${safeBlur}px)` }}
           animate={{ filter: 'blur(0px)' }}
           transition={{
-            duration: safeDuration,
-            delay: index * safeStagger,
+            duration: prefersReducedMotion ? 0 : safeDuration,
+            delay: prefersReducedMotion ? 0 : index * safeStagger,
             ease: [0.22, 0.8, 0.22, 1],
-            repeat: loop ? Infinity : 0,
+            repeat: loop && !prefersReducedMotion ? Infinity : 0,
             repeatType: 'reverse'
           }}
         >

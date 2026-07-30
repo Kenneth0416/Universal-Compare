@@ -20,17 +20,32 @@ export {
   runAnalystAgent,
   runProsConsAgent,
   runRecommendationAgent,
+  runFinalizeAgent,
   mapConcurrent,
 } from './apiService';
 
-function deduplicateSourcesByUrl(sources: Source[]): Source[] {
+function interleaveValidSources(left: Source[], right: Source[]): Source[] {
   const seen = new Set<string>();
-  return sources.filter((s) => {
-    const normalized = s.url.replace(/\/+$/, '').toLowerCase();
-    if (!normalized || seen.has(normalized)) return false;
-    seen.add(normalized);
-    return true;
-  });
+  const balanced: Source[] = [];
+  const maxLength = Math.max(left.length, right.length);
+
+  for (let index = 0; index < maxLength && balanced.length < 20; index += 1) {
+    for (const source of [left[index], right[index]]) {
+      if (!source) continue;
+      try {
+        const url = new URL(source.url);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') continue;
+        const normalized = url.toString().replace(/\/+$/, '').toLowerCase();
+        if (seen.has(normalized)) continue;
+        seen.add(normalized);
+        balanced.push({ ...source, url: url.toString() });
+      } catch {
+        // Provider URLs are untrusted; malformed and non-HTTP(S) sources are omitted.
+      }
+    }
+  }
+
+  return balanced;
 }
 
 /**
@@ -42,29 +57,30 @@ export async function generateComparison(
   onProgress?: (progress: ComparisonProgress) => void,
   onPhaseComplete?: (phase: string, data: any) => void,
   language?: string,
-  runId?: string
+  runId?: string,
+  signal?: AbortSignal,
 ): Promise<ComparisonResult> {
 
   // Phase 1: Dual-Track Research (now returns sources)
   onProgress?.({ key: 'researching' });
   const [resA, resB] = await Promise.all([
-    apiService.runResearcherAgent(itemA, language, runId),
-    apiService.runResearcherAgent(itemB, language, runId)
+    apiService.runResearcherAgent(itemA, language, runId, signal),
+    apiService.runResearcherAgent(itemB, language, runId, signal),
   ]);
   const profileA = resA.profile;
   const profileB = resB.profile;
-  const allSources = deduplicateSourcesByUrl([...resA.sources, ...resB.sources]).slice(0, 20);
+  const allSources = interleaveValidSources(resA.sources, resB.sources);
   onPhaseComplete?.('entities', { entityA: profileA, entityB: profileB });
 
   // Phase 2: Framework Architecture
   onProgress?.({ key: 'architecting' });
-  const framework = await apiService.runArchitectAgent(profileA, profileB, language, runId);
+  const framework = await apiService.runArchitectAgent(profileA, profileB, language, runId, signal);
   onPhaseComplete?.('framework', { relationship: framework.relationship, dimensionCount: framework.dimensions.length });
 
   // Phase 3: Multi-Dimensional Analysis — passes sources to analyst
   onProgress?.({ key: 'analyzing', count: framework.dimensions.length });
-  const analyzedDimensions = await apiService.mapConcurrent(framework.dimensions, 6, async (dim) => {
-    const result = await apiService.runAnalystAgent(profileA, profileB, dim, allSources, language, runId);
+  const analyzedDimensions = await apiService.mapConcurrent(framework.dimensions, 3, async (dim) => {
+    const result = await apiService.runAnalystAgent(profileA, profileB, dim, allSources, language, runId, signal);
     onPhaseComplete?.('dimension', result);
     return result;
   });
@@ -72,14 +88,14 @@ export async function generateComparison(
   // Phase 4: Synthesis & Verdict (Concurrent)
   onProgress?.({ key: 'synthesizing' });
   const [prosCons, recommendation] = await Promise.all([
-    apiService.runProsConsAgent(profileA, profileB, analyzedDimensions, language, runId),
-    apiService.runRecommendationAgent(profileA, profileB, analyzedDimensions, null, language, runId)
+    apiService.runProsConsAgent(profileA, profileB, analyzedDimensions, language, runId, signal, allSources),
+    apiService.runRecommendationAgent(profileA, profileB, analyzedDimensions, null, language, runId, signal, allSources),
   ]);
   onPhaseComplete?.('verdict', { prosCons, recommendation });
 
   // Assemble Final Result — includes sources
   onProgress?.({ key: 'finalizing' });
-  return {
+  const result: ComparisonResult = {
     entityA: profileA,
     entityB: profileB,
     relationship: framework.relationship,
@@ -88,4 +104,6 @@ export async function generateComparison(
     recommendation,
     sources: allSources,
   };
+  const { reportToken } = await apiService.runFinalizeAgent(result, language, runId, signal);
+  return { ...result, reportToken };
 }

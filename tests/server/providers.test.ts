@@ -91,6 +91,27 @@ test('parseMinimaxToolCall: returns null for non-tool-call text', () => {
   assert.equal(result, null);
 });
 
+test('MinimaxProvider research fails closed when every search fails', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('search unavailable', { status: 503 });
+  const mockClient = {
+    chat: {
+      completions: {
+        create: async () => ({
+          choices: [{ message: { content: JSON.stringify({ queries: ['topic overview', 'topic reviews'] }) } }],
+          usage: { total_tokens: 10 },
+        }),
+      },
+    },
+  };
+  try {
+    const provider = new MinimaxProvider(mockClient as any, 'test-key', { chatClient: mockClient as any });
+    await assert.rejects(() => provider.research('topic'), /no search query returned a usable source/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('MinimaxProvider.chatCompletion uses DeepSeek with json_object and prompt schema', async () => {
   const capturedParams: Record<string, unknown>[] = [];
   const mockChatClient = {

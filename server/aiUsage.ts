@@ -78,7 +78,8 @@ function estimateCostUsd(
 
   const cachedInputTokens = Math.min(metrics.cachedTokens, metrics.promptTokens);
   const uncachedInputTokens = Math.max(metrics.promptTokens - cachedInputTokens, 0);
-  const outputTokens = metrics.completionTokens + metrics.reasoningTokens;
+  // Provider completion/output token counts already include reasoning tokens.
+  const outputTokens = metrics.completionTokens;
 
   const cost =
     (uncachedInputTokens * pricing.inputUsdPerMillion +
@@ -145,7 +146,7 @@ export function extractAiUsageMetrics(response: unknown, model: string): AiUsage
     usage.completion_tokens_details?.reasoning_tokens ?? usage.output_tokens_details?.reasoning_tokens,
   );
   const explicitTotalTokens = nonNegativeInteger(usage.total_tokens);
-  const totalTokens = explicitTotalTokens || promptTokens + completionTokens + reasoningTokens;
+  const totalTokens = explicitTotalTokens || promptTokens + completionTokens;
 
   const baseMetrics = {
     promptTokens,

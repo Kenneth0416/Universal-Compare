@@ -1,7 +1,8 @@
 import React from 'react';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { normalizeComparisonScore, POSTER_SCORE_MAX } from './poster/posterUtils';
 
 interface ComparisonCardProps {
   title: string;
@@ -57,15 +58,7 @@ const formatScore = (value?: number | null) => {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 };
 
-const SCORE_SEGMENTS = 10;
-
-const clampScore = (value?: number | null) => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return null;
-  }
-
-  return Math.min(SCORE_SEGMENTS, Math.max(0, value));
-};
+const SCORE_SEGMENTS = POSTER_SCORE_MAX;
 
 const getScoreFillClass = (value: number) => {
   if (value >= 7) {
@@ -86,8 +79,8 @@ interface ScoreGaugeProps {
 
 const ScoreGauge: React.FC<ScoreGaugeProps> = ({ label, score }) => {
   const { t } = useTranslation();
-  const formattedScore = formatScore(score);
-  const normalizedScore = clampScore(score);
+  const normalizedScore = normalizeComparisonScore(score);
+  const formattedScore = formatScore(normalizedScore);
   const filledSegments = normalizedScore === null ? 0 : Math.round(normalizedScore);
   const fillClass = normalizedScore === null ? 'bg-white/10' : getScoreFillClass(normalizedScore);
 
@@ -132,6 +125,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = React.useState(false);
+  const prefersReducedMotion = useReducedMotion();
   const contentId = React.useId().replace(/:/g, '');
   const preview = truncatePreview(summary ?? extractTextContent(children));
 
@@ -139,19 +133,12 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
     setIsExpanded((current) => !current);
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      handleToggle();
-    }
-  };
-
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -2 }}
-      transition={{ duration: 0.4, ease: 'easeOut' }}
+      whileHover={prefersReducedMotion ? undefined : { y: -2 }}
+      transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.4, ease: 'easeOut' }}
       className={[
         'group h-full overflow-hidden rounded-2xl border backdrop-blur-xl shadow-2xl transition-[border-color,box-shadow,background-color] duration-300',
         isExpanded
@@ -159,16 +146,14 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
           : 'border-white/10 bg-white/5 shadow-black/50 hover:border-indigo-300/35 hover:shadow-[0_0_28px_rgba(129,140,248,0.18)]',
         className
       ].join(' ')}
-      style={{ willChange: 'transform' }}
+      style={prefersReducedMotion ? undefined : { willChange: 'transform' }}
     >
-      <div
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
         aria-expanded={isExpanded}
         aria-controls={contentId}
         onClick={handleToggle}
-        onKeyDown={handleKeyDown}
-        className="cursor-pointer select-none px-4 py-4 outline-none transition-colors sm:px-6 sm:py-5 focus-visible:ring-2 focus-visible:ring-indigo-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#050505]"
+        className="w-full cursor-pointer select-none px-4 py-4 text-left outline-none transition-colors sm:px-6 sm:py-5 focus-visible:ring-2 focus-visible:ring-indigo-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#050505]"
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
@@ -192,40 +177,39 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
 
           <motion.span
             animate={{ rotate: isExpanded ? 180 : 0 }}
-            transition={accordionSpring}
+            transition={prefersReducedMotion ? { duration: 0 } : accordionSpring}
             className="mt-1 shrink-0 rounded-full border border-white/10 bg-white/5 p-2 text-neutral-300"
             aria-hidden="true"
           >
             <ChevronDown size={16} />
           </motion.span>
         </div>
-      </div>
+      </button>
 
-      <motion.div
-        id={contentId}
-        initial={false}
-        animate={{
-          height: isExpanded ? 'auto' : 0,
-          opacity: isExpanded ? 1 : 0
-        }}
-        transition={{
-          height: accordionSpring,
-          opacity: { duration: 0.18, ease: 'easeOut' }
-        }}
-        className={isExpanded ? 'overflow-hidden' : 'pointer-events-none overflow-hidden'}
-        aria-hidden={!isExpanded}
-      >
+      {isExpanded && (
         <motion.div
-          initial={false}
-          animate={{ y: isExpanded ? 0 : -8 }}
-          transition={{ duration: 0.2, ease: 'easeOut' }}
-          className="px-4 pb-4 sm:px-6 sm:pb-6"
+          id={contentId}
+          key="expanded-content"
+          initial={prefersReducedMotion ? false : { height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          transition={prefersReducedMotion ? { duration: 0 } : {
+            height: accordionSpring,
+            opacity: { duration: 0.18, ease: 'easeOut' }
+          }}
+          className="overflow-hidden"
         >
-          <div className="border-t border-white/10 pt-4 text-sm leading-relaxed text-neutral-300">
-            {children}
-          </div>
+          <motion.div
+            initial={prefersReducedMotion ? false : { y: -8 }}
+            animate={{ y: 0 }}
+            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.2, ease: 'easeOut' }}
+            className="px-4 pb-4 sm:px-6 sm:pb-6"
+          >
+            <div className="border-t border-white/10 pt-4 text-sm leading-relaxed text-neutral-300">
+              {children}
+            </div>
+          </motion.div>
         </motion.div>
-      </motion.div>
+      )}
     </motion.div>
   );
 };

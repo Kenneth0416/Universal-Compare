@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import { ComparisonResult } from '../services/geminiService';
 import { useTranslation } from 'react-i18next';
+import { normalizeComparisonScore, stableDimensionKeys } from './poster/posterUtils';
 
 interface DimensionChartProps {
   dimensions: ComparisonResult['dimensions'];
@@ -21,7 +22,7 @@ interface DimensionChartProps {
 export const DimensionChart: React.FC<DimensionChartProps> = ({ dimensions, entityA, entityB }) => {
   const { t } = useTranslation();
   const safeDimensions = Array.isArray(dimensions) ? dimensions : [];
-  const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && isFinite(value);
+  const dimensionKeys = stableDimensionKeys(safeDimensions);
 
   const angleTick = (props: any) => {
     const { payload, x, y, textAnchor } = props;
@@ -48,8 +49,8 @@ export const DimensionChart: React.FC<DimensionChartProps> = ({ dimensions, enti
 
     return {
       subject: dim.label,
-      [entityA]: isFiniteNumber(scoreA) ? scoreA : 0,
-      [entityB]: isFiniteNumber(scoreB) ? scoreB : 0,
+      scoreA: normalizeComparisonScore(scoreA),
+      scoreB: normalizeComparisonScore(scoreB),
       fullMark: 10,
     };
   });
@@ -91,14 +92,14 @@ export const DimensionChart: React.FC<DimensionChartProps> = ({ dimensions, enti
               />
               <Radar
                 name={entityA}
-                dataKey={entityA}
+                dataKey="scoreA"
                 stroke="#818cf8"
                 fill="#818cf8"
                 fillOpacity={0.4}
               />
               <Radar
                 name={entityB}
-                dataKey={entityB}
+                dataKey="scoreB"
                 stroke="#c084fc"
                 fill="#c084fc"
                 fillOpacity={0.4}
@@ -121,21 +122,22 @@ export const DimensionChart: React.FC<DimensionChartProps> = ({ dimensions, enti
               {safeDimensions.map((dim, idx) => {
                 const rawScoreA = dim.analysis?.optional_score_a;
                 const rawScoreB = dim.analysis?.optional_score_b;
-                const scoreA = isFiniteNumber(rawScoreA) ? rawScoreA : 0;
-                const scoreB = isFiniteNumber(rawScoreB) ? rawScoreB : 0;
-                const isAWinner = scoreA > scoreB;
-                const isBWinner = scoreB > scoreA;
-                const isTie = scoreA === scoreB;
+                const scoreA = normalizeComparisonScore(rawScoreA);
+                const scoreB = normalizeComparisonScore(rawScoreB);
+                const hasBothScores = scoreA !== null && scoreB !== null;
+                const isAWinner = hasBothScores && scoreA > scoreB;
+                const isBWinner = hasBothScores && scoreB > scoreA;
+                const isTie = hasBothScores && scoreA === scoreB;
 
                 return (
-                  <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
+                  <tr key={dimensionKeys[idx]} className="hover:bg-white/[0.02] transition-colors">
                     <td className="py-3 px-4 text-sm text-white font-medium">{dim.label}</td>
                     <td className="py-3 px-4 text-center">
                       <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-md text-sm font-mono ${
                         isAWinner ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 
                         isTie ? 'text-neutral-300' : 'text-neutral-500'
                       }`}>
-                        {scoreA.toFixed(1)}
+                        {scoreA === null ? '—' : scoreA.toFixed(1)}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center">
@@ -143,7 +145,7 @@ export const DimensionChart: React.FC<DimensionChartProps> = ({ dimensions, enti
                         isBWinner ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 
                         isTie ? 'text-neutral-300' : 'text-neutral-500'
                       }`}>
-                        {scoreB.toFixed(1)}
+                        {scoreB === null ? '—' : scoreB.toFixed(1)}
                       </span>
                     </td>
                   </tr>

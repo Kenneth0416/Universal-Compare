@@ -1,40 +1,54 @@
 import './i18n';
-import {StrictMode} from 'react';
+import {lazy, StrictMode, Suspense, type ComponentType} from 'react';
 import {createRoot} from 'react-dom/client';
-import AdminApp from './admin/AdminApp.tsx';
-import App from './App.tsx';
-import AboutPage from './components/AboutPage.tsx';
-import MethodologyPage from './components/MethodologyPage.tsx';
+import {MotionConfig} from 'motion/react';
 import LanguageSwitcher from './components/LanguageSwitcher.tsx';
-import PopularComparisonsPage from './components/PopularComparisonsPage.tsx';
-import PrivacyPolicyPage from './components/PrivacyPolicyPage.tsx';
-import ReportViewer from './components/ReportViewer.tsx';
-import TermsPage from './components/TermsPage.tsx';
 import './index.css';
 
 const pathname = window.location.pathname;
-let RootApp;
-if (pathname.startsWith('/admin')) {
-  RootApp = AdminApp;
+const isAdminRoute = pathname.startsWith('/admin');
+let loadRootApp: () => Promise<{ default: ComponentType }>;
+
+if (isAdminRoute) {
+  loadRootApp = () => import('./admin/AdminApp.tsx');
 } else if (pathname === '/methodology') {
-  RootApp = MethodologyPage;
+  loadRootApp = () => import('./components/MethodologyPage.tsx');
 } else if (pathname === '/about') {
-  RootApp = AboutPage;
+  loadRootApp = () => import('./components/AboutPage.tsx');
 } else if (pathname === '/privacy') {
-  RootApp = PrivacyPolicyPage;
+  loadRootApp = () => import('./components/PrivacyPolicyPage.tsx');
 } else if (pathname === '/terms') {
-  RootApp = TermsPage;
+  loadRootApp = () => import('./components/TermsPage.tsx');
 } else if (pathname.startsWith('/r/') || pathname.startsWith('/compare/')) {
-  RootApp = ReportViewer;
+  loadRootApp = () => import('./components/ReportViewer.tsx');
 } else if (pathname === '/popular-ai-comparisons') {
-  RootApp = PopularComparisonsPage;
+  loadRootApp = () => import('./components/PopularComparisonsPage.tsx');
 } else {
-  RootApp = App;
+  loadRootApp = () => import('./App.tsx');
+}
+
+const RootApp = lazy(loadRootApp);
+
+function PageLoadingFallback() {
+  return (
+    <main
+      className="flex min-h-screen items-center justify-center bg-[#050505] px-4 text-neutral-300"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <span className="animate-pulse">Loading page…</span>
+    </main>
+  );
 }
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {pathname.startsWith('/admin') ? null : <LanguageSwitcher />}
-    <RootApp />
+    <MotionConfig reducedMotion="user">
+      {isAdminRoute ? null : <LanguageSwitcher />}
+      <Suspense fallback={<PageLoadingFallback />}>
+        <RootApp />
+      </Suspense>
+    </MotionConfig>
   </StrictMode>,
 );

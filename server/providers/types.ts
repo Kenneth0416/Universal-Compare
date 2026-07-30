@@ -34,7 +34,7 @@ export type Source = {
 export interface AIProvider {
   readonly name: string;
   /** Phase 1: research with web search. rawParams allows pass-through of frontend-built requests. */
-  research(query: string, rawParams?: ResearchRawParams): Promise<{
+  research(query: string, rawParams?: ResearchRawParams, signal?: AbortSignal): Promise<{
     text: string;
     sources?: Source[];
     metrics: AiCallMetrics;
@@ -46,5 +46,6 @@ export interface AIProvider {
     temperature?: number;
     /** Enable model thinking/reasoning for complex tasks (analysis, synthesis). */
     enableThinking?: boolean;
+    signal?: AbortSignal;
   }): Promise<{ json: string; metrics: AiCallMetrics }>;
 }

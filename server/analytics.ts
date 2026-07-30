@@ -13,6 +13,7 @@ type DatabaseConnection = {
     get: (...params: unknown[]) => any;
     all: (...params: unknown[]) => any[];
   };
+  transaction: <T>(fn: () => T) => () => T;
   pragma: (source: string) => void;
 };
 
@@ -165,34 +166,18 @@ function generateId(prefix: string) {
   return `${prefix}_${crypto.randomBytes(12).toString('hex')}`;
 }
 
-function startOfTodayIso() {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  return date.toISOString();
-}
-
 function dateKey(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function buildLastSevenDays() {
-  const days: TrendPoint[] = [];
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - 6);
+const ALLOWED_SUMMARY_PERIODS = new Set([0, 1, 7, 14, 30]);
 
-  for (let index = 0; index < 7; index += 1) {
-    const date = new Date(start);
-    date.setDate(start.getDate() + index);
-    days.push({
-      date: dateKey(date),
-      users: 0,
-      comparisons: 0,
-      aiCalls: 0,
-    });
+export function normalizeSummaryPeriod(periodDays?: number): 0 | 1 | 7 | 14 | 30 {
+  const resolved = periodDays === undefined ? 0 : periodDays;
+  if (!Number.isInteger(resolved) || !ALLOWED_SUMMARY_PERIODS.has(resolved)) {
+    throw new RangeError('periodDays must be one of 0, 1, 7, 14, or 30');
   }
-
-  return days;
+  return resolved as 0 | 1 | 7 | 14 | 30;
 }
 
 function percentage(part: number, total: number) {
@@ -326,23 +311,16 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
 
   const startComparisonRun = (input: StartComparisonRunInput) => {
     const now = isoNow();
-    const runId = input.runId || generateId('run');
-
-    db.prepare(`
-      INSERT INTO comparison_runs (
+    const requestedRunId = input.runId?.trim().slice(0, 200);
+    const insert = db.prepare(`
+      INSERT OR IGNORE INTO comparison_runs (
         run_id, visitor_id, item_a, item_b, language, status, error_message, started_at, finished_at
       )
       VALUES (?, ?, ?, ?, ?, 'started', NULL, ?, NULL)
-      ON CONFLICT(run_id) DO UPDATE SET
-        visitor_id = excluded.visitor_id,
-        item_a = excluded.item_a,
-        item_b = excluded.item_b,
-        language = excluded.language,
-        status = 'started',
-        error_message = NULL,
-        started_at = excluded.started_at,
-        finished_at = NULL
-    `).run(
+    `);
+
+    let runId = requestedRunId || generateId('run');
+    let result = insert.run(
       runId,
       input.visitorId,
       truncate(input.itemA),
@@ -351,28 +329,50 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       now,
     );
 
+    // Generated IDs are owned by the server and should never alias an existing run.
+    while (!requestedRunId && result.changes === 0) {
+      runId = generateId('run');
+      result = insert.run(
+        runId,
+        input.visitorId,
+        truncate(input.itemA),
+        truncate(input.itemB),
+        truncate(input.language, 20) || 'en',
+        now,
+      );
+    }
+
+    const created = result.changes > 0;
+    const existing = created
+      ? null
+      : db.prepare('SELECT visitor_id AS visitorId FROM comparison_runs WHERE run_id = ?').get(runId);
+
     return {
       runId,
       visitorId: input.visitorId,
+      created,
+      owned: created || existing?.visitorId === input.visitorId,
     };
   };
 
   const finishComparisonRun = (input: FinishComparisonRunInput) => {
-    const now = isoNow();
+    if (!input.visitorId) {
+      return { updated: false };
+    }
+
     const result = db.prepare(`
       UPDATE comparison_runs
       SET status = ?, error_message = ?, finished_at = ?
-      WHERE run_id = ?
-    `).run(input.status, input.errorMessage ? truncate(input.errorMessage, 1000) : null, now, input.runId);
+      WHERE run_id = ? AND visitor_id = ?
+    `).run(
+      input.status,
+      input.errorMessage ? truncate(input.errorMessage, 1000) : null,
+      isoNow(),
+      input.runId,
+      input.visitorId,
+    );
 
-    if (result.changes === 0) {
-      db.prepare(`
-        INSERT INTO comparison_runs (
-          run_id, visitor_id, item_a, item_b, language, status, error_message, started_at, finished_at
-        )
-        VALUES (?, ?, '', '', 'en', ?, ?, ?, ?)
-      `).run(input.runId, input.visitorId || '', input.status, input.errorMessage || null, now, now);
-    }
+    return { updated: result.changes > 0 };
   };
 
   const logAiCall = (input: LogAiCallInput) => {
@@ -527,20 +527,22 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
   };
 
   const getSummary = (periodDays?: number): AdminSummary => {
+    const period = normalizeSummaryPeriod(periodDays);
     const now = new Date();
-    let periodStart: string;
+    let periodStart = '';
 
-    if (!periodDays) {
-      // "All time" — use a very old date
-      periodStart = '2000-01-01T00:00:00.000Z';
-    } else {
+    if (period === 1) {
       const start = new Date(now);
-      start.setDate(start.getDate() - periodDays + 1);
-      start.setHours(0, 0, 0, 0);
+      start.setUTCMinutes(0, 0, 0);
+      start.setUTCHours(start.getUTCHours() - 23);
+      periodStart = start.toISOString();
+    } else if (period > 1) {
+      const start = new Date(now);
+      start.setUTCHours(0, 0, 0, 0);
+      start.setUTCDate(start.getUTCDate() - period + 1);
       periodStart = start.toISOString();
     }
 
-    const todayStart = startOfTodayIso();
     const todayRow = db.prepare(`
       SELECT
         (SELECT COUNT(*) FROM visitors WHERE last_seen_at >= ?) AS users,
@@ -592,32 +594,30 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
     };
 
     // Build trend window: hourly for 24h, daily for 7d+
-    const isHourly = periodDays === 1;
+    const isHourly = period === 1;
     const trend: TrendPoint[] = [];
 
     if (isHourly) {
-      // 24 hourly buckets
-      const hourStart = new Date(now);
-      hourStart.setMinutes(0, 0, 0);
-      hourStart.setHours(hourStart.getHours() - 23);
+      const hourStart = new Date(periodStart);
       for (let index = 0; index < 24; index += 1) {
-        const h = new Date(hourStart);
-        h.setHours(hourStart.getHours() + index);
+        const hour = new Date(hourStart);
+        hour.setUTCHours(hourStart.getUTCHours() + index);
         trend.push({
-          date: `${String(h.getHours()).padStart(2, '0')}:00`,
+          date: `${hour.toISOString().slice(0, 13)}:00`,
           users: 0,
           comparisons: 0,
           aiCalls: 0,
         });
       }
     } else {
-      const trendDays = periodDays || 7;
+      // Keep an all-time request bounded to a useful seven-day trend window.
+      const trendDays = period || 7;
       const trendStart = new Date(now);
-      trendStart.setDate(trendStart.getDate() - trendDays + 1);
-      trendStart.setHours(0, 0, 0, 0);
+      trendStart.setUTCHours(0, 0, 0, 0);
+      trendStart.setUTCDate(trendStart.getUTCDate() - trendDays + 1);
       for (let index = 0; index < trendDays; index += 1) {
         const date = new Date(trendStart);
-        date.setDate(trendStart.getDate() + index);
+        date.setUTCDate(trendStart.getUTCDate() + index);
         trend.push({
           date: dateKey(date),
           users: 0,
@@ -628,11 +628,12 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
     }
 
     const trendByDate = new Map(trend.map((item) => [item.date, item]));
+    const firstTrendPoint = trend[0];
     const trendStartDate = isHourly
-      ? (() => { const h = new Date(now); h.setMinutes(0, 0, 0); h.setHours(h.getHours() - 23); return h.toISOString(); })()
-      : `${trend[0].date}T00:00:00.000Z`;
-
-    // Group by: hourly = first 13 chars (YYYY-MM-DDTHH), daily = first 10 chars (YYYY-MM-DD)
+      ? periodStart
+      : firstTrendPoint
+        ? `${firstTrendPoint.date}T00:00:00.000Z`
+        : now.toISOString();
     const groupLen = isHourly ? 13 : 10;
 
     for (const row of db.prepare(`
@@ -641,11 +642,7 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       WHERE first_seen_at >= ?
       GROUP BY substr(first_seen_at, 1, ${groupLen})
     `).all(trendStartDate)) {
-      let key = row.date;
-      if (isHourly) {
-        // Convert "2026-04-30T05" to "05:00"
-        key = key.slice(11) + ':00';
-      }
+      const key = isHourly ? `${row.date}:00` : row.date;
       const point = trendByDate.get(key);
       if (point) point.users = Number(row.count || 0);
     }
@@ -656,8 +653,7 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       WHERE started_at >= ?
       GROUP BY substr(started_at, 1, ${groupLen})
     `).all(trendStartDate)) {
-      let key = row.date;
-      if (isHourly) key = key.slice(11) + ':00';
+      const key = isHourly ? `${row.date}:00` : row.date;
       const point = trendByDate.get(key);
       if (point) point.comparisons = Number(row.count || 0);
     }
@@ -668,8 +664,7 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       WHERE created_at >= ?
       GROUP BY substr(created_at, 1, ${groupLen})
     `).all(trendStartDate)) {
-      let key = row.date;
-      if (isHourly) key = key.slice(11) + ':00';
+      const key = isHourly ? `${row.date}:00` : row.date;
       const point = trendByDate.get(key);
       if (point) point.aiCalls = Number(row.count || 0);
     }

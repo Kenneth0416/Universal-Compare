@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 
 export const ADMIN_SESSION_COOKIE = 'compareai_admin_session';
 export const ADMIN_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const VISITOR_ID_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
 
 function sign(secret: string, payload: string) {
   return crypto.createHmac('sha256', secret).update(payload).digest('base64url');
@@ -32,6 +33,43 @@ export function verifyAdminSessionToken(token: string | undefined, secret: strin
   if (now - createdAt > ADMIN_SESSION_MAX_AGE_MS) return false;
 
   return safeEqual(signature, sign(secret, timestamp));
+}
+
+export function createVisitorIdToken(
+  visitorId: string,
+  secret: string,
+  createdAt = Date.now(),
+) {
+  if (
+    !/^v_[a-zA-Z0-9_-]{1,128}$/.test(visitorId) ||
+    !secret ||
+    !Number.isFinite(createdAt) ||
+    createdAt < 0
+  ) {
+    throw new Error('visitorId, secret, and createdAt must be valid');
+  }
+  const timestamp = String(createdAt);
+  const payload = `${visitorId}.${timestamp}`;
+  return `${payload}.${sign(secret, `visitor:${payload}`)}`;
+}
+
+export function verifyVisitorIdToken(
+  token: string | undefined,
+  secret: string,
+  now = Date.now(),
+): string | null {
+  if (!token || !secret) return null;
+
+  const [visitorId, timestamp, signature, extra] = token.split('.');
+  if (!visitorId || !timestamp || !signature || extra) return null;
+  if (!/^v_[a-zA-Z0-9_-]{1,128}$/.test(visitorId)) return null;
+
+  const createdAt = Number(timestamp);
+  if (!Number.isFinite(createdAt) || createdAt > now) return null;
+  if (now - createdAt > VISITOR_ID_MAX_AGE_MS) return null;
+
+  const payload = `${visitorId}.${timestamp}`;
+  return safeEqual(signature, sign(secret, `visitor:${payload}`)) ? visitorId : null;
 }
 
 export function parseCookieHeader(header: string | undefined) {

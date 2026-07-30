@@ -24,6 +24,7 @@ export type MinimaxSearchFn = (
   apiKey: string,
   query: string,
   baseUrl?: string,
+  signal?: AbortSignal,
 ) => Promise<{ text: string; sources: Source[] }>;
 
 export type DemandSensingDependencies = {
@@ -126,6 +127,7 @@ export class DemandSensingService {
     itemA: string,
     itemB: string,
     language = 'en',
+    signal?: AbortSignal,
   ): Promise<DemandSenseResult> {
     if (
       typeof itemA !== 'string' ||
@@ -154,8 +156,8 @@ export class DemandSensingService {
     const redditQuery = `${trimmedA} vs ${trimmedB} reddit`;
 
     const [r1, r2] = await Promise.allSettled([
-      this.searchFn(this.minimaxSearchApiKey, generalQuery, this.minimaxSearchBaseUrl),
-      this.searchFn(this.minimaxSearchApiKey, redditQuery, this.minimaxSearchBaseUrl),
+      this.searchFn(this.minimaxSearchApiKey, generalQuery, this.minimaxSearchBaseUrl, signal),
+      this.searchFn(this.minimaxSearchApiKey, redditQuery, this.minimaxSearchBaseUrl, signal),
     ]);
 
     const search1 = r1.status === 'fulfilled' ? r1.value : null;
@@ -168,9 +170,13 @@ export class DemandSensingService {
 
     const prompt = buildPrompt(trimmedA, trimmedB, language, search1, search2);
 
-    const { scoring, totalTokens } = await this.callDeepseekWithRetry(prompt);
+    signal?.throwIfAborted();
+    const { scoring, totalTokens } = await this.callDeepseekWithRetry(prompt, signal);
 
-    const sourcePool = search1?.sources ?? search2?.sources ?? [];
+    const sourcePool = [
+      ...(search1?.sources ?? []),
+      ...(search2?.sources ?? []),
+    ];
     const topSources = dedupeByUrl(sourcePool)
       .slice(0, 5)
       .map((s) => ({ url: s.url, title: s.title }));
@@ -188,6 +194,7 @@ export class DemandSensingService {
 
   private async callDeepseekWithRetry(
     prompt: string,
+    signal?: AbortSignal,
   ): Promise<{ scoring: any; totalTokens: number }> {
     const messages: any[] = [{ role: 'user', content: prompt }];
     let totalTokens = 0;
@@ -200,7 +207,7 @@ export class DemandSensingService {
           messages,
           temperature: 0.2,
           response_format: { type: 'json_object' },
-        } as any);
+        } as any, { signal });
 
         const content = (response as any).choices?.[0]?.message?.content || '';
         const usage = (response as any).usage || {};
@@ -210,6 +217,7 @@ export class DemandSensingService {
         this.validateScoringResponse(scoring);
         return { scoring, totalTokens };
       } catch (err) {
+        signal?.throwIfAborted();
         lastError = err as Error;
         if (attempt === 0) {
           messages.push(
@@ -231,6 +239,10 @@ export class DemandSensingService {
   }
 
   private validateScoringResponse(parsed: any): void {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('response must be an object');
+    }
+
     const required = ['score', 'recommendation', 'signals', 'reasoning'];
     const missing = required.filter(
       (k) => parsed[k] === undefined || parsed[k] === null,
@@ -238,10 +250,20 @@ export class DemandSensingService {
     if (missing.length) {
       throw new Error(`Missing required fields: ${missing.join(', ')}`);
     }
-    if (typeof parsed.score !== 'number') {
-      throw new Error('score must be a number');
+    if (typeof parsed.score !== 'number' || !Number.isFinite(parsed.score) || parsed.score < 0 || parsed.score > 10) {
+      throw new Error('score must be a finite number between 0 and 10');
     }
+    if (!['skip', 'consider', 'good', 'excellent'].includes(parsed.recommendation)) {
+      throw new Error('recommendation must be a supported value');
+    }
+    if (typeof parsed.reasoning !== 'string' || !parsed.reasoning.trim() || parsed.reasoning.length > 1000) {
+      throw new Error('reasoning must be a non-empty string of at most 1000 characters');
+    }
+
     const signals = parsed.signals;
+    if (!signals || typeof signals !== 'object' || Array.isArray(signals)) {
+      throw new Error('signals must be an object');
+    }
     const sigRequired = [
       'existing_articles_count',
       'has_reddit_discussion',
@@ -252,6 +274,18 @@ export class DemandSensingService {
     const sigMissing = sigRequired.filter((k) => signals[k] === undefined);
     if (sigMissing.length) {
       throw new Error(`Missing required signals: ${sigMissing.join(', ')}`);
+    }
+    if (!Number.isInteger(signals.existing_articles_count) || signals.existing_articles_count < 0) {
+      throw new Error('existing_articles_count must be a non-negative integer');
+    }
+    if (typeof signals.has_reddit_discussion !== 'boolean' || typeof signals.has_authoritative_source !== 'boolean') {
+      throw new Error('discussion and authoritative source signals must be booleans');
+    }
+    if (!['low', 'medium', 'high'].includes(signals.competition_level)) {
+      throw new Error('competition_level must be a supported value');
+    }
+    if (!['stale', 'recent', 'fresh'].includes(signals.freshness)) {
+      throw new Error('freshness must be a supported value');
     }
   }
 }

@@ -4,19 +4,17 @@ import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
+  const env = loadEnv(mode, '.', ['API_SERVER_PORT']);
   const apiServerPort = env.API_SERVER_PORT || process.env.API_SERVER_PORT || '3001';
   return {
     plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.XAI_API_KEY': JSON.stringify(env.XAI_API_KEY),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
       },
     },
     server: {
+      host: '127.0.0.1',
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
@@ -26,6 +24,9 @@ export default defineConfig(({mode}) => {
           changeOrigin: true,
         },
       },
+    },
+    preview: {
+      host: '127.0.0.1',
     },
   };
 });

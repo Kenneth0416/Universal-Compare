@@ -6,6 +6,7 @@ import React from 'react';
 import { ComparisonResult } from '../../services/geminiService';
 import i18n, { normalizeLanguage } from '../../i18n';
 import { clampPosterText, formatPosterScore, normalizePosterScore } from './posterUtils';
+import { normalizeHttpUrl } from '../../services/shareService';
 
 interface DimensionCardProps {
   dimension: ComparisonResult['dimensions'][number];
@@ -34,7 +35,7 @@ export const DimensionCard: React.FC<DimensionCardProps> = ({
   language,
   shareUrl,
 }) => {
-  const url = shareUrl || (typeof window !== 'undefined' ? window.location.href : '');
+  const url = normalizeHttpUrl(shareUrl) ?? '';
   const scoreA = normalizePosterScore(dimension.analysis?.optional_score_a);
   const scoreB = normalizePosterScore(dimension.analysis?.optional_score_b);
   const isAWinner = scoreA !== null && scoreB !== null && scoreA > scoreB;

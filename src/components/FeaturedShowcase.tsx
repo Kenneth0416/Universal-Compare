@@ -21,16 +21,31 @@ export default function FeaturedShowcase({ onSelect }: FeaturedShowcaseProps) {
   const [items, setItems] = useState<FeaturedItem[]>([]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
     const lang = i18nInstance.language || 'en';
-    fetch(`/api/suggestions?lang=${encodeURIComponent(lang)}`)
-      .then((res) => res.json())
-      .then((data) => setItems(data.featured || []))
-      .catch(() => {});
+
+    fetch(`/api/suggestions?lang=${encodeURIComponent(lang)}`, { signal: controller.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error(`Failed to load featured comparisons: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (active) setItems(data.featured || []);
+      })
+      .catch((error) => {
+        if (active && error instanceof Error && error.name !== 'AbortError') setItems([]);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [i18nInstance.language]);
 
   if (items.length === 0) return null;
 
-  const cardClassName = 'group block h-full rounded-2xl border border-white/10 bg-white/[0.03] p-5 text-left backdrop-blur-sm transition-all duration-300 hover:border-indigo-500/30 hover:bg-white/[0.06] hover:shadow-lg hover:shadow-indigo-500/5';
+  const cardClassName = 'group block h-full rounded-2xl border border-white/10 bg-white/[0.03] p-5 text-left backdrop-blur-sm transition-all duration-300 hover:border-indigo-500/30 hover:bg-white/[0.06] hover:shadow-lg hover:shadow-indigo-500/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400';
 
   const renderCardContent = (item: FeaturedItem) => (
     <>

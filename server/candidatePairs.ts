@@ -7,6 +7,7 @@ type DatabaseConnection = {
     get: (...params: unknown[]) => any;
     all: (...params: unknown[]) => any[];
   };
+  transaction: <T>(fn: () => T) => () => T;
 };
 
 export type CandidatePairStatus = 'pending' | 'scored' | 'promoted' | 'rejected';
@@ -31,6 +32,18 @@ export type CandidatePair = {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+export const CANDIDATE_SYNC_BATCH_SIZE = 5000;
+
+function normalizeLimit(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) return 200;
+  return Math.min(Math.max(Math.floor(value), 1), 500);
+}
+
+function normalizeOffset(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) return 0;
+  return Math.min(Math.max(Math.floor(value), 0), 2_147_483_647);
 }
 
 function initializeSchema(db: DatabaseConnection) {
@@ -77,46 +90,42 @@ export function createCandidatePairStore(db: DatabaseConnection) {
   initializeSchema(db);
 
   const syncFromEntityPool = (category?: string): { created: number; total: number } => {
-    const entityRows = (category
-      ? db.prepare('SELECT id, name, category FROM entity_pool WHERE category = ? ORDER BY id ASC').all(category)
-      : db.prepare('SELECT id, name, category FROM entity_pool ORDER BY id ASC').all()) as Array<{ id: number; name: string; category: string }>;
+    const countSql = category
+      ? `SELECT COALESCE(SUM(cnt * (cnt - 1) / 2), 0) AS total
+         FROM (SELECT COUNT(*) AS cnt FROM entity_pool WHERE category = ? GROUP BY category)`
+      : `SELECT COALESCE(SUM(cnt * (cnt - 1) / 2), 0) AS total
+         FROM (SELECT COUNT(*) AS cnt FROM entity_pool GROUP BY category)`;
+    const total = Number(db.prepare(countSql).get(...(category ? [category] : [])).total || 0);
 
-    let created = 0;
-    let total = 0;
+    const categoryClause = category ? 'AND e1.category = ?' : '';
+    const insertSql = `
+      INSERT OR IGNORE INTO candidate_pairs (
+        entity_a_id, entity_b_id, item_a_name, item_b_name, category, status, created_at
+      )
+      SELECT e1.id, e2.id, e1.name, e2.name, e1.category, 'pending', ?
+      FROM entity_pool e1
+      JOIN entity_pool e2 ON e1.category = e2.category AND e1.id < e2.id
+      WHERE 1 = 1
+        ${categoryClause}
+        AND NOT EXISTS (
+          SELECT 1 FROM candidate_pairs c
+          WHERE c.entity_a_id = e1.id AND c.entity_b_id = e2.id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM featured_comparisons f
+          WHERE (LOWER(f.item_a) = LOWER(e1.name) AND LOWER(f.item_b) = LOWER(e2.name))
+             OR (LOWER(f.item_a) = LOWER(e2.name) AND LOWER(f.item_b) = LOWER(e1.name))
+        )
+      ORDER BY e1.id, e2.id
+      LIMIT ?
+    `;
 
-    for (let i = 0; i < entityRows.length; i++) {
-      for (let j = i + 1; j < entityRows.length; j++) {
-        const ei = entityRows[i];
-        const ej = entityRows[j];
-        if (ei.category !== ej.category) continue;
-        total++;
-
-        const aIsFirst = ei.id < ej.id;
-        const aId = aIsFirst ? ei.id : ej.id;
-        const bId = aIsFirst ? ej.id : ei.id;
-        const aName = aIsFirst ? ei.name : ej.name;
-        const bName = aIsFirst ? ej.name : ei.name;
-
-        const existing = db.prepare(
-          'SELECT 1 FROM candidate_pairs WHERE entity_a_id = ? AND entity_b_id = ?',
-        ).get(aId, bId);
-        if (existing) continue;
-
-        const inFeatured = db.prepare(
-          `SELECT 1 FROM featured_comparisons
-           WHERE (LOWER(item_a) = LOWER(?) AND LOWER(item_b) = LOWER(?))
-              OR (LOWER(item_a) = LOWER(?) AND LOWER(item_b) = LOWER(?))`,
-        ).get(aName, bName, bName, aName);
-        if (inFeatured) continue;
-
-        db.prepare(
-          `INSERT INTO candidate_pairs
-           (entity_a_id, entity_b_id, item_a_name, item_b_name, category, status, created_at)
-           VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-        ).run(aId, bId, aName, bName, ei.category, nowIso());
-        created++;
-      }
-    }
+    const created = db.transaction(() => {
+      const params: unknown[] = [nowIso()];
+      if (category) params.push(category);
+      params.push(CANDIDATE_SYNC_BATCH_SIZE);
+      return db.prepare(insertSql).run(...params).changes;
+    })();
 
     return { created, total };
   };
@@ -148,8 +157,8 @@ export function createCandidatePairStore(db: DatabaseConnection) {
       `SELECT COUNT(*) AS cnt FROM candidate_pairs ${whereClause}`,
     ).get(...params) as { cnt: number };
 
-    const limit = opts.limit ?? 200;
-    const offset = opts.offset ?? 0;
+    const limit = normalizeLimit(opts.limit);
+    const offset = normalizeOffset(opts.offset);
 
     const items = db.prepare(
       `SELECT ${SELECT_COLS} FROM candidate_pairs
@@ -171,7 +180,7 @@ export function createCandidatePairStore(db: DatabaseConnection) {
   const updateScore = (id: number, result: DemandSenseResult): void => {
     db.prepare(
       `UPDATE candidate_pairs SET
-         status = 'scored',
+         status = CASE WHEN status = 'promoted' THEN 'promoted' ELSE 'scored' END,
          demand_score = ?,
          recommendation = ?,
          signals_json = ?,
@@ -199,6 +208,28 @@ export function createCandidatePairStore(db: DatabaseConnection) {
     return result.changes > 0;
   };
 
+  const promoteCandidate = <T>(
+    id: number,
+    createFeatured: (candidate: CandidatePair) => T,
+    allowedStatuses: CandidatePairStatus[] = ['scored'],
+  ):
+    | { promoted: true; candidate: CandidatePair; value: T }
+    | { promoted: false; reason: 'not_found' | 'invalid_status'; candidate?: CandidatePair } =>
+    db.transaction(() => {
+      const candidate = getCandidate(id);
+      if (!candidate) return { promoted: false as const, reason: 'not_found' as const };
+      if (!allowedStatuses.includes(candidate.status)) {
+        return { promoted: false as const, reason: 'invalid_status' as const, candidate };
+      }
+
+      const value = createFeatured(candidate);
+      const changed = db.prepare(
+        `UPDATE candidate_pairs SET status = 'promoted' WHERE id = ? AND status = ?`,
+      ).run(id, candidate.status).changes;
+      if (changed !== 1) throw new Error('candidate status changed during promotion');
+      return { promoted: true as const, candidate: { ...candidate, status: 'promoted' as const }, value };
+    })();
+
   const markRejected = (id: number): boolean => {
     const result = db.prepare(
       `UPDATE candidate_pairs SET status = 'rejected' WHERE id = ? AND status != 'rejected'`,
@@ -212,6 +243,7 @@ export function createCandidatePairStore(db: DatabaseConnection) {
     getCandidate,
     updateScore,
     markPromoted,
+    promoteCandidate,
     markRejected,
   };
 }

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { generateComparison, ComparisonResult } from './services/geminiService';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Loader2, AlertCircle } from 'lucide-react';
@@ -8,118 +8,256 @@ import ComparisonResultView from './components/ComparisonResultView';
 import FeaturedShowcase from './components/FeaturedShowcase';
 import ComparisonSuggestions from './components/ComparisonSuggestions';
 import { finishComparisonRun, startComparisonRun } from './services/trackingService';
-import { saveReport } from './services/reportService';
+import { saveReport, type SaveReportInput } from './services/reportService';
 import MinimalGrid from './components/react-bits/MinimalGrid';
 import BlurText from './components/react-bits/BlurText';
 import { useTranslation } from 'react-i18next';
 
+const MAX_ITEM_LENGTH = 100;
+
+type PartialComparisonResult = Partial<ComparisonResult> & { dimensions?: ComparisonResult['dimensions'] };
+type ReportSaveStatus = 'ready' | 'saving' | 'error';
+type ReportPayload = Omit<SaveReportInput, 'signal'>;
+type CompatibleResultViewProps = React.ComponentProps<typeof ComparisonResultView> & {
+  reportStatus?: ReportSaveStatus;
+  onRetrySave?: () => void;
+};
+
+// These optional props are ignored by the current view and can be consumed by a view with richer share UX.
+const CompatibleComparisonResultView = ComparisonResultView as React.ComponentType<CompatibleResultViewProps>;
+
 const warnTrackingFailure = (error: unknown) => {
+  if (error instanceof Error && error.name === 'AbortError') return;
   console.warn('Comparison tracking failed:', error);
 };
+
+const normalizeItem = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 
 export default function App() {
   const { t, i18n: i18nInstance } = useTranslation();
   const [itemA, setItemA] = useState('');
   const [itemB, setItemB] = useState('');
+  const [submittedItems, setSubmittedItems] = useState({ itemA: '', itemB: '' });
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState('');
   const [result, setResult] = useState<ComparisonResult | null>(null);
-  const [partialResult, setPartialResult] = useState<Partial<ComparisonResult> & { dimensions?: any[] }>({});
-  const [showPartial, setShowPartial] = useState(false);
+  const [partialResult, setPartialResult] = useState<PartialComparisonResult>({});
   const [error, setError] = useState('');
+  const [validationError, setValidationError] = useState('');
   const [reportUrl, setReportUrl] = useState<string | null>(null);
+  const [reportSaveStatus, setReportSaveStatus] = useState<ReportSaveStatus>('ready');
   const [showSuggestions, setShowSuggestions] = useState(false);
+
   const formRef = useRef<HTMLFormElement>(null);
+  const firstInputRef = useRef<HTMLInputElement>(null);
+  const resultFocusRef = useRef<HTMLDivElement>(null);
+  const errorFocusRef = useRef<HTMLDivElement>(null);
+  const inFlightRef = useRef(false);
+  const generationRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const saveAttemptRef = useRef(0);
+  const retryReportRef = useRef<{ generation: number; payload: ReportPayload; signal: AbortSignal } | null>(null);
 
-  const handleShowcaseSelect = (a: string, b: string) => {
-    setItemA(a);
-    setItemB(b);
-    setShowSuggestions(false);
-    // Auto-trigger comparison after state update
-    setTimeout(() => formRef.current?.requestSubmit(), 0);
-  };
+  useEffect(() => () => {
+    generationRef.current += 1;
+    inFlightRef.current = false;
+    abortControllerRef.current?.abort();
+  }, []);
 
-  const handleCompare = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!itemA.trim() || !itemB.trim()) return;
+  useEffect(() => {
+    if (loading) return;
+    const target = error ? errorFocusRef.current : result ? resultFocusRef.current : null;
+    if (target) window.requestAnimationFrame(() => target.focus());
+  }, [error, loading, result]);
 
-    const currentLanguage = i18nInstance.language || 'en';
-
-    setLoading(true);
-    setShowPartial(false);
-    setPartialResult({});
-    setError('');
-    setResult(null);
-    setReportUrl(null);
-    setLoadingStep(t('loading.initializing'));
-
-    let runId: string | undefined;
+  const persistReport = async (
+    generation: number,
+    payload: ReportPayload,
+    signal: AbortSignal,
+  ) => {
+    if (generationRef.current !== generation) return;
+    const attempt = ++saveAttemptRef.current;
+    setReportSaveStatus('saving');
 
     try {
-      const run = await startComparisonRun({
-        itemA,
-        itemB,
-        language: currentLanguage,
-      }).catch((trackingError) => {
-        warnTrackingFailure(trackingError);
-        return null;
-      });
-      runId = run?.runId;
-
-      const res = await generateComparison(
-        itemA,
-        itemB,
-        (progress) => {
-          setLoadingStep(t(`loading.${progress.key}`, { count: progress.count }));
-        },
-        (phase, data) => {
-          setShowPartial(true);
-          setPartialResult((prev) => {
-            if (phase === 'dimension') {
-              return {
-                ...prev,
-                dimensions: [...(prev.dimensions || []), data],
-              };
-            }
-            return { ...prev, ...data };
-          });
-        },
-        currentLanguage,
-        runId
-      );
-      setResult(res);
-
-      // Fire-and-forget: track completion + save report in parallel
-      if (runId) {
-        Promise.allSettled([
-          finishComparisonRun({ runId, status: 'completed' }),
-          saveReport({ runId, itemA, itemB, language: currentLanguage, result: res }),
-        ]).then(([, reportResult]) => {
-          if (reportResult.status === 'fulfilled') {
-            setReportUrl(reportResult.value.url);
-          }
-        }).catch(warnTrackingFailure);
-      }
-    } catch (err: any) {
-      if (runId) {
-        await finishComparisonRun({
-          runId,
-          status: 'failed',
-          errorMessage: err.message || t('error.generic'),
-        }).catch(warnTrackingFailure);
-      }
-      setError(err.message || t('error.generic'));
-    } finally {
-      setLoading(false);
+      const saved = await saveReport({ ...payload, signal });
+      if (!saved.url) throw new Error('Report response did not include a URL');
+      if (generationRef.current !== generation || saveAttemptRef.current !== attempt) return;
+      setReportUrl(saved.url);
+      setReportSaveStatus('ready');
+    } catch (saveError) {
+      if (generationRef.current !== generation || saveAttemptRef.current !== attempt) return;
+      if (saveError instanceof Error && saveError.name === 'AbortError') return;
+      setReportSaveStatus('error');
     }
   };
 
-  const displayResult = result || (showPartial ? partialResult as Partial<ComparisonResult> & { dimensions?: any[] } : null);
+  const retryReportSave = () => {
+    const retry = retryReportRef.current;
+    if (!retry || retry.generation !== generationRef.current || reportSaveStatus === 'saving') return;
+    void persistReport(retry.generation, retry.payload, retry.signal);
+  };
+
+  const handleShowcaseSelect = (a: string, b: string) => {
+    if (inFlightRef.current) return;
+    setItemA(a);
+    setItemB(b);
+    setValidationError('');
+    setShowSuggestions(false);
+    // Submit after React applies both selected values. The synchronous ref still rejects duplicates.
+    window.setTimeout(() => formRef.current?.requestSubmit(), 0);
+  };
+
+  const handleCompare = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (inFlightRef.current) return;
+
+    const itemASnapshot = itemA.trim();
+    const itemBSnapshot = itemB.trim();
+    const languageSnapshot = i18nInstance.language || 'en';
+
+    if (!itemASnapshot || !itemBSnapshot) {
+      setValidationError(t('error.itemsRequired', { defaultValue: 'Enter both items to compare.' }));
+      firstInputRef.current?.focus();
+      return;
+    }
+    if (itemASnapshot.length > MAX_ITEM_LENGTH || itemBSnapshot.length > MAX_ITEM_LENGTH) {
+      setValidationError(t('error.itemTooLong', {
+        defaultValue: `Each item must be ${MAX_ITEM_LENGTH} characters or fewer.`,
+        count: MAX_ITEM_LENGTH,
+      }));
+      firstInputRef.current?.focus();
+      return;
+    }
+    if (normalizeItem(itemASnapshot) === normalizeItem(itemBSnapshot)) {
+      setValidationError(t('error.itemsMustDiffer', { defaultValue: 'Choose two different items to compare.' }));
+      firstInputRef.current?.focus();
+      return;
+    }
+
+    // This lock is set before the first await so submit/requestSubmit cannot start a second pipeline.
+    inFlightRef.current = true;
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const generation = generationRef.current + 1;
+    generationRef.current = generation;
+    saveAttemptRef.current += 1;
+    retryReportRef.current = null;
+
+    setSubmittedItems({ itemA: itemASnapshot, itemB: itemBSnapshot });
+    setLoading(true);
+    setShowSuggestions(false);
+    setPartialResult({});
+    setValidationError('');
+    setError('');
+    setResult(null);
+    setReportUrl(null);
+    setReportSaveStatus('ready');
+    setLoadingStep(t('loading.initializing'));
+
+    let runId: string | undefined;
+    const isCurrentGeneration = () => generationRef.current === generation;
+
+    try {
+      const run = await startComparisonRun({
+        itemA: itemASnapshot,
+        itemB: itemBSnapshot,
+        language: languageSnapshot,
+        signal: controller.signal,
+      }).catch((trackingError) => {
+        if (isCurrentGeneration()) warnTrackingFailure(trackingError);
+        return null;
+      });
+      if (!isCurrentGeneration()) return;
+      runId = run?.runId;
+
+      const comparison = await generateComparison(
+        itemASnapshot,
+        itemBSnapshot,
+        (progress) => {
+          if (!isCurrentGeneration()) return;
+          setLoadingStep(t(`loading.${progress.key}`, { count: progress.count }));
+        },
+        (phase, data) => {
+          if (!isCurrentGeneration()) return;
+          setPartialResult((previous) => {
+            if (!isCurrentGeneration()) return previous;
+            if (phase === 'dimension') {
+              return {
+                ...previous,
+                dimensions: [...(previous.dimensions || []), data],
+              };
+            }
+            return { ...previous, ...data };
+          });
+        },
+        languageSnapshot,
+        runId,
+        controller.signal,
+      );
+      if (!isCurrentGeneration()) return;
+      setResult(comparison);
+
+      if (runId) {
+        void finishComparisonRun({
+          runId,
+          status: 'completed',
+          signal: controller.signal,
+        }).catch((trackingError) => {
+          if (isCurrentGeneration()) warnTrackingFailure(trackingError);
+        });
+      }
+
+      // Saving is independent from tracking and also runs when startComparisonRun failed.
+      const reportPayload: ReportPayload = {
+        runId,
+        itemA: itemASnapshot,
+        itemB: itemBSnapshot,
+        language: languageSnapshot,
+        result: comparison,
+      };
+      retryReportRef.current = { generation, payload: reportPayload, signal: controller.signal };
+      void persistReport(generation, reportPayload, controller.signal);
+    } catch (comparisonError) {
+      if (!isCurrentGeneration()) return;
+      const message = comparisonError instanceof Error
+        ? comparisonError.message
+        : t('error.generic');
+
+      if (runId) {
+        void finishComparisonRun({
+          runId,
+          status: 'failed',
+          errorMessage: message,
+          signal: controller.signal,
+        }).catch((trackingError) => {
+          if (isCurrentGeneration()) warnTrackingFailure(trackingError);
+        });
+      }
+      if (isCurrentGeneration()) setError(message || t('error.generic'));
+    } finally {
+      if (isCurrentGeneration()) {
+        setLoading(false);
+        setShowSuggestions(false);
+        inFlightRef.current = false;
+      }
+    }
+  };
+
+  const partialDimensionCount = partialResult.dimensions?.length || 0;
+  const hasPartialData = Boolean(
+    partialResult.entityA ||
+    partialResult.entityB ||
+    partialResult.relationship ||
+    partialDimensionCount ||
+    partialResult.prosCons ||
+    partialResult.recommendation,
+  );
 
   return (
     <div className="min-h-screen font-sans selection:bg-indigo-500/30 selection:text-indigo-200 relative">
       <MinimalGrid />
-      {/* Header / Hero */}
       <header className="pt-20 pb-16 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto text-center relative z-10">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -145,16 +283,29 @@ export default function App() {
           <form ref={formRef} onSubmit={handleCompare} className="max-w-3xl mx-auto relative">
             <div className="flex flex-col sm:flex-row items-center gap-4 bg-white/5 backdrop-blur-xl p-2 rounded-3xl shadow-2xl border border-white/10">
               <div className="flex-1 w-full relative">
+                <label htmlFor="comparison-item-a" className="sr-only">
+                  {t('loading.itemA')}
+                </label>
                 <input
+                  ref={firstInputRef}
+                  id="comparison-item-a"
                   type="text"
                   value={itemA}
-                  onChange={(e) => setItemA(e.target.value)}
-                  onFocus={() => setShowSuggestions(true)}
+                  onChange={(e) => {
+                    setItemA(e.target.value);
+                    setValidationError('');
+                  }}
+                  onFocus={() => !inFlightRef.current && setShowSuggestions(true)}
                   placeholder={t('hero.placeholderA')}
+                  aria-label={t('loading.itemA')}
+                  aria-describedby={`comparison-input-hint${validationError ? ' comparison-validation-error' : ''}`}
+                  aria-invalid={Boolean(validationError)}
                   inputMode="text"
                   autoComplete="off"
                   autoCapitalize="words"
-                  className="w-full px-6 py-4 bg-transparent outline-none text-base sm:text-lg font-medium text-white placeholder:text-neutral-500"
+                  maxLength={MAX_ITEM_LENGTH}
+                  disabled={loading}
+                  className="w-full px-6 py-4 bg-transparent outline-none text-base sm:text-lg font-medium text-white placeholder:text-neutral-500 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400"
                   required
                 />
               </div>
@@ -162,54 +313,89 @@ export default function App() {
                 <span className="text-sm font-bold font-mono">VS</span>
               </div>
               <div className="flex-1 w-full relative border-t-2 sm:border-t-0 sm:border-l-2 border-white/20">
+                <label htmlFor="comparison-item-b" className="sr-only">
+                  {t('loading.itemB')}
+                </label>
                 <input
+                  id="comparison-item-b"
                   type="text"
                   value={itemB}
-                  onChange={(e) => setItemB(e.target.value)}
-                  onFocus={() => setShowSuggestions(true)}
+                  onChange={(e) => {
+                    setItemB(e.target.value);
+                    setValidationError('');
+                  }}
+                  onFocus={() => !inFlightRef.current && setShowSuggestions(true)}
                   placeholder={t('hero.placeholderB')}
+                  aria-label={t('loading.itemB')}
+                  aria-describedby={`comparison-input-hint${validationError ? ' comparison-validation-error' : ''}`}
+                  aria-invalid={Boolean(validationError)}
                   inputMode="text"
                   autoComplete="off"
                   autoCapitalize="words"
-                  className="w-full px-6 py-4 bg-transparent outline-none text-base sm:text-lg font-medium text-white placeholder:text-neutral-500"
+                  maxLength={MAX_ITEM_LENGTH}
+                  disabled={loading}
+                  className="w-full px-6 py-4 bg-transparent outline-none text-base sm:text-lg font-medium text-white placeholder:text-neutral-500 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400"
                   required
                 />
               </div>
               <button
                 type="submit"
                 disabled={loading || !itemA.trim() || !itemB.trim()}
-                className="w-full sm:w-auto px-8 py-4 min-h-[44px] bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/25"
+                aria-label={loading ? t('hero.comparing') : t('hero.compareBtn')}
+                aria-busy={loading}
+                className="w-full sm:w-auto px-8 py-4 min-h-[44px] bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-950"
               >
                 {loading ? (
-                  <Loader2 className="animate-spin" size={20} />
+                  <>
+                    <Loader2 className="animate-spin" size={20} aria-hidden="true" />
+                    <span>{t('hero.comparing')}</span>
+                  </>
                 ) : (
                   <>
                     <span>{t('hero.compareBtn')}</span>
-                    <Search size={18} />
+                    <Search size={18} aria-hidden="true" />
                   </>
                 )}
               </button>
             </div>
+            <p id="comparison-input-hint" className="mt-3 text-left text-xs text-neutral-500">
+              {t('hero.inputLimit', {
+                defaultValue: 'Use two different items, up to {{count}} characters each.',
+                count: MAX_ITEM_LENGTH,
+              })}
+            </p>
+            {validationError && (
+              <p
+                id="comparison-validation-error"
+                role="alert"
+                className="mt-3 text-left text-sm text-rose-400"
+              >
+                {validationError}
+              </p>
+            )}
             <ComparisonSuggestions
-              visible={showSuggestions}
+              visible={showSuggestions && !loading}
               onSelect={handleShowcaseSelect}
             />
           </form>
         </motion.div>
       </header>
 
-      {/* Main Content Area */}
       <main className="px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto pb-24 relative z-10">
         <AnimatePresence>
           {error && (
             <motion.div
+              ref={errorFocusRef}
+              tabIndex={-1}
+              role="alert"
+              aria-live="assertive"
               key="error"
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="bg-red-500/10 text-red-400 p-4 rounded-2xl mb-8 flex items-start gap-3 border border-red-500/20 backdrop-blur-md"
+              className="bg-red-500/10 text-red-400 p-4 rounded-2xl mb-8 flex items-start gap-3 border border-red-500/20 backdrop-blur-md focus:outline-none"
             >
-              <AlertCircle className="shrink-0 mt-0.5" size={20} />
+              <AlertCircle className="shrink-0 mt-0.5" size={20} aria-hidden="true" />
               <p>{error}</p>
             </motion.div>
           )}
@@ -221,26 +407,92 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
             >
-              <AILoadingState itemA={itemA} itemB={itemB} stepDescription={loadingStep} />
-            </motion.div>
-          )}
-
-          {displayResult && (
-            <motion.div
-              key="result"
-              initial={{ opacity: 0, y: 40 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.1 }}
-            >
-              <ComparisonResultView
-                result={displayResult as ComparisonResult}
-                reportUrl={reportUrl}
-                showShare={!!result}
+              <AILoadingState
+                itemA={submittedItems.itemA}
+                itemB={submittedItems.itemB}
+                stepDescription={loadingStep}
               />
             </motion.div>
           )}
 
-          {!loading && !displayResult && !error && (
+          {hasPartialData && !result && (
+            <motion.section
+              key="partial"
+              aria-live="polite"
+              aria-label={t('loading.partialResults', { defaultValue: 'Comparison progress' })}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mb-8 rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-5 text-sm text-neutral-300"
+            >
+              <p className="font-semibold text-indigo-200">
+                {error
+                  ? t('error.partialAvailable', { defaultValue: 'The comparison stopped, but partial findings are available.' })
+                  : t('loading.partialAvailable', { defaultValue: 'Partial findings are ready while analysis continues.' })}
+              </p>
+              {(partialResult.entityA?.name || partialResult.entityB?.name) && (
+                <p className="mt-2">
+                  {[partialResult.entityA?.name, partialResult.entityB?.name].filter(Boolean).join(' vs ')}
+                </p>
+              )}
+              {partialResult.relationship?.reasoning && (
+                <p className="mt-2">{partialResult.relationship.reasoning}</p>
+              )}
+              {partialDimensionCount > 0 && (
+                <p className="mt-2">
+                  {t('loading.dimensionsComplete', {
+                    defaultValue: '{{count}} dimension(s) analyzed.',
+                    count: partialDimensionCount,
+                  })}
+                </p>
+              )}
+              {partialResult.recommendation?.short_verdict && (
+                <p className="mt-2 font-medium text-white">{partialResult.recommendation.short_verdict}</p>
+              )}
+            </motion.section>
+          )}
+
+          {result && !loading && (
+            <motion.div
+              ref={resultFocusRef}
+              tabIndex={-1}
+              key="result"
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.1 }}
+              className="focus:outline-none"
+            >
+              <CompatibleComparisonResultView
+                result={result}
+                reportUrl={reportUrl}
+                reportStatus={reportSaveStatus}
+                onRetrySave={retryReportSave}
+                showShare={true}
+              />
+              <div className="mt-6 text-center" role="status" aria-live="polite">
+                {reportSaveStatus === 'saving' && (
+                  <p className="text-sm text-neutral-400">
+                    {t('report.saving', { defaultValue: 'Saving a shareable report…' })}
+                  </p>
+                )}
+                {reportSaveStatus === 'error' && (
+                  <div className="flex flex-col items-center gap-3">
+                    <p role="alert" className="text-sm text-rose-400">
+                      {t('report.saveFailed', { defaultValue: 'The report could not be saved. Sharing is unavailable until you retry.' })}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={retryReportSave}
+                      className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                    >
+                      {t('report.retrySave', { defaultValue: 'Retry saving report' })}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {!loading && !result && !hasPartialData && !error && (
             <motion.div
               key="discovery"
               initial={{ opacity: 0, y: 24 }}
@@ -252,7 +504,7 @@ export default function App() {
               <div className="mt-8 flex justify-center">
                 <a
                   href="/popular-ai-comparisons"
-                  className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-5 text-sm font-semibold text-indigo-300 transition-colors hover:border-indigo-500/40 hover:bg-white/[0.07]"
+                  className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-5 text-sm font-semibold text-indigo-300 transition-colors hover:border-indigo-500/40 hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
                 >
                   {t('hero.popularLink')}
                 </a>
@@ -265,11 +517,11 @@ export default function App() {
       <footer className="relative z-10 border-t border-white/10 mt-16 py-10 px-4 sm:px-6 lg:px-8">
         <div className="max-w-5xl mx-auto">
           <nav aria-label={t('nav.footerLabel')} className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm">
-            <a href="/about" className="text-neutral-400 hover:text-indigo-300 transition-colors">{t('nav.about')}</a>
-            <a href="/methodology" className="text-neutral-400 hover:text-indigo-300 transition-colors">{t('nav.methodology')}</a>
-            <a href="/popular-ai-comparisons" className="text-neutral-400 hover:text-indigo-300 transition-colors">{t('nav.popularComparisons')}</a>
-            <a href="/privacy" className="text-neutral-400 hover:text-indigo-300 transition-colors">{t('nav.privacy')}</a>
-            <a href="/terms" className="text-neutral-400 hover:text-indigo-300 transition-colors">{t('nav.terms')}</a>
+            <a href="/about" className="text-neutral-400 hover:text-indigo-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">{t('nav.about')}</a>
+            <a href="/methodology" className="text-neutral-400 hover:text-indigo-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">{t('nav.methodology')}</a>
+            <a href="/popular-ai-comparisons" className="text-neutral-400 hover:text-indigo-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">{t('nav.popularComparisons')}</a>
+            <a href="/privacy" className="text-neutral-400 hover:text-indigo-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">{t('nav.privacy')}</a>
+            <a href="/terms" className="text-neutral-400 hover:text-indigo-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">{t('nav.terms')}</a>
           </nav>
           <p className="mt-4 text-center text-xs text-neutral-500">&copy; {new Date().getFullYear()} CompareAI</p>
         </div>

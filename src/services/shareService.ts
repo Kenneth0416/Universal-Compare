@@ -1,5 +1,37 @@
 import { toBlob, toPng } from 'html-to-image';
 
+export const MAX_POSTER_PIXELS = 16_000_000;
+export const MAX_POSTER_MEMORY_BYTES = 64 * 1024 * 1024;
+export const MAX_POSTER_ARCHIVE_BYTES = 64 * 1024 * 1024;
+export const MAX_POSTER_ARCHIVE_FILES = 7;
+
+export function normalizeHttpUrl(value: unknown, base?: string): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const parsed = base ? new URL(value, base) : new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
+export function assertPosterExportBudget(width: number, height: number, pixelRatio: number): void {
+  if (![width, height, pixelRatio].every((value) => Number.isFinite(value) && value > 0)) {
+    throw new Error('INVALID_POSTER_SIZE');
+  }
+  const pixels = width * height * pixelRatio * pixelRatio;
+  if (pixels > MAX_POSTER_PIXELS || pixels * 4 > MAX_POSTER_MEMORY_BYTES) {
+    throw new Error('POSTER_BUDGET_EXCEEDED');
+  }
+}
+
+export function assertPosterArchiveBudget(images: ReadonlyArray<{ blob: Blob }>): void {
+  const totalBytes = images.reduce((sum, image) => sum + image.blob.size, 0);
+  if (images.length > MAX_POSTER_ARCHIVE_FILES || totalBytes > MAX_POSTER_ARCHIVE_BYTES) {
+    throw new Error('POSTER_ARCHIVE_BUDGET_EXCEEDED');
+  }
+}
+
 export interface ShareOptions {
   /** 海报容器元素 */
   containerElement: HTMLElement;
@@ -11,6 +43,8 @@ export interface ShareOptions {
   pixelRatio?: number;
   /** 质量 0-1 */
   quality?: number;
+  /** Allows callers to cancel multi-poster export between expensive steps. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -24,7 +58,12 @@ export async function generatePosterBlob(options: ShareOptions): Promise<Blob> {
     height,
     pixelRatio = 2,
     quality = 1,
+    signal,
   } = options;
+  const exportWidth = width ?? containerElement.offsetWidth;
+  const exportHeight = height ?? containerElement.offsetHeight;
+  assertPosterExportBudget(exportWidth, exportHeight, pixelRatio);
+  signal?.throwIfAborted();
 
   try {
     const blob = await toBlob(containerElement, {
@@ -35,12 +74,14 @@ export async function generatePosterBlob(options: ShareOptions): Promise<Blob> {
       height,
     });
 
+    signal?.throwIfAborted();
     if (!blob) {
       throw new Error('Failed to generate poster blob');
     }
 
     return blob;
   } catch (error) {
+    if ((error as Error).name === 'AbortError') throw error;
     console.error('Poster generation failed:', error);
     throw new Error('POSTER_GENERATION_FAILED', { cause: error });
   }
@@ -56,15 +97,19 @@ export async function generatePosterDataURL(options: ShareOptions): Promise<stri
     height,
     pixelRatio = 2,
     quality = 1,
+    signal,
   } = options;
-
-  return toPng(containerElement, {
+  assertPosterExportBudget(width ?? containerElement.offsetWidth, height ?? containerElement.offsetHeight, pixelRatio);
+  signal?.throwIfAborted();
+  const dataUrl = await toPng(containerElement, {
     cacheBust: true,
     pixelRatio,
     quality,
     width,
     height,
   });
+  signal?.throwIfAborted();
+  return dataUrl;
 }
 
 /**
@@ -76,10 +121,13 @@ export function downloadPoster(blob: Blob, filename = 'compare-poster.png'): voi
   link.href = url;
   link.download = filename;
   document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  // Safari may not start reading the object URL until the next task.
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  try {
+    link.click();
+  } finally {
+    link.remove();
+    // Safari may not start reading the object URL until a later task.
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 }
 
 /**
@@ -98,12 +146,14 @@ export async function nativeShare(data: {
   const files = data.files?.length && navigator.canShare?.({ files: data.files })
     ? data.files
     : undefined;
+  const url = normalizeHttpUrl(data.url);
+  if (!files && !url) return 'unavailable';
 
   try {
     await navigator.share({
       title: data.title,
       text: data.text,
-      url: files ? undefined : data.url || window.location.href,
+      url: files ? undefined : url ?? undefined,
       files,
     });
     return 'shared';

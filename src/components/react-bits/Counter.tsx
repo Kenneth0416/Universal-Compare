@@ -1,6 +1,7 @@
 import { MotionValue, animate, motion, useMotionValue, useSpring, useTransform } from 'motion/react';
 import type React from 'react';
 import { useEffect, useMemo } from 'react';
+import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 
 type PlaceValue = number | '.';
 
@@ -147,15 +148,21 @@ export default function Counter({
   }, [places, safeTo]);
 
   const motionValue = useMotionValue(safeFrom);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
+    if (prefersReducedMotion) {
+      motionValue.set(safeTo);
+      return;
+    }
+
     motionValue.set(safeFrom);
     const controls = animate(motionValue, safeTo, {
       duration: Math.max(duration, 0),
       ease: 'easeOut'
     });
     return controls.stop;
-  }, [motionValue, safeFrom, safeTo, duration]);
+  }, [motionValue, safeFrom, safeTo, duration, prefersReducedMotion]);
 
   const defaultContainerStyle: React.CSSProperties = {
     position: 'relative',
@@ -172,6 +179,14 @@ export default function Counter({
     color: textColor,
     fontWeight
   };
+
+  if (prefersReducedMotion) {
+    return (
+      <span className={className} style={{ ...defaultContainerStyle, ...containerStyle }}>
+        <span style={{ ...defaultCounterStyle, ...counterStyle }}>{safeTo}</span>
+      </span>
+    );
+  }
 
   return (
     <span className={className} style={{ ...defaultContainerStyle, ...containerStyle }}>

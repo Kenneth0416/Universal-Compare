@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
-import { getPopularComparisons, type PopularComparison } from '../services/popularComparisonService';
+import type { PopularComparison } from '../services/popularComparisonService';
 import { useTranslation } from 'react-i18next';
 
 interface RelatedComparisonsProps {
@@ -13,11 +13,29 @@ export default function RelatedComparisons({ currentSlug }: RelatedComparisonsPr
   const language = i18n.resolvedLanguage || i18n.language || 'en';
 
   useEffect(() => {
-    getPopularComparisons(language)
-      .then((comparisons) => {
-        setItems(comparisons.filter((item) => item.slug !== currentSlug).slice(0, 6));
+    const controller = new AbortController();
+    let active = true;
+
+    fetch(`/api/popular-comparisons?lang=${encodeURIComponent(language)}`, {
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Failed to load popular comparisons: ${response.status}`);
+        return response.json() as Promise<{ items?: PopularComparison[] }>;
       })
-      .catch(() => setItems([]));
+      .then((data) => {
+        if (active) {
+          setItems((data.items || []).filter((item) => item.slug !== currentSlug).slice(0, 6));
+        }
+      })
+      .catch((error) => {
+        if (active && error instanceof Error && error.name !== 'AbortError') setItems([]);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [currentSlug, language]);
 
   if (!items.length) return null;

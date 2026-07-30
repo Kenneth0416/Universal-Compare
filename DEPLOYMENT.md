@@ -1,164 +1,100 @@
-# 自動部署配置指南
+# CompareAI production deployment
 
-## 方案一：GitHub Actions 自動部署（推薦）
+The supported layout uses immutable releases and a single atomic symlink:
 
-### 1. 在 GitHub 設置 Secrets
-
-進入你的 GitHub repo → Settings → Secrets and variables → Actions，添加以下 secrets：
-
-- `XAI_API_KEY`: 你的 XAI API 密鑰
-- `SERVER_USER`: 服務器 SSH 用戶名（如 `root` 或 `ubuntu`）
-- `SERVER_SSH_KEY`: 服務器 SSH 私鑰（完整內容）
-- `DEPLOY_PATH`: 服務器部署路徑（如 `/var/www/compare-ai`）
-
-### 2. 生成 SSH 密鑰（如果還沒有）
-
-在本地執行：
-```bash
-ssh-keygen -t ed25519 -C "github-actions" -f ~/.ssh/github_actions
+```text
+/var/www/compare-ai/
+  current -> releases/<release-id>
+  releases/
+  shared/.env.local
+  shared/compareai-analytics.db
+  incoming/
 ```
 
-將公鑰添加到服務器：
-```bash
-ssh-copy-id -i ~/.ssh/github_actions.pub user@207.148.116.138
-```
+`deploy.sh` builds in a new release (webhook mode) or installs a CI-built artifact, runs `npm ci --omit=dev`, switches `current` atomically, restarts the app, and checks `http://127.0.0.1:3001/`. A failed restart/health check restores the previous symlink and restarts it. It never moves the newly built `dist` out of its release. Deployments are serialized with `flock`.
 
-將私鑰內容複製到 GitHub Secrets 的 `SERVER_SSH_KEY`：
-```bash
-cat ~/.ssh/github_actions
-```
+## Server preparation
 
-### 3. 服務器配置
-
-在服務器 207.148.116.138 上：
+Use Node.js 22, Nginx, `curl`, `flock`, and either systemd or PM2. Create separate runtime/deployment users where practical:
 
 ```bash
-# 安裝 Node.js（如果還沒有）
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# 創建部署目錄
-sudo mkdir -p /var/www/compare-ai
-sudo chown $USER:$USER /var/www/compare-ai
-
-# 安裝 nginx（如果還沒有）
-sudo apt-get install -y nginx
-
-# 配置 nginx
-sudo nano /etc/nginx/sites-available/compare-ai
+sudo install -d -o compare-ai-deploy -g compare-ai-deploy /var/www/compare-ai/{source,releases,incoming}
+sudo install -d -m 0750 -o compare-ai -g compare-ai /var/www/compare-ai/shared
+sudo install -d -m 0750 -o compare-ai-deploy -g compare-ai-deploy /var/log/compare-ai /var/lib/compare-ai
+sudo install -m 0600 -o compare-ai -g compare-ai /dev/null /var/www/compare-ai/shared/.env.local
+# Keep compare-ai-deploy out of the compare-ai group: deploy.sh never reads runtime secrets.
 ```
 
-Nginx 配置示例：
-```nginx
-server {
-    listen 80;
-    server_name 207.148.116.138;  # 或你的域名
+Populate `shared/.env.local` directly on the server. Do not upload it or print it in CI. At minimum production requires:
 
-    root /var/www/compare-ai/dist;
-    index index.html;
-
-    # Dynamic SEO and API routes served by the Node app.
-    # Keep these above the SPA fallback so report pages return page-specific
-    # title, description, robots, canonical, OG, sitemap, and structured data.
-    location = /robots.txt {
-        proxy_pass http://127.0.0.1:3001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location = /sitemap.xml {
-        proxy_pass http://127.0.0.1:3001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location ^~ /r/ {
-        proxy_pass http://127.0.0.1:3001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location ^~ /compare/ {
-        proxy_pass http://127.0.0.1:3001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location ^~ /api/ {
-        proxy_pass http://127.0.0.1:3001;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # 啟用 gzip 壓縮
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
-}
+```dotenv
+NODE_ENV=production
+AI_PROVIDER=grok
+XAI_API_KEY=<server-side-secret>
+SITE_URL=https://compare-anythings.com
+APP_URL=https://compare-anythings.com
+ADMIN_PASSWORD=<distinct-random-secret>
+ADMIN_SESSION_SECRET=<distinct-random-secret>
+AI_SOURCE_SIGNING_SECRET=<distinct-random-secret>
+API_SERVER_HOST=127.0.0.1
+ANALYTICS_DB_PATH=/var/www/compare-ai/shared/compareai-analytics.db
+API_SERVER_PORT=3001
 ```
 
-啟用站點：
+For MiniMax use `AI_PROVIDER=minimax`, `MINIMAX_API_KEY=<server-side-secret>`, and optionally `MINIMAX_BASE_URL`. The deployment user deliberately cannot read `shared/.env.local`; the application validates the selected provider key, admin secrets, and HTTPS site URL at startup. Invalid configuration fails the private health check and atomically rolls back. API keys are runtime server values only; Vite and GitHub's build job do not receive them.
+
+Install `deployment/compare-ai.service` as `/etc/systemd/system/compare-ai.service`, then:
+
 ```bash
-sudo ln -s /etc/nginx/sites-available/compare-ai /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
+sudo systemctl daemon-reload
+sudo systemctl enable compare-ai.service
 ```
 
-### 4. 測試部署
+The SSH/webhook deployment user must be narrowly authorized to restart this service. For a system where `command -v systemctl` is `/usr/bin/systemctl`, install a root-owned `0440` sudoers fragment containing only:
 
-推送代碼到 GitHub main 分支：
+```sudoers
+compare-ai-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart compare-ai.service
+```
+
+Adjust the absolute binary path to the host, validate with `visudo -cf`, and do not grant the deployment user any other sudo command. The shipped webhook unit uses this systemd path; PM2 is an alternative only when a complete runtime-user PM2 service is configured separately.
+
+Install `deployment/nginx-site.conf` after setting the real TLS `server_name`/listen directives. Its root is `/var/www/compare-ai/current/dist`; API and dynamic SEO routes proxy to the Node service. It supplies CSP, clickjacking, MIME-sniffing, referrer, opener, and permissions headers. Validate before reload:
+
 ```bash
-git add .
-git commit -m "Setup auto deployment"
-git push origin main
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
-GitHub Actions 會自動觸發部署。
+The CSP allows Google Fonts and required inline styles, but does not permit inline executable scripts. Re-test the application whenever a new third-party browser origin is introduced rather than broadening CSP speculatively.
 
----
+## GitHub Actions
 
-## 方案二：GitHub Webhooks + 服務器腳本
+Configure the `production` environment with approval protection and these secrets:
 
-如果不想使用 GitHub Actions，可以在服務器上設置 webhook 接收器。
+- `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY`
+- `SERVER_KNOWN_HOSTS` (pre-verified `known_hosts` line; do not replace with runtime `ssh-keyscan`)
+- `DEPLOY_PATH` (normally `/var/www/compare-ai`)
+- `PUBLIC_HEALTHCHECK_URL` (an HTTPS URL served by the production Nginx site)
 
-### 服務器端設置
+No AI API key is a GitHub build secret. The workflow runs locked install, type check, tests, build, full and production audits, a redacted current-tree secret scan, and Nginx syntax validation. It uploads `package.json`, `package-lock.json`, `server`, `shared`, `dist`, and `tsconfig.json`, then invokes `deploy.sh`. The final public check requires CSP and other security headers.
 
-1. 克隆項目到服務器：
+The production audit gate is `npm audit --omit=dev --audit-level=high`; the full dependency audit also runs at `high`.
+
+## Manual deployment
+
+From a trusted checkout at `/var/www/compare-ai/source`:
+
 ```bash
-cd /var/www
-git clone https://github.com/你的用戶名/universal-compare.git compare-ai
-cd compare-ai
-npm install
+DEPLOY_ROOT=/var/www/compare-ai SOURCE_DIR=/var/www/compare-ai/source sudo -u compare-ai-deploy ./deploy.sh
 ```
 
-2. 創建 webhook 接收腳本（需要額外配置）
+Or deploy a prebuilt complete artifact:
 
----
-
-## 環境變量配置
-
-在服務器上創建 `.env.local`：
 ```bash
-cd /var/www/compare-ai
-echo "XAI_API_KEY=your_api_key_here" > .env.local
-echo "SITE_URL=https://compare-anythings.com" >> .env.local
+DEPLOY_ROOT=/var/www/compare-ai ./deploy.sh --artifact /trusted/path/deploy-artifact.tar.gz
 ```
 
-注意：由於 Vite 在構建時注入環境變量，你需要在 GitHub Actions 中設置 `XAI_API_KEY` secret。
+Never put `.env.local`, webhook secrets, private keys, or database files in the artifact.
 
-動態報告頁 SEO、API、`robots.txt` 和 `sitemap.xml` 需要 Node 服務常駐運行：
-```bash
-API_SERVER_PORT=3001 npm run server
-```
+## Secret exposure status
 
----
-
-## 故障排查
-
-- 檢查 GitHub Actions 日誌：repo → Actions 標籤
-- 檢查服務器日誌：`sudo tail -f /var/log/nginx/error.log`
-- 測試 SSH 連接：`ssh -i ~/.ssh/github_actions user@207.148.116.138`
+The complete MiniMax JWT was replaced by a placeholder in the currently tracked migration plan. Git history, forks, caches, and existing clones may still contain that value. History was **not** rewritten, and the MiniMax token was **not** rotated by this work; therefore historical exposure must not be described as safe or remediated. Current-tree scanning does not make old commits safe.
