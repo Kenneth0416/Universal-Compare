@@ -3,6 +3,7 @@ import { Router, type Request, type Response } from 'express';
 import type { createAnalyticsStore } from './analytics';
 import type { AIProvider, AiCallMetrics, Source } from './providers/types';
 import { consumePersistentLimit } from './rateLimit';
+import { isInternalBatchRequest } from './internalBatch';
 import { normalizeComparisonResult, serializeComparisonResult } from '../shared/comparisonSchema';
 
 type AnalyticsStore = ReturnType<typeof createAnalyticsStore>;
@@ -579,26 +580,29 @@ export function createComparisonAgentRouter({
     }
     const phase = req.params.phase as Phase;
     const ip = requestIp(req);
+    const internalBatch = isInternalBatchRequest(req);
     // Cookie-less visitors get a fresh id per request; scope grants by IP there.
     const visitorKey = req.visitorVerified ? (req.visitorId as string) : `ip:${ip}`;
-    if (!ipBucket.consume(ip) || !visitorBucket.consume(visitorKey)) {
-      res.set('Retry-After', '5').status(429).json({ error: 'AI request rate limit exceeded' });
-      return;
-    }
-    const dailyResults = [consumePersistentLimit({
-      db: analyticsStore.getDb(), secret: rateLimitSecret,
-      key: `ai-daily:ip:${ip}`, limit: dailyLimit, windowMs: 24 * 60 * 60 * 1_000,
-    })];
-    if (req.visitorId) {
-      dailyResults.push(consumePersistentLimit({
+    if (!internalBatch) {
+      if (!ipBucket.consume(ip) || !visitorBucket.consume(visitorKey)) {
+        res.set('Retry-After', '5').status(429).json({ error: 'AI request rate limit exceeded' });
+        return;
+      }
+      const dailyResults = [consumePersistentLimit({
         db: analyticsStore.getDb(), secret: rateLimitSecret,
-        key: `ai-daily:visitor:${req.visitorId}`, limit: dailyLimit, windowMs: 24 * 60 * 60 * 1_000,
-      }));
-    }
-    const blockedDaily = dailyResults.find((result) => !result.allowed);
-    if (blockedDaily) {
-      res.set('Retry-After', String(blockedDaily.retryAfterSeconds)).status(429).json({ error: 'Daily AI request budget exceeded' });
-      return;
+        key: `ai-daily:ip:${ip}`, limit: dailyLimit, windowMs: 24 * 60 * 60 * 1_000,
+      })];
+      if (req.visitorId) {
+        dailyResults.push(consumePersistentLimit({
+          db: analyticsStore.getDb(), secret: rateLimitSecret,
+          key: `ai-daily:visitor:${req.visitorId}`, limit: dailyLimit, windowMs: 24 * 60 * 60 * 1_000,
+        }));
+      }
+      const blockedDaily = dailyResults.find((result) => !result.allowed);
+      if (blockedDaily) {
+        res.set('Retry-After', String(blockedDaily.retryAfterSeconds)).status(429).json({ error: 'Daily AI request budget exceeded' });
+        return;
+      }
     }
     if (!semaphore.tryAcquire()) {
       res.set('Retry-After', '1').status(503).json({ error: 'AI service is busy' });
@@ -712,7 +716,7 @@ export function createComparisonAgentRouter({
         const lang = language(body.language);
         const sourceList = cleanSources.map((source, index) => `[${index + 1}] ${source.title} — ${source.url}`).join('\n');
         const result = await provider.chatCompletion({
-          messages: [{ role: 'user', content: `Compare ${profileA.name} and ${profileB.name} only on "${targetDimension.label}". Context: ${targetDimension.why_it_matters}. Angle: ${targetDimension.comparison_angle}. Score desirability from 0 to 10; for negative traits, lower risk/cost earns the higher score. better_for must be A, B, Both, or Neither. Cite at most two directly relevant URLs only from AVAILABLE SOURCES; otherwise return no citations. Refer to actual names in prose. Return all text in ${languageName(lang)}.\n\n${profileA.name}: ${profileA.short_definition}\n${profileB.name}: ${profileB.short_definition}\n\nAVAILABLE SOURCES:\n${sourceList || '(none)'}` }],
+          messages: [{ role: 'user', content: `Compare ${profileA.name} and ${profileB.name} only on "${targetDimension.label}". Context: ${targetDimension.why_it_matters}. Angle: ${targetDimension.comparison_angle}. Score desirability from 0 to 10; for negative traits, lower risk/cost earns the higher score. better_for must be A, B, Both, or Neither. Cite at most two directly relevant URLs only from AVAILABLE SOURCES; otherwise return no citations. Refer to actual names in prose. Ground every claim in concrete figures from the sources whenever available (exact specs, prices, percentages, dates, benchmark numbers) — each summary should contain at least one specific number when the sources provide one. Write key_difference as a single self-contained sentence that names both products and states the decisive fact with its number, so it can be quoted verbatim out of context. Return all text in ${languageName(lang)}.\n\n${profileA.name}: ${profileA.short_definition}\n${profileB.name}: ${profileB.short_definition}\n\nAVAILABLE SOURCES:\n${sourceList || '(none)'}` }],
           schema: analysisSchema, schemaName: 'dimension_analysis', temperature: 0.2,
           enableThinking: false, signal: abortController.signal,
         });
@@ -785,7 +789,7 @@ export function createComparisonAgentRouter({
         const lang = language(body.language);
         if (phase === 'pros-cons') {
           const result = await provider.chatCompletion({
-            messages: [{ role: 'user', content: `Extract the key strengths and weaknesses for ${profileA.name} and ${profileB.name} from the validated analysis. Refer to actual names, never generic labels. Return all text in ${languageName(lang)}.\n\nAnalysis: ${JSON.stringify(analyzed)}` }],
+            messages: [{ role: 'user', content: `Extract the key strengths and weaknesses for ${profileA.name} and ${profileB.name} from the validated analysis. Refer to actual names, never generic labels. Prefer specific, factual points carrying the concrete numbers from the analysis (specs, prices, benchmark figures) over generic claims; each point should stand alone as a complete quotable statement. Return all text in ${languageName(lang)}.\n\nAnalysis: ${JSON.stringify(analyzed)}` }],
             schema: prosConsSchema, schemaName: 'pros_cons', temperature: 0.2,
             enableThinking: true, signal: abortController.signal,
           });
@@ -797,7 +801,7 @@ export function createComparisonAgentRouter({
           };
         } else {
           const result = await provider.chatCompletion({
-            messages: [{ role: 'user', content: `Give a final verdict explaining when to prefer ${profileA.name} or ${profileB.name}, based only on the validated analysis. Refer to actual names, never generic labels. Return all text in ${languageName(lang)}.\n\nAnalysis: ${JSON.stringify(analyzed)}` }],
+            messages: [{ role: 'user', content: `Give a final verdict explaining when to prefer ${profileA.name} or ${profileB.name}, based only on the validated analysis. Refer to actual names, never generic labels. Write short_verdict as one self-contained sentence naming both products that can be quoted verbatim out of context; back long_verdict with the most decisive concrete numbers from the analysis (specs, prices, percentages). Return all text in ${languageName(lang)}.\n\nAnalysis: ${JSON.stringify(analyzed)}` }],
             schema: recommendationSchema, schemaName: 'recommendation', temperature: 0.2,
             enableThinking: true, signal: abortController.signal,
           });

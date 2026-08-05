@@ -36,6 +36,7 @@ import type { CandidatePairStore } from './candidatePairs';
 import { mapConcurrent } from './concurrency';
 import { normalizeSafeHttpUrl, serializeComparisonResult } from '../shared/comparisonSchema';
 import { consumePersistentLimit } from './rateLimit';
+import { isInternalBatchRequest } from './internalBatch';
 
 const VISITOR_COOKIE = 'compareai_visitor_id';
 const VISITOR_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
@@ -133,6 +134,7 @@ export function createApp({
     limit: number,
     windowMs: number,
   ) => {
+    if (isInternalBatchRequest(req)) return false;
     const results = [rateLimit(bucket, `ip:${getRequestIp(req)}`, limit, windowMs)];
     if (req.visitorId) results.push(rateLimit(bucket, `visitor:${req.visitorId}`, limit, windowMs));
     const blocked = results.find((result) => !result.allowed);
@@ -174,9 +176,20 @@ export function createApp({
   });
 
   app.get('/llms.txt', (_req, res) => {
-    const featured = featuredStore.listFeatured();
+    // Only list entries that resolve to a live report; slug-only rows would be dead links.
+    const featured = featuredStore.listFeatured().filter((item) => item.reportId && item.slug);
     res.set('Cache-Control', 'public, max-age=3600');
     res.type('text/plain; charset=utf-8').send(renderLlmsTxt({ featured, siteUrl }));
+  });
+
+  app.get('/indexnow-key.txt', (_req, res) => {
+    const key = process.env.INDEXNOW_KEY;
+    if (!key || !/^[A-Za-z0-9-]{8,128}$/.test(key)) {
+      res.status(404).type('text/plain').send('Not found');
+      return;
+    }
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('text/plain').send(key);
   });
 
   const listPublicFeaturedComparisons = (language = 'en') =>
