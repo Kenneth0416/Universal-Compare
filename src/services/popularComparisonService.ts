@@ -8,8 +8,9 @@ export interface PopularComparison {
   viewCount: number;
 }
 
-export async function getPopularComparisons(language = 'en'): Promise<PopularComparison[]> {
-  const response = await fetch(`/api/popular-comparisons?lang=${encodeURIComponent(language)}`);
+export async function getPopularComparisons(language = 'en', limit?: number): Promise<PopularComparison[]> {
+  const limitQuery = limit ? `&limit=${encodeURIComponent(limit)}` : '';
+  const response = await fetch(`/api/popular-comparisons?lang=${encodeURIComponent(language)}${limitQuery}`);
 
   if (!response.ok) {
     throw new Error(`Failed to load popular comparisons: ${response.status}`);

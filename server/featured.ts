@@ -216,6 +216,61 @@ export function createFeaturedStore(db: DatabaseConnection) {
     return !!db.prepare('SELECT 1 FROM comparison_reports WHERE report_id = ?').get(reportId);
   };
 
+  // Hotness = recent views with a 7-day half-life, plus a discounted lifetime
+  // component (30-day half-life on report age) so the ranking works before the
+  // daily buckets accumulate, plus a freshness boost so newly published
+  // reports get initial exposure. Recent traffic dominates once data exists.
+  const HOT_RECENT_WINDOW_DAYS = 30;
+  const halfLifeDecay = (ageDays: number, halfLifeDays: number) =>
+    Math.pow(0.5, Math.max(ageDays, 0) / halfLifeDays);
+
+  const listHotFeatured = (language?: string, limit = 12): FeaturedComparison[] => {
+    const boundedLimit = Math.min(Math.max(Math.floor(limit) || 12, 1), 100);
+    if (!tableExists(db, 'comparison_reports')) return [];
+    const rows = db.prepare(`
+      SELECT f.id AS id, f.report_id AS reportId, r.view_count AS viewCount, r.created_at AS reportCreatedAt
+      FROM featured_comparisons f
+      JOIN comparison_reports r ON r.report_id = f.report_id
+      WHERE f.slug IS NOT NULL ${language ? 'AND f.language = ?' : ''}
+    `).all(...(language ? [language] : [])) as Array<{ id: number; reportId: string; viewCount: number; reportCreatedAt: string }>;
+    if (rows.length === 0) return [];
+
+    const recentByReport = new Map<string, number>();
+    if (tableExists(db, 'report_view_daily')) {
+      const viewRows = db.prepare(`
+        SELECT report_id AS reportId, day, views FROM report_view_daily
+        WHERE day >= date('now', ?)
+      `).all(`-${HOT_RECENT_WINDOW_DAYS} day`) as Array<{ reportId: string; day: string; views: number }>;
+      const now = Date.now();
+      for (const view of viewRows) {
+        const ageDays = (now - Date.parse(`${view.day}T00:00:00Z`)) / 86_400_000;
+        const decayed = view.views * halfLifeDecay(ageDays, 7);
+        recentByReport.set(view.reportId, (recentByReport.get(view.reportId) || 0) + decayed);
+      }
+    }
+
+    const now = Date.now();
+    const scored = rows.map((row) => {
+      const reportAgeDays = (now - Date.parse(row.reportCreatedAt)) / 86_400_000;
+      const recentScore = recentByReport.get(row.reportId) || 0;
+      const lifetimeScore = 0.2 * (row.viewCount || 0) * halfLifeDecay(reportAgeDays, 30);
+      const freshnessBoost = 3 * halfLifeDecay(reportAgeDays, 14);
+      return { id: row.id, score: recentScore + lifetimeScore + freshnessBoost };
+    });
+    scored.sort((left, right) => right.score - left.score);
+
+    const topIds = scored.slice(0, boundedLimit).map((item) => item.id);
+    const placeholders = topIds.map(() => '?').join(',');
+    const items = db.prepare(`
+      SELECT ${selectCols}
+      FROM featured_comparisons
+      WHERE id IN (${placeholders})
+    `).all(...topIds) as FeaturedComparison[];
+    const order = new Map(topIds.map((id, index) => [id, index]));
+    items.sort((left, right) => (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0));
+    return withReportMeta(items);
+  };
+
   const addFeatured = (
     itemA: string,
     itemB: string,
@@ -283,6 +338,7 @@ export function createFeaturedStore(db: DatabaseConnection) {
 
   return {
     listFeatured,
+    listHotFeatured,
     addFeatured,
     getFeaturedBySlug,
     getFeaturedByReportId,

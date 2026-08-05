@@ -20,7 +20,7 @@ export default function PopularComparisonsPage() {
     setLoading(true);
     setLoadError(false);
 
-    getPopularComparisons(language)
+    getPopularComparisons(language, 48)
       .then((comparisons) => {
         if (active) setItems(comparisons);
       })

@@ -99,6 +99,13 @@ function initializeSchema(db: DatabaseConnection) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_feedback_report ON report_feedback(report_id);
+
+    CREATE TABLE IF NOT EXISTS report_view_daily (
+      report_id  TEXT    NOT NULL,
+      day        TEXT    NOT NULL,
+      views      INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (report_id, day)
+    );
   `);
 
   // Keep the oldest report as the idempotency target. Other reports remain addressable,
@@ -209,6 +216,11 @@ export function createReportStore(db: DatabaseConnection) {
   const incrementViewCount = (reportId: string): void => {
     try {
       db.prepare('UPDATE comparison_reports SET view_count = view_count + 1 WHERE report_id = ?').run(reportId);
+      db.prepare(`
+        INSERT INTO report_view_daily (report_id, day, views)
+        VALUES (?, date('now'), 1)
+        ON CONFLICT(report_id, day) DO UPDATE SET views = views + 1
+      `).run(reportId);
     } catch {
       // View tracking must not make report reads fail.
     }

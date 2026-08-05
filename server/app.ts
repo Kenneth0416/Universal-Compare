@@ -192,11 +192,6 @@ export function createApp({
     res.type('text/plain').send(key);
   });
 
-  const listPublicFeaturedComparisons = (language = 'en') =>
-    featuredStore
-      .listFeatured(language)
-      .filter((item) => item.reportId && item.slug);
-
   app.get('/', (_req, res) => {
     const indexHtml = readClientIndexHtml();
     res.set('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=3600');
@@ -204,7 +199,7 @@ export function createApp({
       renderHomepageHtml({
         indexHtml,
         siteUrl,
-        featuredComparisons: listPublicFeaturedComparisons('en').slice(0, 8),
+        featuredComparisons: featuredStore.listHotFeatured('en', 8),
       }),
     );
   });
@@ -246,7 +241,7 @@ export function createApp({
     res.set('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=3600');
     res.type('text/html').send(
       renderPopularComparisonsHtml({
-        comparisons: listPublicFeaturedComparisons('en'),
+        comparisons: featuredStore.listHotFeatured('en', 48),
         indexHtml,
         siteUrl,
       }),
@@ -288,7 +283,7 @@ export function createApp({
         indexHtml,
         siteUrl,
         feedbackStats,
-        relatedComparisons: listPublicFeaturedComparisons(report.language || featured.language || 'en')
+        relatedComparisons: featuredStore.listHotFeatured(report.language || featured.language || 'en', 7)
           .filter((item) => item.slug !== featured.slug)
           .slice(0, 6),
       }),
@@ -422,7 +417,9 @@ export function createApp({
   app.get('/api/popular-comparisons', (req, res) => {
     try {
       const lang = typeof req.query.lang === 'string' ? req.query.lang : 'en';
-      res.json({ items: listPublicFeaturedComparisons(lang) });
+      const limit = Math.min(Math.max(getQueryNumber(req.query.limit, 12), 1), 48);
+      res.set('Cache-Control', 'public, max-age=300');
+      res.json({ items: featuredStore.listHotFeatured(lang, limit) });
     } catch {
       res.json({ items: [] });
     }
