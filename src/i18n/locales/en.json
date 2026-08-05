@@ -83,7 +83,8 @@
     "createComparison": "Create your own comparison",
     "privacy": "Privacy Policy",
     "terms": "Terms of Service",
-    "footerLabel": "Footer navigation"
+    "footerLabel": "Footer navigation",
+    "myReports": "My Reports"
   },
   "result": {
     "relationship": "Relationship",
@@ -286,5 +287,16 @@
   "related": {
     "title": "Related AI comparisons",
     "viewAll": "View all"
+  },
+  "myReports": {
+    "pageTitle": "My Reports — Compare Anything",
+    "label": "Your history",
+    "title": "My Reports",
+    "description": "Comparisons you generated on this device. No account needed — they are linked to this browser.",
+    "loading": "Loading your reports…",
+    "empty": "No reports yet. Your generated comparisons will appear here automatically.",
+    "startFirst": "Create your first comparison",
+    "viewReport": "View report",
+    "generating": "Still generating — you can safely close this page and come back."
   }
 }

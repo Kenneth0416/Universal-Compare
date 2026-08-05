@@ -251,6 +251,31 @@ export function createReportStore(db: DatabaseConnection) {
     };
   };
 
+  const listReportsByVisitor = (visitorId: string, limit = 50): ReportListItem[] => {
+    if (!visitorId) return [];
+    const rows = db.prepare(`
+      SELECT report_id, item_a, item_b, language, visitor_id, created_at, view_count
+      FROM comparison_reports
+      WHERE visitor_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(visitorId, normalizeLimit(limit)) as any[];
+    return rows.map((row) => ({
+      reportId: row.report_id,
+      itemA: row.item_a,
+      itemB: row.item_b,
+      language: row.language,
+      visitorId: row.visitor_id,
+      createdAt: row.created_at,
+      viewCount: row.view_count,
+    }));
+  };
+
+  const getReportIdByRunId = (runId: string): string | null => {
+    const row = findByRunId(runId);
+    return row?.reportId || null;
+  };
+
   const deleteReport = (reportId: string): boolean => inTransaction(db, () => {
     if (tableExists(db, 'featured_comparisons')) {
       db.prepare('DELETE FROM featured_comparisons WHERE report_id = ?').run(reportId);
@@ -294,6 +319,8 @@ export function createReportStore(db: DatabaseConnection) {
     getReport,
     incrementViewCount,
     listReports,
+    listReportsByVisitor,
+    getReportIdByRunId,
     deleteReport,
     submitFeedback,
     getFeedbackStats,

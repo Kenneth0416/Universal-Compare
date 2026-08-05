@@ -37,6 +37,7 @@ import { mapConcurrent } from './concurrency';
 import { normalizeSafeHttpUrl, serializeComparisonResult } from '../shared/comparisonSchema';
 import { consumePersistentLimit } from './rateLimit';
 import { isInternalBatchRequest } from './internalBatch';
+import type { ComparisonRunner } from './comparisonRunner';
 
 const VISITOR_COOKIE = 'compareai_visitor_id';
 const VISITOR_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
@@ -62,6 +63,7 @@ type CreateAppOptions = {
   adminPassword?: string;
   adminSessionSecret: string;
   siteUrl?: string;
+  comparisonRunner?: ComparisonRunner;
 };
 
 function getRequestIp(req: Request) {
@@ -115,6 +117,7 @@ export function createApp({
   adminPassword,
   adminSessionSecret,
   siteUrl = process.env.SITE_URL || process.env.APP_URL,
+  comparisonRunner,
 }: CreateAppOptions) {
   const app = express();
   app.set('trust proxy', 'loopback');
@@ -320,6 +323,12 @@ export function createApp({
   });
 
   app.use('/api', (req: RequestWithVisitor, res, next) => {
+    // Internal batch/runner requests are server-to-server: no visitor identity
+    // should be created or attached for them.
+    if (isInternalBatchRequest(req)) {
+      next();
+      return;
+    }
     try {
       const cookies = parseCookieHeader(req.headers.cookie);
       const verifiedVisitorId = verifyVisitorIdToken(cookies[VISITOR_COOKIE], adminSessionSecret) || undefined;
@@ -377,6 +386,120 @@ export function createApp({
     });
 
     res.json(run);
+  });
+
+  const getOwnedRun = (req: RequestWithVisitor, runId: string) => {
+    const run = analyticsStore.getDb().prepare(`
+      SELECT run_id AS runId, visitor_id AS visitorId, item_a AS itemA, item_b AS itemB,
+             language, status, error_message AS errorMessage
+      FROM comparison_runs WHERE run_id = ?
+    `).get(runId) as {
+      runId: string; visitorId: string; itemA: string; itemB: string;
+      language: string; status: string; errorMessage: string | null;
+    } | undefined;
+    if (!run) return { error: 404 as const };
+    if (!req.visitorId || run.visitorId !== req.visitorId) return { error: 403 as const };
+    return { run };
+  };
+
+  app.post('/api/comparison-runs/:runId/generate', (req: RequestWithVisitor, res) => {
+    if (!comparisonRunner) {
+      res.status(503).json({ error: 'Server-side generation unavailable' });
+      return;
+    }
+    const owned = getOwnedRun(req, req.params.runId);
+    if ('error' in owned) {
+      res.status(owned.error).json({ error: owned.error === 404 ? 'Comparison run not found' : 'Run does not belong to this visitor' });
+      return;
+    }
+    const existingReportId = reportStore.getReportIdByRunId(owned.run.runId);
+    if (existingReportId) {
+      res.json({ started: false, reportId: existingReportId });
+      return;
+    }
+    if (owned.run.status !== 'started') {
+      res.status(409).json({ error: 'Comparison run already finished' });
+      return;
+    }
+    // Budget server-side runs per visitor and IP; the internal phase calls
+    // themselves bypass public limits, so this is the enforcement point.
+    if (limitByIpAndVisitor(req, res, 'server-run', 12, 24 * 60 * 60 * 1_000)) return;
+    const outcome = comparisonRunner.start({
+      runId: owned.run.runId,
+      itemA: owned.run.itemA,
+      itemB: owned.run.itemB,
+      language: owned.run.language || 'en',
+      visitorId: owned.run.visitorId || undefined,
+    });
+    if (!outcome.started && outcome.reason === 'busy') {
+      res.set('Retry-After', '15').status(503).json({ error: 'AI service is busy' });
+      return;
+    }
+    res.status(202).json({ started: true });
+  });
+
+  app.get('/api/comparison-runs/:runId/progress', (req: RequestWithVisitor, res) => {
+    const owned = getOwnedRun(req, req.params.runId);
+    if ('error' in owned) {
+      res.status(owned.error).json({ error: owned.error === 404 ? 'Comparison run not found' : 'Run does not belong to this visitor' });
+      return;
+    }
+    const progress = comparisonRunner?.getProgress(owned.run.runId);
+    if (progress) {
+      res.json({
+        status: progress.status,
+        stepKey: progress.stepKey,
+        dimensionCount: progress.dimensionCount,
+        partial: progress.partial,
+        result: progress.status === 'completed' ? progress.result : undefined,
+        reportId: progress.reportId,
+        reportUrl: progress.reportUrl,
+        error: progress.error,
+      });
+      return;
+    }
+    // No in-memory state (e.g. server restarted): fall back to durable records.
+    const reportId = reportStore.getReportIdByRunId(owned.run.runId);
+    if (reportId) {
+      const report = reportStore.getReport(reportId);
+      res.json({
+        status: 'completed',
+        reportId,
+        reportUrl: `/r/${reportId}`,
+        result: report?.result,
+      });
+      return;
+    }
+    res.json({
+      status: owned.run.status === 'started' ? 'unknown' : owned.run.status,
+      error: owned.run.errorMessage || undefined,
+    });
+  });
+
+  app.get('/api/me/activity', (req: RequestWithVisitor, res) => {
+    if (!req.visitorVerified || !req.visitorId) {
+      res.json({ reports: [], activeRuns: [] });
+      return;
+    }
+    const reports = reportStore.listReportsByVisitor(req.visitorId, 50).map((item) => {
+      const featured = featuredStore.getFeaturedByReportId(item.reportId);
+      return {
+        reportId: item.reportId,
+        itemA: item.itemA,
+        itemB: item.itemB,
+        language: item.language,
+        createdAt: item.createdAt,
+        url: featured?.slug ? `/compare/${featured.slug}` : `/r/${item.reportId}`,
+      };
+    });
+    const activeRuns = analyticsStore.getDb().prepare(`
+      SELECT run_id AS runId, item_a AS itemA, item_b AS itemB, started_at AS startedAt
+      FROM comparison_runs
+      WHERE visitor_id = ? AND status = 'started' AND started_at > datetime('now', '-30 minutes')
+      ORDER BY started_at DESC
+      LIMIT 5
+    `).all(req.visitorId);
+    res.json({ reports, activeRuns });
   });
 
   app.patch('/api/comparison-runs/:runId', (req: RequestWithVisitor, res) => {

@@ -1,5 +1,6 @@
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { generateComparison, runFinalizeAgent, ComparisonResult } from './services/geminiService';
+import { generateViaServer, getMyActivity, ServerGenerationUnavailableError } from './services/serverGenerationService';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Loader2, AlertCircle } from 'lucide-react';
 import { AILoadingState } from './components/AILoadingState';
@@ -81,6 +82,71 @@ export default function App() {
     const target = error ? errorFocusRef.current : result ? resultFocusRef.current : null;
     if (target) window.requestAnimationFrame(() => target.focus());
   }, [error, loading, result]);
+
+  // Reattach to a comparison that is still generating server-side — e.g. the
+  // user closed the tab or locked their phone mid-run and came back.
+  useEffect(() => {
+    const lookupController = new AbortController();
+    void (async () => {
+      try {
+        const activity = await getMyActivity(lookupController.signal);
+        const active = activity.activeRuns[0];
+        if (!active || inFlightRef.current || lookupController.signal.aborted) return;
+
+        inFlightRef.current = true;
+        abortControllerRef.current?.abort();
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        const generation = generationRef.current + 1;
+        generationRef.current = generation;
+        const isCurrent = () => generationRef.current === generation;
+
+        setItemA(active.itemA);
+        setItemB(active.itemB);
+        setSubmittedItems({ itemA: active.itemA, itemB: active.itemB });
+        setLoading(true);
+        setPartialResult({});
+        setError('');
+        setResult(null);
+        setReportUrl(null);
+        setLoadingStep({ key: 'loading.initializing' });
+
+        try {
+          const outcome = await generateViaServer(active.runId, {
+            skipStart: true,
+            bailOnUnknown: true,
+            onProgress: (progress) => {
+              if (isCurrent()) setLoadingStep({ key: `loading.${progress.key}`, count: progress.count });
+            },
+            onPhaseComplete: (phase, data) => {
+              if (!isCurrent()) return;
+              setPartialResult((previous) => (phase === 'dimension'
+                ? { ...previous, dimensions: [...(previous.dimensions || []), data] }
+                : { ...previous, ...data }));
+            },
+            signal: controller.signal,
+          });
+          if (!isCurrent()) return;
+          setResult(outcome.result);
+          setReportUrl(outcome.reportUrl || (outcome.reportId ? `/r/${outcome.reportId}` : null));
+          setReportSaveStatus('ready');
+        } catch (resumeError) {
+          if (!isCurrent()) return;
+          if (resumeError instanceof Error && resumeError.name === 'AbortError') return;
+          if (resumeError instanceof ServerGenerationUnavailableError) return;
+          setError(localizeServerError(resumeError instanceof Error ? resumeError.message : ''));
+        } finally {
+          if (isCurrent()) {
+            setLoading(false);
+            inFlightRef.current = false;
+          }
+        }
+      } catch {
+        // Activity lookup is best-effort; the homepage works without it.
+      }
+    })();
+    return () => lookupController.abort();
+  }, []);
 
   const persistReport = async (
     generation: number,
@@ -198,32 +264,73 @@ export default function App() {
       if (!isCurrentGeneration()) return;
       runId = run?.runId;
 
-      const comparison = await generateComparison(
-        itemASnapshot,
-        itemBSnapshot,
-        (progress) => {
-          if (!isCurrentGeneration()) return;
-          setLoadingStep({ key: `loading.${progress.key}`, count: progress.count });
-        },
-        (phase, data) => {
-          if (!isCurrentGeneration()) return;
-          setPartialResult((previous) => {
-            if (!isCurrentGeneration()) return previous;
-            if (phase === 'dimension') {
-              return {
-                ...previous,
-                dimensions: [...(previous.dimensions || []), data],
-              };
-            }
-            return { ...previous, ...data };
+      const handleProgress = (progress: { key: string; count?: number }) => {
+        if (!isCurrentGeneration()) return;
+        setLoadingStep({ key: `loading.${progress.key}`, count: progress.count });
+      };
+      const handlePhaseComplete = (phase: string, data: any) => {
+        if (!isCurrentGeneration()) return;
+        setPartialResult((previous) => {
+          if (!isCurrentGeneration()) return previous;
+          if (phase === 'dimension') {
+            return {
+              ...previous,
+              dimensions: [...(previous.dimensions || []), data],
+            };
+          }
+          return { ...previous, ...data };
+        });
+      };
+
+      // Prefer server-side generation: it survives tab closes and locked
+      // phones. Fall back to the in-browser pipeline when it cannot start.
+      let comparison: ComparisonResult;
+      let serverReportUrl: string | null = null;
+      let usedServerRun = false;
+      if (runId) {
+        try {
+          const serverOutcome = await generateViaServer(runId, {
+            onProgress: handleProgress,
+            onPhaseComplete: handlePhaseComplete,
+            signal: controller.signal,
           });
-        },
-        languageSnapshot,
-        runId,
-        controller.signal,
-      );
+          comparison = serverOutcome.result;
+          serverReportUrl = serverOutcome.reportUrl
+            || (serverOutcome.reportId ? `/r/${serverOutcome.reportId}` : null);
+          usedServerRun = true;
+        } catch (serverError) {
+          if (!(serverError instanceof ServerGenerationUnavailableError)) throw serverError;
+          setPartialResult({});
+          comparison = await generateComparison(
+            itemASnapshot,
+            itemBSnapshot,
+            handleProgress,
+            handlePhaseComplete,
+            languageSnapshot,
+            runId,
+            controller.signal,
+          );
+        }
+      } else {
+        comparison = await generateComparison(
+          itemASnapshot,
+          itemBSnapshot,
+          handleProgress,
+          handlePhaseComplete,
+          languageSnapshot,
+          runId,
+          controller.signal,
+        );
+      }
       if (!isCurrentGeneration()) return;
       setResult(comparison);
+
+      if (usedServerRun) {
+        // The server already finished the run and saved the report.
+        setReportUrl(serverReportUrl);
+        setReportSaveStatus('ready');
+        return;
+      }
 
       if (runId) {
         void finishComparisonRun({
@@ -525,6 +632,7 @@ export default function App() {
             <a href="/about" className="text-neutral-400 hover:text-indigo-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">{t('nav.about')}</a>
             <a href="/methodology" className="text-neutral-400 hover:text-indigo-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">{t('nav.methodology')}</a>
             <a href="/popular-ai-comparisons" className="text-neutral-400 hover:text-indigo-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">{t('nav.popularComparisons')}</a>
+            <a href="/my-reports" className="text-neutral-400 hover:text-indigo-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">{t('nav.myReports')}</a>
             <a href="/privacy" className="text-neutral-400 hover:text-indigo-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">{t('nav.privacy')}</a>
             <a href="/terms" className="text-neutral-400 hover:text-indigo-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">{t('nav.terms')}</a>
           </nav>

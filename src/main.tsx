@@ -25,6 +25,8 @@ if (isAdminRoute) {
   loadRootApp = () => import('./components/ReportViewer.tsx');
 } else if (pathname === '/popular-ai-comparisons') {
   loadRootApp = () => import('./components/PopularComparisonsPage.tsx');
+} else if (pathname === '/my-reports') {
+  loadRootApp = () => import('./components/MyReportsPage.tsx');
 } else {
   loadRootApp = () => import('./App.tsx');
 }

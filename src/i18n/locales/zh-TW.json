@@ -24,7 +24,8 @@
     "createComparison": "建立你自己的對比",
     "privacy": "隱私政策",
     "terms": "服務條款",
-    "footerLabel": "頁尾導覽"
+    "footerLabel": "頁尾導覽",
+    "myReports": "我的報告"
   },
   "result": {
     "relationship": "關係類型",
@@ -286,5 +287,16 @@
   "related": {
     "title": "相關 AI 對比",
     "viewAll": "查看全部"
+  },
+  "myReports": {
+    "pageTitle": "我的報告 — Compare Anything",
+    "label": "歷史記錄",
+    "title": "我的報告",
+    "description": "你在此裝置上產生的比較報告。無需註冊帳號，報告自動關聯到目前瀏覽器。",
+    "loading": "正在載入你的報告…",
+    "empty": "還沒有報告。你產生的比較會自動出現在這裡。",
+    "startFirst": "建立第一個比較",
+    "viewReport": "查看報告",
+    "generating": "仍在產生中——你可以放心關閉頁面，稍後回來查看。"
   }
 }

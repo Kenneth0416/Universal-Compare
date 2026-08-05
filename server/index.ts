@@ -15,6 +15,7 @@ import { createApp } from './app';
 import { DemandSensingService } from './demandSensing';
 import { createEntityPoolStore } from './entityPool';
 import { createCandidatePairStore } from './candidatePairs';
+import { createComparisonRunner } from './comparisonRunner';
 
 const PORT = Number(process.env.API_SERVER_PORT || 3001);
 const HOST = process.env.API_SERVER_HOST || '127.0.0.1';
@@ -101,6 +102,33 @@ const reportStore = createReportStore(analyticsStore.getDb());
 const featuredStore = createFeaturedStore(analyticsStore.getDb());
 const entityStore = createEntityPoolStore(analyticsStore.getDb());
 const candidateStore = createCandidatePairStore(analyticsStore.getDb());
+
+const comparisonRunner = process.env.BATCH_INTERNAL_SECRET
+  ? createComparisonRunner({
+      analyticsStore,
+      reportStore,
+      apiBase: `http://127.0.0.1:${PORT}`,
+      batchSecret: process.env.BATCH_INTERNAL_SECRET,
+      maxConcurrent: Number(process.env.RUNNER_MAX_CONCURRENT || 3),
+    })
+  : undefined;
+
+// Runs abandoned by the legacy client-orchestrated path (tab closed mid-run)
+// stay 'started' forever; sweep them so analytics and /api/me/activity stay honest.
+const sweepStaleRuns = () => {
+  try {
+    analyticsStore.getDb().prepare(`
+      UPDATE comparison_runs
+      SET status = 'failed', error_message = 'abandoned (no completion within 15 minutes)', finished_at = datetime('now')
+      WHERE status = 'started' AND started_at < datetime('now', '-15 minutes')
+    `).run();
+  } catch (error) {
+    console.warn('Stale run sweep failed:', error);
+  }
+};
+sweepStaleRuns();
+setInterval(sweepStaleRuns, 60 * 60 * 1_000).unref();
+
 const app = createApp({
   analyticsStore,
   reportStore,
@@ -112,6 +140,7 @@ const app = createApp({
   adminPassword: process.env.ADMIN_PASSWORD,
   adminSessionSecret,
   siteUrl: process.env.SITE_URL || process.env.APP_URL,
+  comparisonRunner,
 });
 
 app.listen(PORT, HOST, () => {
