@@ -130,6 +130,26 @@ export function createCandidatePairStore(db: DatabaseConnection) {
     return { created, total };
   };
 
+  /** Insert one explicit pair (e.g. from search-autocomplete demand), skipping duplicates and already-featured pairs. */
+  const addDirectPair = (entityAId: number, entityBId: number): { created: boolean } => {
+    if (entityAId === entityBId) return { created: false };
+    const [aId, bId] = entityAId < entityBId ? [entityAId, entityBId] : [entityBId, entityAId];
+    const changes = db.prepare(`
+      INSERT OR IGNORE INTO candidate_pairs (
+        entity_a_id, entity_b_id, item_a_name, item_b_name, category, status, created_at
+      )
+      SELECT e1.id, e2.id, e1.name, e2.name, e1.category, 'pending', ?
+      FROM entity_pool e1, entity_pool e2
+      WHERE e1.id = ? AND e2.id = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM featured_comparisons f
+          WHERE (LOWER(f.item_a) = LOWER(e1.name) AND LOWER(f.item_b) = LOWER(e2.name))
+             OR (LOWER(f.item_a) = LOWER(e2.name) AND LOWER(f.item_b) = LOWER(e1.name))
+        )
+    `).run(nowIso(), aId, bId).changes;
+    return { created: changes > 0 };
+  };
+
   const listCandidates = (opts: {
     category?: string;
     status?: CandidatePairStatus;
@@ -239,6 +259,7 @@ export function createCandidatePairStore(db: DatabaseConnection) {
 
   return {
     syncFromEntityPool,
+    addDirectPair,
     listCandidates,
     getCandidate,
     updateScore,

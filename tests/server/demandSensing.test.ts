@@ -378,7 +378,6 @@ test('rejects invalid score response field types and ranges after retry', async 
   const invalidResponses = [
     { ...base, score: -1 },
     { ...base, score: 11 },
-    { ...base, recommendation: 'maybe' },
     { ...base, signals: { ...base.signals, has_reddit_discussion: 1 } },
     { ...base, signals: { ...base.signals, has_authoritative_source: 'yes' } },
     { ...base, signals: { ...base.signals, competition_level: 'extreme' } },
@@ -398,6 +397,29 @@ test('rejects invalid score response field types and ranges after retry', async 
       (err: any) => err.name === 'DemandSensingError' && err.statusCode === 502,
     );
   }
+});
+
+test('unsupported recommendation value is normalized from the score instead of rejected', async () => {
+  const response = {
+    score: 7,
+    recommendation: 'publish',
+    signals: {
+      existing_articles_count: 5,
+      has_reddit_discussion: true,
+      has_authoritative_source: false,
+      competition_level: 'medium',
+      freshness: 'recent',
+    },
+    reasoning: 'Good signal.',
+  };
+  const service = new DemandSensingService({
+    minimaxSearchApiKey: 'fake-key',
+    deepseekClient: makeMockDeepseekClient(JSON.stringify(response)) as any,
+    searchFn: async () => ({ text: '', sources: [{ url: 'https://example.com/a', title: 'A' }] }),
+  });
+  const result = await service.scorePair('A', 'B');
+  assert.equal(result.recommendation, 'good');
+  assert.equal(result.score, 7);
 });
 
 test('deepseek missing required field (score): retries with stricter prompt', async () => {

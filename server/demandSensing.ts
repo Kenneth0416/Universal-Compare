@@ -100,7 +100,7 @@ Signals to extract:
 
 Reasoning: 1-2 sentences in ${langName} explaining the score.
 
-Output JSON only matching this schema (fields: score, recommendation, signals{existing_articles_count, has_reddit_discussion, has_authoritative_source, competition_level, freshness}, reasoning). No markdown.
+Output JSON only matching this schema (fields: score, recommendation, signals{existing_articles_count, has_reddit_discussion, has_authoritative_source, competition_level, freshness}, reasoning). recommendation MUST be exactly one of: "skip", "consider", "good", "excellent". No markdown.
 
 Search results:
 ${formatSearchBlock('Search 1 (General SERP)', generalQuery, search1)}
@@ -254,7 +254,13 @@ export class DemandSensingService {
       throw new Error('score must be a finite number between 0 and 10');
     }
     if (!['skip', 'consider', 'good', 'excellent'].includes(parsed.recommendation)) {
-      throw new Error('recommendation must be a supported value');
+      // Models occasionally invent synonyms ("publish", "proceed"); the score
+      // is the authoritative signal, so derive the tier from it instead of
+      // failing the whole (search-expensive) scoring call.
+      parsed.recommendation = parsed.score >= 8 ? 'excellent'
+        : parsed.score >= 6 ? 'good'
+        : parsed.score >= 4 ? 'consider'
+        : 'skip';
     }
     if (typeof parsed.reasoning !== 'string' || !parsed.reasoning.trim() || parsed.reasoning.length > 1000) {
       throw new Error('reasoning must be a non-empty string of at most 1000 characters');
