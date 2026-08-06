@@ -260,9 +260,13 @@ export async function runTopicScout(options: ScoutOptions): Promise<{
   // 5. Demand-score surviving pending pairs (newest first so fresh launches lead).
   let scoredPairs = 0;
   if (options.demandSensing) {
+    // listCandidates pages id-ASC; jump to the last page so freshly scouted
+    // demand pairs (highest ids) get scored before the old backlog.
+    const pendingTotal = options.candidateStore.listCandidates({ status: 'pending', limit: 1 }).total;
     const pending = options.candidateStore.listCandidates({
       status: 'pending',
       limit: 500,
+      offset: Math.max(0, pendingTotal - 500),
     });
     const newestFirst = [...pending.items].sort((a, b) => b.id - a.id).slice(0, options.maxPairsToScore ?? 20);
     for (const candidate of newestFirst) {
