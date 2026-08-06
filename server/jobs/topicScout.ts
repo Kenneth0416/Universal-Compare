@@ -132,17 +132,25 @@ async function autocompleteCounterparts(productName: string, log: (m: string) =>
       `https://suggestqueries.google.com/complete/search?client=firefox&q=${query}`,
       { headers: { 'User-Agent': FETCH_UA }, signal: AbortSignal.timeout(10_000) },
     );
-    if (!response.ok) return [];
+    if (!response.ok) {
+      log(`scout: autocomplete for "${productName}" -> HTTP ${response.status}`);
+      return [];
+    }
     const data = await response.json() as [string, string[]];
     const suggestions = Array.isArray(data?.[1]) ? data[1] : [];
-    const prefix = `${productName.toLowerCase()} vs `;
     const counterparts: string[] = [];
     for (const suggestion of suggestions) {
-      const lower = String(suggestion).toLowerCase();
-      if (!lower.startsWith(prefix)) continue;
-      const counterpart = String(suggestion).slice(prefix.length).trim();
-      // Skip fragments referring back to the same product line ("... vs 5 pro").
-      if (!counterpart || counterpart.length < 3 || /^\d/.test(counterpart)) continue;
+      // Google normalizes the query ("Fold8" -> "fold 8", brand swaps), so a
+      // strict prefix match drops everything; split on " vs " instead.
+      const text = String(suggestion);
+      const vsIndex = text.toLowerCase().indexOf(' vs ');
+      if (vsIndex < 0) continue;
+      const counterpart = text.slice(vsIndex + 4).trim();
+      if (!counterpart || counterpart.length < 3) continue;
+      // Skip fragments referring back to the same product line ("... vs 5 pro",
+      // "... vs ultra"): require a digit or at least two words.
+      if (/^\d/.test(counterpart)) continue;
+      if (!/\d/.test(counterpart) && counterpart.split(/\s+/).length < 2) continue;
       counterparts.push(counterpart.slice(0, 120));
     }
     return [...new Set(counterparts)].slice(0, 4);
