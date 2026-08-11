@@ -31,6 +31,7 @@ function interleaveValidSources(left: Source[], right: Source[]): Source[] {
 
   for (let index = 0; index < maxLength && balanced.length < 20; index += 1) {
     for (const source of [left[index], right[index]]) {
+      if (balanced.length >= 20) break;
       if (!source) continue;
       try {
         const url = new URL(source.url);
