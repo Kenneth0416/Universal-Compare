@@ -33,6 +33,13 @@ const MINIMAX_M27_PRICING: ModelPricing = {
   outputUsdPerMillion: 1.2,
 };
 
+// Official DeepSeek API rates as of 2026-08 (deepseek.ai/pricing).
+const DEEPSEEK_V4_FLASH_PRICING: ModelPricing = {
+  inputUsdPerMillion: 0.14,
+  cachedInputUsdPerMillion: 0.0028,
+  outputUsdPerMillion: 0.28,
+};
+
 function emptyMetrics(): AiUsageMetrics {
   return {
     promptTokens: 0,
@@ -65,6 +72,9 @@ function getKnownPricing(model: string): ModelPricing | null {
   }
   if (normalized.startsWith('minimax-m2')) {
     return MINIMAX_M27_PRICING;
+  }
+  if (normalized.startsWith('deepseek-v4-flash')) {
+    return DEEPSEEK_V4_FLASH_PRICING;
   }
   return null;
 }

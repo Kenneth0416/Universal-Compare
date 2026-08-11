@@ -5,11 +5,18 @@ import { extractJson, validateRequiredFields } from './jsonExtractor';
 
 const DEEPSEEK_MODEL_DEFAULT = 'deepseek-v4-flash';
 
+// DeepSeek reports cache hits natively (prompt_cache_hit_tokens) and via the
+// OpenAI-compatible prompt_tokens_details shape depending on endpoint.
+function cachedTokensFromUsage(usage: any): number {
+  const value = usage?.prompt_tokens_details?.cached_tokens ?? usage?.prompt_cache_hit_tokens;
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(value, 0) : 0;
+}
+
 // Tokens here are aggregated across several underlying calls (plan + searches +
-// synthesis, or JSON retries), so per-response cached/reasoning detail is lost.
-function aggregatedCostFields(model: string, promptTokens: number, completionTokens: number, totalTokens: number): Pick<AiCallMetrics, 'costUsd' | 'costSource'> {
-  const cost = estimateCostUsd({ promptTokens, completionTokens, totalTokens, cachedTokens: 0, reasoningTokens: 0 }, model);
-  return cost === null ? { costUsd: 0, costSource: 'unavailable' } : { costUsd: cost, costSource: 'estimated' };
+// synthesis, or JSON retries), so per-response reasoning detail is lost.
+function aggregatedCostFields(model: string, promptTokens: number, completionTokens: number, totalTokens: number, cachedTokens: number): Pick<AiCallMetrics, 'costUsd' | 'costSource' | 'cachedTokens'> {
+  const cost = estimateCostUsd({ promptTokens, completionTokens, totalTokens, cachedTokens, reasoningTokens: 0 }, model);
+  return { cachedTokens, ...(cost === null ? { costUsd: 0, costSource: 'unavailable' as const } : { costUsd: cost, costSource: 'estimated' as const }) };
 }
 const MAX_JSON_RETRIES = 2;
 const SEARCH_TIMEOUT_MS = 30_000;
@@ -124,6 +131,7 @@ export class MinimaxProvider implements AIProvider {
     let totalPromptTokens = 0;
     let totalCompletionTokens = 0;
     let totalTokens = 0;
+    let totalCachedTokens = 0;
 
     // Step 1: DeepSeek generates multi-angle search queries
     const planResponse = await this.chatClient.chat.completions.create({
@@ -155,6 +163,7 @@ Respond with ONLY a JSON object: {"queries": ["query1", "query2", ...]}`,
     totalPromptTokens += planUsage.prompt_tokens || 0;
     totalCompletionTokens += planUsage.completion_tokens || 0;
     totalTokens += planUsage.total_tokens || 0;
+    totalCachedTokens += cachedTokensFromUsage(planUsage);
 
     const planContent = (planResponse as any).choices?.[0]?.message?.content || '';
     let queries: string[];
@@ -211,6 +220,7 @@ Respond with ONLY a JSON object: {"queries": ["query1", "query2", ...]}`,
     totalPromptTokens += synthUsage.prompt_tokens || 0;
     totalCompletionTokens += synthUsage.completion_tokens || 0;
     totalTokens += synthUsage.total_tokens || 0;
+    totalCachedTokens += cachedTokensFromUsage(synthUsage);
 
     return {
       text: (synthResponse as any).choices?.[0]?.message?.content || '',
@@ -221,7 +231,7 @@ Respond with ONLY a JSON object: {"queries": ["query1", "query2", ...]}`,
         completionTokens: totalCompletionTokens,
         totalTokens,
         durationMs: Date.now() - start,
-        ...aggregatedCostFields(this.chatModel, totalPromptTokens, totalCompletionTokens, totalTokens),
+        ...aggregatedCostFields(this.chatModel, totalPromptTokens, totalCompletionTokens, totalTokens, totalCachedTokens),
       },
     };
   }
@@ -239,6 +249,7 @@ Respond with ONLY a JSON object: {"queries": ["query1", "query2", ...]}`,
     let totalPromptTokens = 0;
     let totalCompletionTokens = 0;
     let totalTokens = 0;
+    let totalCachedTokens = 0;
 
     const schemaInstruction = `You MUST respond with valid JSON matching this exact schema. No markdown code fences, no explanation, no extra text — ONLY the raw JSON object.
 
@@ -267,6 +278,7 @@ ${JSON.stringify(params.schema, null, 2)}`;
       totalPromptTokens += usage.prompt_tokens || usage.input_tokens || 0;
       totalCompletionTokens += usage.completion_tokens || usage.output_tokens || 0;
       totalTokens += usage.total_tokens || 0;
+      totalCachedTokens += cachedTokensFromUsage(usage);
 
       const content = (response as any).choices?.[0]?.message?.content || '';
 
@@ -281,7 +293,7 @@ ${JSON.stringify(params.schema, null, 2)}`;
             completionTokens: totalCompletionTokens,
             totalTokens,
             durationMs: Date.now() - start,
-            ...aggregatedCostFields(model, totalPromptTokens, totalCompletionTokens, totalTokens),
+            ...aggregatedCostFields(model, totalPromptTokens, totalCompletionTokens, totalTokens, totalCachedTokens),
           },
         };
       } catch (err) {
