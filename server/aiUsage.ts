@@ -69,7 +69,7 @@ function getKnownPricing(model: string): ModelPricing | null {
   return null;
 }
 
-function estimateCostUsd(
+export function estimateCostUsd(
   metrics: Pick<AiUsageMetrics, 'promptTokens' | 'completionTokens' | 'totalTokens' | 'cachedTokens' | 'reasoningTokens'>,
   model: string,
 ): number | null {

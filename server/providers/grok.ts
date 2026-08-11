@@ -1,4 +1,5 @@
 import type OpenAI from 'openai';
+import { extractAiUsageMetrics } from '../aiUsage';
 import type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema, ResearchRawParams, Source } from './types';
 
 const LLM_TIMEOUT_MS = 120_000;
@@ -46,7 +47,6 @@ Provide detailed, factual information with sources.`,
     const response = await this.client.responses.create(requestParams as any, { timeout: LLM_TIMEOUT_MS, signal });
 
     const text = (response as any).output_text || '';
-    const usage = (response as any).usage || {};
 
     // Extract source URLs from url_citation annotations in the response output
     const sources: Source[] = [];
@@ -75,10 +75,8 @@ Provide detailed, factual information with sources.`,
       sources,
       metrics: {
         model,
-        promptTokens: usage.prompt_tokens || usage.input_tokens || 0,
-        completionTokens: usage.completion_tokens || usage.output_tokens || 0,
-        totalTokens: usage.total_tokens || 0,
         durationMs: Date.now() - start,
+        ...extractAiUsageMetrics(response, model),
       },
     };
   }
@@ -111,16 +109,13 @@ Provide detailed, factual information with sources.`,
     } as any, { timeout: LLM_TIMEOUT_MS, signal: params.signal });
 
     const content = (response as any).choices?.[0]?.message?.content || '{}';
-    const usage = (response as any).usage || {};
 
     return {
       json: content,
       metrics: {
         model,
-        promptTokens: usage.prompt_tokens || usage.input_tokens || 0,
-        completionTokens: usage.completion_tokens || usage.output_tokens || 0,
-        totalTokens: usage.total_tokens || 0,
         durationMs: Date.now() - start,
+        ...extractAiUsageMetrics(response, model),
       },
     };
   }

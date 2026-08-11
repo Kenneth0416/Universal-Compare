@@ -626,6 +626,9 @@ export function createComparisonAgentRouter({
           runId, visitorId: req.visitorId, callType, model: metrics?.model || '', status, statusCode,
           durationMs: metrics?.durationMs ?? Date.now() - startedAt, errorMessage,
           promptTokens: metrics?.promptTokens, completionTokens: metrics?.completionTokens, totalTokens: metrics?.totalTokens,
+          cachedTokens: metrics?.cachedTokens, reasoningTokens: metrics?.reasoningTokens,
+          costUsd: metrics?.costUsd, costSource: metrics?.costSource,
+          webSearchCount: metrics?.webSearchCount, xSearchCount: metrics?.xSearchCount, toolUsageJson: metrics?.toolUsageJson,
         });
       } catch (error) { console.warn('AI telemetry failed:', error); }
     };

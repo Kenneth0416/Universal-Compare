@@ -141,8 +141,8 @@ export function createComparisonRunner({
     const { runId, itemA, itemB, language } = input;
     try {
       const [resA, resB] = await Promise.all([
-        callPhase<{ profile: any; sources: Source[] }>('researcher', { itemName: itemA, language }),
-        callPhase<{ profile: any; sources: Source[] }>('researcher', { itemName: itemB, language }),
+        callPhase<{ profile: any; sources: Source[] }>('researcher', { itemName: itemA, language, runId }),
+        callPhase<{ profile: any; sources: Source[] }>('researcher', { itemName: itemB, language, runId }),
       ]);
       const allSources = interleaveValidSources(resA.sources, resB.sources);
       update(runId, {
@@ -151,7 +151,7 @@ export function createComparisonRunner({
       });
 
       const framework = await callPhase<{ relationship: any; dimensions: any[] }>('architect', {
-        profileA: resA.profile, profileB: resB.profile, language,
+        profileA: resA.profile, profileB: resB.profile, language, runId,
       });
       update(runId, {
         stepKey: 'analyzing',
@@ -161,7 +161,7 @@ export function createComparisonRunner({
 
       const analyzedDimensions = await mapConcurrent(framework.dimensions, 3, async (dimension) => {
         const analyzed = await callPhase<any>('analyst', {
-          profileA: resA.profile, profileB: resB.profile, dimension, sources: allSources, language,
+          profileA: resA.profile, profileB: resB.profile, dimension, sources: allSources, language, runId,
         });
         const current = progressByRun.get(runId);
         if (current) {
@@ -173,10 +173,10 @@ export function createComparisonRunner({
       update(runId, { stepKey: 'synthesizing' });
       const [prosCons, recommendation] = await Promise.all([
         callPhase<any>('pros-cons', {
-          profileA: resA.profile, profileB: resB.profile, dimensions: analyzedDimensions, sources: allSources, language,
+          profileA: resA.profile, profileB: resB.profile, dimensions: analyzedDimensions, sources: allSources, language, runId,
         }),
         callPhase<any>('recommendation', {
-          profileA: resA.profile, profileB: resB.profile, dimensions: analyzedDimensions, sources: allSources, language,
+          profileA: resA.profile, profileB: resB.profile, dimensions: analyzedDimensions, sources: allSources, language, runId,
         }),
       ]);
 

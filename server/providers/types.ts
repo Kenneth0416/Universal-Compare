@@ -12,6 +12,13 @@ export type AiCallMetrics = {
   completionTokens: number;
   totalTokens: number;
   durationMs: number;
+  cachedTokens?: number;
+  reasoningTokens?: number;
+  costUsd?: number;
+  costSource?: 'provider' | 'estimated' | 'unavailable';
+  webSearchCount?: number;
+  xSearchCount?: number;
+  toolUsageJson?: string | null;
 };
 
 /**

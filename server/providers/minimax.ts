@@ -1,8 +1,16 @@
 import type OpenAI from 'openai';
+import { estimateCostUsd } from '../aiUsage';
 import type { AIProvider, AiCallMetrics, ChatMessage, JsonSchema, ResearchRawParams, Source } from './types';
 import { extractJson, validateRequiredFields } from './jsonExtractor';
 
 const DEEPSEEK_MODEL_DEFAULT = 'deepseek-v4-flash';
+
+// Tokens here are aggregated across several underlying calls (plan + searches +
+// synthesis, or JSON retries), so per-response cached/reasoning detail is lost.
+function aggregatedCostFields(model: string, promptTokens: number, completionTokens: number, totalTokens: number): Pick<AiCallMetrics, 'costUsd' | 'costSource'> {
+  const cost = estimateCostUsd({ promptTokens, completionTokens, totalTokens, cachedTokens: 0, reasoningTokens: 0 }, model);
+  return cost === null ? { costUsd: 0, costSource: 'unavailable' } : { costUsd: cost, costSource: 'estimated' };
+}
 const MAX_JSON_RETRIES = 2;
 const SEARCH_TIMEOUT_MS = 30_000;
 const LLM_TIMEOUT_MS = 60_000;
@@ -213,6 +221,7 @@ Respond with ONLY a JSON object: {"queries": ["query1", "query2", ...]}`,
         completionTokens: totalCompletionTokens,
         totalTokens,
         durationMs: Date.now() - start,
+        ...aggregatedCostFields(this.chatModel, totalPromptTokens, totalCompletionTokens, totalTokens),
       },
     };
   }
@@ -272,6 +281,7 @@ ${JSON.stringify(params.schema, null, 2)}`;
             completionTokens: totalCompletionTokens,
             totalTokens,
             durationMs: Date.now() - start,
+            ...aggregatedCostFields(model, totalPromptTokens, totalCompletionTokens, totalTokens),
           },
         };
       } catch (err) {
