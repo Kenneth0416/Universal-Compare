@@ -671,10 +671,19 @@ export function createApp({
   });
 
   app.get('/api/admin/users', (req, res) => {
+    const type = req.query.type === 'human' || req.query.type === 'ai' || req.query.type === 'bot'
+      ? req.query.type
+      : undefined;
+    const sort = req.query.sort === 'comparisons' || req.query.sort === 'visits' || req.query.sort === 'recent'
+      ? req.query.sort
+      : undefined;
     res.json(
       analyticsStore.listUsers({
         limit: getQueryNumber(req.query.limit, 50),
         offset: getQueryNumber(req.query.offset, 0),
+        type,
+        minComparisons: getQueryNumber(req.query.minComparisons, 0),
+        sort,
       }),
     );
   });

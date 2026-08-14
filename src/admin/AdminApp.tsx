@@ -72,6 +72,8 @@ import type {
   ReportListItem,
   RunListItem,
   UserListItem,
+  UserSort,
+  VisitorType,
 } from './types';
 import { parseCandidateSignals } from './types';
 
@@ -247,64 +249,146 @@ function CallsTable({ items }: { items: CallListItem[] }) {
   );
 }
 
-function UsersTable({ items }: { items: UserListItem[] }) {
-  const [hideBot, setHideBot] = useState(false);
-  const filtered = hideBot ? items.filter((item) => item.userType !== 'bot') : items;
+const USER_TYPE_BADGES: Record<VisitorType, { label: string; className: string }> = {
+  human: { label: 'Human', className: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' },
+  ai: { label: 'AI', className: 'border-sky-500/20 bg-sky-500/10 text-sky-300' },
+  bot: { label: 'Bot', className: 'border-amber-500/20 bg-amber-500/10 text-amber-300' },
+};
 
-  if (items.length === 0) return <EmptyState label="No anonymous users recorded yet." />;
+function UsersTable({ items: initialItems }: { items: UserListItem[] }) {
+  const [typeFilter, setTypeFilter] = useState<VisitorType | 'all'>('all');
+  const [minComparisons, setMinComparisons] = useState(0);
+  const [sort, setSort] = useState<UserSort>('recent');
+  const [items, setItems] = useState<UserListItem[]>(initialItems);
+  const [total, setTotal] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState('');
 
-  const botCount = items.filter((item) => item.userType === 'bot').length;
+  const isDefaultQuery = typeFilter === 'all' && minComparisons === 0 && sort === 'recent';
+
+  useEffect(() => {
+    if (isDefaultQuery) setItems(initialItems);
+  }, [initialItems, isDefaultQuery]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setFetchError('');
+    getAdminUsers({
+      signal: controller.signal,
+      type: typeFilter === 'all' ? undefined : typeFilter,
+      minComparisons: minComparisons || undefined,
+      sort: sort === 'recent' ? undefined : sort,
+    })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setItems(data.items);
+        setTotal(data.total);
+      })
+      .catch((loadError: any) => {
+        if (!controller.signal.aborted) setFetchError(loadError.message || 'Failed to load users');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [typeFilter, minComparisons, sort]);
+
+  const typeOptions: Array<{ value: VisitorType | 'all'; label: string }> = [
+    { value: 'all', label: 'All' },
+    { value: 'human', label: 'Human' },
+    { value: 'ai', label: 'AI' },
+    { value: 'bot', label: 'Bot' },
+  ];
+  const minComparisonOptions = [0, 1, 3, 5];
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-400">
-          <input
-            type="checkbox"
-            checked={hideBot}
-            onChange={(e) => setHideBot(e.target.checked)}
-            className="accent-indigo-500"
-          />
-          Hide bots ({botCount})
-        </label>
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-1 rounded-md border border-white/10 p-0.5">
+          {typeOptions.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setTypeFilter(opt.value)}
+              className={`h-7 rounded px-2.5 text-xs transition ${
+                typeFilter === opt.value ? 'bg-indigo-600 text-white' : 'text-neutral-500 hover:text-neutral-200'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 text-xs text-neutral-500">
+          Comparisons
+          <div className="ml-1 flex items-center gap-1 rounded-md border border-white/10 p-0.5">
+            {minComparisonOptions.map((min) => (
+              <button
+                key={min}
+                type="button"
+                onClick={() => setMinComparisons(min)}
+                className={`h-7 rounded px-2.5 text-xs transition ${
+                  minComparisons === min ? 'bg-indigo-600 text-white' : 'text-neutral-500 hover:text-neutral-200'
+                }`}
+              >
+                {min === 0 ? 'Any' : `${min}+`}
+              </button>
+            ))}
+          </div>
+        </div>
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as UserSort)}
+          className="h-8 rounded-md border border-white/10 bg-neutral-950 px-2 text-xs text-neutral-300"
+        >
+          <option value="recent">Sort: recent activity</option>
+          <option value="comparisons">Sort: most comparisons</option>
+          <option value="visits">Sort: most visits</option>
+        </select>
         <span className="text-xs text-neutral-600">
-          {filtered.length} of {items.length} shown
+          {loading ? 'Loading…' : `${items.length} shown${total !== null ? ` of ${total}` : ''}`}
         </span>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-white/10">
-        <table className="w-full min-w-[820px] text-left text-sm">
-          <thead className="bg-white/[0.04] text-xs uppercase text-neutral-500">
-            <tr>
-              <th className="px-4 py-3">Visitor</th>
-              <th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Comparisons</th>
-              <th className="px-4 py-3">AI Calls</th>
-              <th className="px-4 py-3">First Seen</th>
-              <th className="px-4 py-3">Last Seen</th>
-              <th className="px-4 py-3">User Agent</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/10">
-            {filtered.map((item) => (
-              <tr key={item.visitorId} className="bg-neutral-950/40">
-                <td className="px-4 py-3 font-medium text-neutral-100">{item.visitorId}</td>
-                <td className="px-4 py-3">
-                  {item.userType === 'bot' ? (
-                    <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-300">Bot</span>
-                  ) : (
-                    <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-300">User</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-neutral-300">{item.comparisonCount}</td>
-                <td className="px-4 py-3 text-neutral-300">{item.aiCallCount}</td>
-                <td className="px-4 py-3 text-neutral-400">{formatDate(item.firstSeenAt)}</td>
-                <td className="px-4 py-3 text-neutral-400">{formatDate(item.lastSeenAt)}</td>
-                <td className="max-w-[280px] truncate px-4 py-3 text-neutral-500">{item.userAgent || '-'}</td>
+      {fetchError && <p className="text-sm text-rose-400">{fetchError}</p>}
+      {items.length === 0 && !loading ? (
+        <EmptyState label="No users match the current filters." />
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-white/10">
+          <table className="w-full min-w-[900px] text-left text-sm">
+            <thead className="bg-white/[0.04] text-xs uppercase text-neutral-500">
+              <tr>
+                <th className="px-4 py-3">Visitor</th>
+                <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">Visits</th>
+                <th className="px-4 py-3">Comparisons</th>
+                <th className="px-4 py-3">AI Calls</th>
+                <th className="px-4 py-3">First Seen</th>
+                <th className="px-4 py-3">Last Seen</th>
+                <th className="px-4 py-3">User Agent</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-white/10">
+              {items.map((item) => {
+                const badge = USER_TYPE_BADGES[item.userType] ?? USER_TYPE_BADGES.bot;
+                return (
+                  <tr key={item.visitorId} className="bg-neutral-950/40">
+                    <td className="px-4 py-3 font-medium text-neutral-100">{item.visitorId}</td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full border px-2 py-0.5 text-xs ${badge.className}`}>{badge.label}</span>
+                    </td>
+                    <td className="px-4 py-3 text-neutral-300">{item.visitCount}</td>
+                    <td className="px-4 py-3 text-neutral-300">{item.comparisonCount}</td>
+                    <td className="px-4 py-3 text-neutral-300">{item.aiCallCount}</td>
+                    <td className="px-4 py-3 text-neutral-400">{formatDate(item.firstSeenAt)}</td>
+                    <td className="px-4 py-3 text-neutral-400">{formatDate(item.lastSeenAt)}</td>
+                    <td className="max-w-[280px] truncate px-4 py-3 text-neutral-500">{item.userAgent || '-'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -1116,7 +1200,12 @@ export default function AdminApp() {
               ))}
             </div>
             <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-              <MetricCard label="Today Users" value={String(today?.users ?? 0)} detail="Anonymous visitors" icon={Users} />
+              <MetricCard
+                label="Human Users"
+                value={String(today?.humanUsers ?? 0)}
+                detail={`${today?.returningUsers ?? 0} returning · ${today?.aiUsers ?? 0} AI · ${today?.botUsers ?? 0} bots`}
+                icon={Users}
+              />
               <MetricCard label="Comparisons" value={String(today?.comparisons ?? 0)} detail="Started today" icon={GitCompareArrows} />
               <MetricCard label="AI Calls" value={String(today?.aiCalls ?? 0)} detail="Proxy requests" icon={Activity} />
               <MetricCard

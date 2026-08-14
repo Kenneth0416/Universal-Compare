@@ -2,6 +2,10 @@ export type AdminPeriodDays = 0 | 1 | 7 | 14 | 30;
 
 export type AdminMetricSummary = {
   users: number;
+  humanUsers: number;
+  aiUsers: number;
+  botUsers: number;
+  returningUsers: number;
   comparisons: number;
   aiCalls: number;
   failedCalls: number;
@@ -63,14 +67,19 @@ export type CallListItem = {
   createdAt: string;
 };
 
+export type VisitorType = 'human' | 'ai' | 'bot';
+
+export type UserSort = 'recent' | 'comparisons' | 'visits';
+
 export type UserListItem = {
   visitorId: string;
   firstSeenAt: string;
   lastSeenAt: string;
   userAgent: string;
+  visitCount: number;
   comparisonCount: number;
   aiCallCount: number;
-  userType: 'user' | 'bot';
+  userType: VisitorType;
 };
 
 export type RecentComparison = {

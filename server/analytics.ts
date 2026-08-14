@@ -60,6 +60,10 @@ export type LogAiCallInput = {
 
 export type AdminMetricSummary = {
   users: number;
+  humanUsers: number;
+  aiUsers: number;
+  botUsers: number;
+  returningUsers: number;
   comparisons: number;
   aiCalls: number;
   failedCalls: number;
@@ -121,15 +125,48 @@ export type CallListItem = {
   createdAt: string;
 };
 
+export type VisitorType = 'human' | 'ai' | 'bot';
+
 export type UserListItem = {
   visitorId: string;
   firstSeenAt: string;
   lastSeenAt: string;
   userAgent: string;
+  visitCount: number;
   comparisonCount: number;
   aiCallCount: number;
-  userType: 'user' | 'bot';
+  userType: VisitorType;
 };
+
+// AI assistants and their crawlers — checked before the generic bot patterns
+// because most of their tokens ("GPTBot", "ClaudeBot") also match those.
+const AI_UA_PATTERNS = [
+  'gptbot', 'chatgpt-user', 'oai-searchbot', 'openai',
+  'claudebot', 'claude-user', 'claude-web', 'anthropic',
+  'perplexitybot', 'perplexity-user', 'bytespider', 'amazonbot', 'amzn-searchbot',
+  'google-extended', 'meta-external', 'ccbot', 'cohere', 'youbot', 'mistral',
+];
+
+const BOT_UA_PATTERNS = [
+  'googlebot', 'googleother', 'google-inspectiontool', 'bingbot', 'bingpreview',
+  'yandex', 'baiduspider', 'duckduckbot', 'applebot', 'petalbot', 'facebookexternalhit',
+  'semrush', 'ahrefs', 'mj12', 'dotbot', 'seznambot',
+  'bot', 'crawl', 'spider', 'curl', 'wget', 'python', 'go-http', 'node-fetch', 'axios',
+  'okhttp', 'libwww', 'httpclient', 'headless', 'monitor', 'uptime', 'healthcheck',
+  'scan', 'zgrab', 'masscan', 'censys', 'expanse', 'palo alto',
+];
+
+// SQL expression classifying a user-agent column as 'human' | 'ai' | 'bot'.
+// Patterns are compile-time constants, never user input.
+function visitorTypeSql(column: string) {
+  const match = (patterns: string[]) => patterns.map((p) => `instr(lower(${column}), '${p}') > 0`).join(' OR ');
+  return `CASE
+    WHEN ${column} IS NULL OR ${column} = '' THEN 'bot'
+    WHEN ${match(AI_UA_PATTERNS)} THEN 'ai'
+    WHEN ${match(BOT_UA_PATTERNS)} THEN 'bot'
+    ELSE 'human'
+  END`;
+}
 
 export type RecentComparison = {
   itemA: string;
@@ -274,6 +311,18 @@ function initializeSchema(db: DatabaseConnection) {
       db.exec(sql);
     }
   }
+
+  const visitorMigrations: [string, string][] = [
+    ['visit_count', 'ALTER TABLE visitors ADD COLUMN visit_count INTEGER NOT NULL DEFAULT 1'],
+  ];
+
+  for (const [col, sql] of visitorMigrations) {
+    try {
+      db.prepare(`SELECT ${col} FROM visitors LIMIT 1`).get();
+    } catch {
+      db.exec(sql);
+    }
+  }
 }
 
 export function createAnalyticsStore(dbPath: string, secret: string) {
@@ -292,7 +341,10 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
   }): VisitorRecord => {
     const now = isoNow();
     const resolvedVisitorId = visitorId && visitorId.startsWith('v_') ? visitorId : generateId('v');
-    const existing = db.prepare('SELECT visitor_id FROM visitors WHERE visitor_id = ?').get(resolvedVisitorId);
+    const existing = db.prepare('SELECT visitor_id, last_seen_at AS lastSeenAt FROM visitors WHERE visitor_id = ?').get(resolvedVisitorId) as { visitor_id: string; lastSeenAt: string } | undefined;
+
+    // A gap of 30+ minutes since the last touch counts as a new visit.
+    const isNewVisit = existing && Date.parse(now) - Date.parse(existing.lastSeenAt) > 30 * 60 * 1_000 ? 1 : 0;
 
     db.prepare(`
       INSERT INTO visitors (visitor_id, first_seen_at, last_seen_at, user_agent, ip_hash)
@@ -300,8 +352,9 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       ON CONFLICT(visitor_id) DO UPDATE SET
         last_seen_at = excluded.last_seen_at,
         user_agent = excluded.user_agent,
-        ip_hash = excluded.ip_hash
-    `).run(resolvedVisitorId, now, now, truncate(userAgent), hashIp(ipAddress, secret));
+        ip_hash = excluded.ip_hash,
+        visit_count = visit_count + ?
+    `).run(resolvedVisitorId, now, now, truncate(userAgent), hashIp(ipAddress, secret), isNewVisit);
 
     return {
       visitorId: resolvedVisitorId,
@@ -497,42 +550,65 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
     return { items, total };
   };
 
-  const listUsers = ({ limit, offset }: { limit?: number; offset?: number } = {}) => {
+  const listUsers = ({
+    limit,
+    offset,
+    type,
+    minComparisons,
+    sort,
+  }: {
+    limit?: number;
+    offset?: number;
+    type?: VisitorType;
+    minComparisons?: number;
+    sort?: 'recent' | 'comparisons' | 'visits';
+  } = {}) => {
     const safeLimit = normalizeLimit(limit);
     const safeOffset = normalizeOffset(offset);
+    const typeExpr = visitorTypeSql('v.user_agent');
+    const where = type ? `WHERE ${typeExpr} = ?` : '';
+    const safeMinComparisons = Math.max(Number(minComparisons) || 0, 0);
+    const having = safeMinComparisons > 0 ? 'HAVING COUNT(DISTINCT r.id) >= ?' : '';
+    const orderBy = sort === 'comparisons'
+      ? 'comparisonCount DESC, v.last_seen_at DESC'
+      : sort === 'visits'
+        ? 'v.visit_count DESC, v.last_seen_at DESC'
+        : 'v.last_seen_at DESC';
+
+    const filterParams: unknown[] = [];
+    if (type) filterParams.push(type);
+    if (safeMinComparisons > 0) filterParams.push(safeMinComparisons);
+
     const items = db.prepare(`
       SELECT
         v.visitor_id AS visitorId,
         v.first_seen_at AS firstSeenAt,
         v.last_seen_at AS lastSeenAt,
         v.user_agent AS userAgent,
+        v.visit_count AS visitCount,
         COUNT(DISTINCT r.id) AS comparisonCount,
         COUNT(DISTINCT c.id) AS aiCallCount,
-        CASE
-          WHEN v.user_agent GLOB '*curl*'
-            OR v.user_agent GLOB '*wget*'
-            OR v.user_agent GLOB '*python*'
-            OR v.user_agent GLOB '*bot*'
-            OR v.user_agent GLOB '*spider*'
-            OR v.user_agent GLOB '*crawler*'
-            OR v.user_agent GLOB '*monitor*'
-            OR v.user_agent GLOB '*healthcheck*'
-            OR v.user_agent GLOB '*Uptime*'
-            OR v.user_agent GLOB '*Go-http*'
-            OR v.user_agent GLOB '*node-fetch*'
-            OR v.user_agent GLOB '*axios*'
-          THEN 'bot'
-          ELSE 'user'
-        END AS userType
+        ${typeExpr} AS userType
       FROM visitors v
       LEFT JOIN comparison_runs r ON r.visitor_id = v.visitor_id
       LEFT JOIN ai_call_logs c ON c.visitor_id = v.visitor_id
+      ${where}
       GROUP BY v.id
-      ORDER BY v.last_seen_at DESC
+      ${having}
+      ORDER BY ${orderBy}
       LIMIT ? OFFSET ?
-    `).all(safeLimit, safeOffset) as UserListItem[];
+    `).all(...filterParams, safeLimit, safeOffset) as UserListItem[];
 
-    const total = Number(db.prepare('SELECT COUNT(*) AS count FROM visitors').get().count || 0);
+    const total = Number(db.prepare(`
+      SELECT COUNT(*) AS count FROM (
+        SELECT v.id
+        FROM visitors v
+        LEFT JOIN comparison_runs r ON r.visitor_id = v.visitor_id
+        ${where}
+        GROUP BY v.id
+        ${having}
+      )
+    `).get(...filterParams).count || 0);
     return { items, total };
   };
 
@@ -553,9 +629,14 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       periodStart = start.toISOString();
     }
 
+    const typeExpr = visitorTypeSql('user_agent');
     const todayRow = db.prepare(`
       SELECT
         (SELECT COUNT(*) FROM visitors WHERE last_seen_at >= ?) AS users,
+        (SELECT COUNT(*) FROM visitors WHERE last_seen_at >= ? AND ${typeExpr} = 'human') AS humanUsers,
+        (SELECT COUNT(*) FROM visitors WHERE last_seen_at >= ? AND ${typeExpr} = 'ai') AS aiUsers,
+        (SELECT COUNT(*) FROM visitors WHERE last_seen_at >= ? AND ${typeExpr} = 'bot') AS botUsers,
+        (SELECT COUNT(*) FROM visitors WHERE last_seen_at >= ? AND ${typeExpr} = 'human' AND (visit_count > 1 OR (? != '' AND first_seen_at < ?))) AS returningUsers,
         (SELECT COUNT(*) FROM comparison_runs WHERE started_at >= ?) AS comparisons,
         (SELECT COUNT(*) FROM ai_call_logs WHERE created_at >= ?) AS aiCalls,
         (SELECT COUNT(*) FROM ai_call_logs WHERE created_at >= ? AND status = 'error') AS failedCalls,
@@ -582,12 +663,22 @@ export function createAnalyticsStore(dbPath: string, secret: string) {
       periodStart,
       periodStart,
       periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
+      periodStart,
     );
 
     const aiCalls = Number(todayRow.aiCalls || 0);
     const failedCalls = Number(todayRow.failedCalls || 0);
     const today: AdminMetricSummary = {
       users: Number(todayRow.users || 0),
+      humanUsers: Number(todayRow.humanUsers || 0),
+      aiUsers: Number(todayRow.aiUsers || 0),
+      botUsers: Number(todayRow.botUsers || 0),
+      returningUsers: Number(todayRow.returningUsers || 0),
       comparisons: Number(todayRow.comparisons || 0),
       aiCalls,
       failedCalls,

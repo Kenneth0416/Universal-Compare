@@ -86,8 +86,18 @@ export function getAdminCalls(options: RequestOptions = {}) {
   return request<ListResponse<CallListItem>>('/calls?limit=50', { signal: options.signal });
 }
 
-export function getAdminUsers(options: RequestOptions = {}) {
-  return request<ListResponse<UserListItem>>('/users?limit=50', { signal: options.signal });
+export type AdminUsersQuery = {
+  type?: 'human' | 'ai' | 'bot';
+  minComparisons?: number;
+  sort?: 'recent' | 'comparisons' | 'visits';
+};
+
+export function getAdminUsers(options: RequestOptions & AdminUsersQuery = {}) {
+  const params = new URLSearchParams({ limit: '50' });
+  if (options.type) params.set('type', options.type);
+  if (options.minComparisons) params.set('minComparisons', String(options.minComparisons));
+  if (options.sort) params.set('sort', options.sort);
+  return request<ListResponse<UserListItem>>(`/users?${params.toString()}`, { signal: options.signal });
 }
 
 export function getAdminReports(options: RequestOptions = {}) {
