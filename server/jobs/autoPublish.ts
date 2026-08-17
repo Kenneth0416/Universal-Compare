@@ -26,6 +26,7 @@ import { createEntityPoolStore } from '../entityPool';
 import { createCandidatePairStore } from '../candidatePairs';
 import { DemandSensingService } from '../demandSensing';
 import { runTopicScout } from './topicScout';
+import { runOrphanCuration } from './curateOrphans';
 
 const API_BASE = process.env.AUTOPUBLISH_API_BASE || 'http://127.0.0.1:3001';
 const BATCH_SECRET = process.env.BATCH_INTERNAL_SECRET || '';
@@ -42,6 +43,19 @@ function envInt(name: string, fallback: number, min: number, max: number): numbe
 
 function log(message: string) {
   console.log(`[autopublish ${new Date().toISOString()}] ${message}`);
+}
+
+// --- Duplicate detection ---
+
+/**
+ * Identity of a comparison regardless of spacing, casing, punctuation, or side
+ * order: "Samsung Galaxy Z Fold 8 Ultra" and "Samsung Galaxy Z Fold8 Ultra"
+ * collapse to the same key, so they cannot become two near-identical pages.
+ * scripts/dedupe-featured.ts keeps a copy of this rule — change both together.
+ */
+export function normalizePairKey(itemA: string, itemB: string): string {
+  const normalize = (value: string) => (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return [normalize(itemA), normalize(itemB)].sort().join('|');
 }
 
 // --- HTTP client with cookie jar, batch header, and retry on 429/503 ---
@@ -102,6 +116,7 @@ function interleaveValidSources(left: Source[], right: Source[]): Source[] {
   const maxLength = Math.max(left.length, right.length);
   for (let index = 0; index < maxLength && balanced.length < 20; index += 1) {
     for (const source of [left[index], right[index]]) {
+      if (balanced.length >= 20) break;
       if (!source) continue;
       try {
         const url = new URL(source.url);
@@ -194,6 +209,86 @@ async function pingIndexNow(slugs: string[]) {
   }
 }
 
+// --- Topic-scout seeds ---
+
+type SqliteDb = InstanceType<typeof Database>;
+type SeedEntity = { name: string; category: string };
+
+const USER_DEMAND_SEED_LIMIT = 10;
+const ENTITY_ROTATION_SIZE = 20;
+const MAX_SEED_ENTITIES = 30;
+
+// Substring matches on a lowercased user_agent. Anything hitting one of these is
+// treated as automation, so scraped/agent traffic cannot steer what we publish.
+const BOT_UA_FRAGMENTS = [
+  'bot', 'crawl', 'spider', 'slurp', 'scrap', 'curl', 'wget', 'python',
+  'java/', 'go-http', 'node-fetch', 'axios', 'okhttp', 'headless',
+  'gpt', 'claude', 'anthropic', 'openai', 'perplexity', 'monitor', 'lighthouse',
+];
+
+/** Entity names typed by real visitors in the last 7 days. */
+function recentUserDemandSeeds(db: SqliteDb): SeedEntity[] {
+  const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const botClauses = BOT_UA_FRAGMENTS.map(() => 'LOWER(v.user_agent) NOT LIKE ?').join(' AND ');
+  const rows = db.prepare(`
+    SELECT r.item_a AS itemA, r.item_b AS itemB
+    FROM comparison_runs r
+    JOIN visitors v ON v.visitor_id = r.visitor_id
+    WHERE r.started_at >= ?
+      AND v.user_agent != ''
+      AND ${botClauses}
+    ORDER BY r.started_at DESC
+  `).all(since, ...BOT_UA_FRAGMENTS.map((fragment) => `%${fragment}%`)) as Array<{ itemA: string; itemB: string }>;
+
+  const seen = new Set<string>();
+  const seeds: SeedEntity[] = [];
+  for (const row of rows) {
+    for (const name of [row.itemA, row.itemB]) {
+      const trimmed = (name || '').trim();
+      // Free-text input: drop junk that would waste an autocomplete lookup.
+      if (trimmed.length < 2 || trimmed.length > 80) continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      seeds.push({ name: trimmed, category: 'user-demand' });
+      if (seeds.length >= USER_DEMAND_SEED_LIMIT) return seeds;
+    }
+  }
+  return seeds;
+}
+
+/** Round-robin slice of the entity pool so every entity gets revisited over time. */
+function rotatingPoolSeeds(db: SqliteDb): SeedEntity[] {
+  const total = Number((db.prepare('SELECT COUNT(*) AS c FROM entity_pool').get() as { c: number }).c || 0);
+  if (total === 0) return [];
+  const daysSinceEpoch = Math.floor(Date.now() / 86_400_000);
+  const offset = (daysSinceEpoch * ENTITY_ROTATION_SIZE) % Math.max(total - ENTITY_ROTATION_SIZE, 1);
+  return db.prepare(
+    'SELECT name, category FROM entity_pool ORDER BY id ASC LIMIT ? OFFSET ?',
+  ).all(ENTITY_ROTATION_SIZE, offset) as SeedEntity[];
+}
+
+function buildSeedEntities(db: SqliteDb): SeedEntity[] {
+  let sourced: SeedEntity[] = [];
+  try {
+    sourced = [...recentUserDemandSeeds(db), ...rotatingPoolSeeds(db)];
+  } catch (err: any) {
+    // Analytics tables are created by the web server; never let a cold db abort the run.
+    log(`seed sourcing failed: ${err?.message || err}`);
+  }
+
+  const seen = new Set<string>();
+  const seeds: SeedEntity[] = [];
+  for (const seed of sourced) {
+    const key = seed.name.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    seeds.push(seed);
+    if (seeds.length >= MAX_SEED_ENTITIES) break;
+  }
+  return seeds;
+}
+
 // --- Main ---
 
 async function main() {
@@ -223,23 +318,32 @@ async function main() {
 
   const quota = Math.min(DAILY_TARGET, TOTAL_TARGET - startCount);
 
+  const existingFeatured = featuredStore.listFeatured();
+
   // 1. Featured rows awaiting a report (from earlier promotions or failed runs).
-  const workList: FeaturedComparison[] = featuredStore
-    .listFeatured()
+  const workList: FeaturedComparison[] = existingFeatured
     .filter((item) => !item.reportId && item.slug)
     .slice(0, quota);
 
   // 2. Top scored candidates fill the remaining quota.
   if (workList.length < quota) {
+    const publishedKeys = new Set(existingFeatured.map((item) => normalizePairKey(item.itemA, item.itemB)));
     const candidates = candidateStore.listCandidates({
       status: 'scored',
       minScore: MIN_DEMAND_SCORE,
       limit: quota - workList.length,
     });
     for (const candidate of candidates.items) {
+      const pairKey = normalizePairKey(candidate.itemAName, candidate.itemBName);
+      if (publishedKeys.has(pairKey)) {
+        candidateStore.markRejected(candidate.id);
+        log(`skipped duplicate candidate #${candidate.id}: ${candidate.itemAName} vs ${candidate.itemBName} (key ${pairKey} already featured)`);
+        continue;
+      }
       const promotion = candidateStore.promoteCandidate(candidate.id, (pair) =>
         featuredStore.addFeatured(pair.itemAName, pair.itemBName, { language: 'en' }));
       if (promotion.promoted) {
+        publishedKeys.add(pairKey);
         workList.push(promotion.value);
         log(`promoted candidate #${candidate.id}: ${candidate.itemAName} vs ${candidate.itemBName} (score ${candidate.demandScore})`);
       }
@@ -281,6 +385,8 @@ async function main() {
       deepseekClient,
       deepseekModel: process.env.DEEPSEEK_MODEL,
     });
+    const extraSeedEntities = buildSeedEntities(db);
+    log(`scout seeds: ${extraSeedEntities.length} (${extraSeedEntities.filter((seed) => seed.category === 'user-demand').length} from recent user demand)`);
     try {
       const scout = await runTopicScout({
         entityStore,
@@ -290,14 +396,34 @@ async function main() {
         deepseekModel: process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
         minimaxApiKey: process.env.MINIMAX_API_KEY,
         minimaxBaseUrl,
+        extraSeedEntities,
         log,
       });
-      log(`scout done: ${scout.scoutedPairs} pairs scouted, ${scout.scoredPairs} scored`);
+      log(`scout done: ${scout.scoutedPairs} pairs scouted, ${scout.scoredPairs} scored, ${scout.fastTrackedPairs} fast-tracked`);
     } catch (err: any) {
       log(`scout failed: ${err?.message || err}`);
     }
   } else {
     log('scout skipped: DEEPSEEK_API_KEY or MINIMAX_API_KEY missing');
+  }
+
+  // 5. Curate a daily slice of orphan reports (already-generated reports with no
+  // featured row). Costs no generation quota; it pings IndexNow for its own slugs.
+  if (deepseekClient) {
+    try {
+      const curation = await runOrphanCuration({
+        db: db as any,
+        featuredStore,
+        deepseekClient,
+        deepseekModel: process.env.DEEPSEEK_MODEL,
+        apply: true,
+        limit: 10,
+        log,
+      });
+      log(`orphan curation: published=${curation.published} approved=${curation.approved} rejected=${curation.rejected}`);
+    } catch (err: any) {
+      log(`orphan curation failed: ${err?.message || err}`);
+    }
   }
 
   await pingIndexNow(publishedSlugs);

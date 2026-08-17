@@ -15,20 +15,29 @@
  */
 
 import type OpenAI from 'openai';
-import type { DemandSensingService } from '../demandSensing';
+import type { DemandSenseResult, DemandSensingService } from '../demandSensing';
 import type { EntityPoolStore, Entity } from '../entityPool';
-import type { CandidatePairStore } from '../candidatePairs';
+import type { CandidatePairSource, CandidatePairStore } from '../candidatePairs';
 
 const RSS_FEEDS = [
   'https://www.gsmarena.com/rss-news-reviews.php3',
   'https://www.engadget.com/rss.xml',
   'https://9to5mac.com/feed/',
   'https://www.theverge.com/rss/index.xml',
+  'https://www.dpreview.com/feeds/news',
+  'https://www.androidauthority.com/feed/',
+  // TYPO3 "type=100" variant; verified to return application/xml RSS.
+  'https://www.notebookcheck.net/News.152.100.html',
 ];
 
 const FETCH_UA = 'Mozilla/5.0 (compatible; CompareAI-Scout/2.0; +https://compare-anythings.com)';
 const MAX_NEW_PRODUCTS_PER_RUN = 10;
-const MAX_AUTOCOMPLETE_LOOKUPS = 12;
+const MAX_AUTOCOMPLETE_LOOKUPS = 30;
+/** Sources whose demand is already proven by real user queries; they skip the expensive scoring. */
+const FAST_TRACK_SOURCES: ReadonlySet<CandidatePairSource> = new Set<CandidatePairSource>([
+  'autocomplete',
+  'user-demand',
+]);
 
 export type ScoutOptions = {
   entityStore: EntityPoolStore;
@@ -40,6 +49,12 @@ export type ScoutOptions = {
   minimaxApiKey?: string;
   minimaxBaseUrl?: string;
   maxPairsToScore?: number;
+  /**
+   * Extra products to expand via autocomplete alongside the RSS launches.
+   * Category 'user-demand' marks entities taken from real visitor comparisons;
+   * anything else is treated as an entity-pool rotation seed.
+   */
+  extraSeedEntities?: Array<{ name: string; category: string }>;
   log?: (message: string) => void;
 };
 
@@ -57,8 +72,10 @@ function decodeXmlEntities(value: string): string {
 }
 
 async function fetchRssHeadlines(log: (m: string) => void): Promise<string[]> {
-  const headlines: string[] = [];
+  const perFeed: string[][] = [];
   for (const feedUrl of RSS_FEEDS) {
+    const headlines: string[] = [];
+    perFeed.push(headlines);
     try {
       const response = await fetch(feedUrl, {
         headers: { 'User-Agent': FETCH_UA, Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml' },
@@ -83,12 +100,22 @@ async function fetchRssHeadlines(log: (m: string) => void): Promise<string[]> {
       log(`scout: feed ${feedUrl} failed: ${err?.message || err}`);
     }
   }
-  return headlines;
+  // Round-robin across feeds: the extractor only reads the first ~120 headlines,
+  // so a flat concat would let the first feeds crowd out the newer verticals.
+  const interleaved: string[] = [];
+  const longest = Math.max(0, ...perFeed.map((items) => items.length));
+  for (let index = 0; index < longest; index += 1) {
+    for (const items of perFeed) {
+      if (index < items.length) interleaved.push(items[index]);
+    }
+  }
+  return interleaved;
 }
 
 const EXTRACTION_RULES = `Rules:
 - Only real, concrete consumer products that are being launched, announced, or reviewed as new. Use the exact marketed product name (brand + model).
-- category: a short specific product category in lowercase English (e.g. "smartphone", "action camera", "wireless earbuds", "laptop", "smartwatch", "drone", "tablet", "game console", "ai model").
+- category: a short specific product category in lowercase English. Electronics are welcome (e.g. "smartphone", "action camera", "mirrorless camera", "wireless earbuds", "laptop", "smartwatch", "drone", "tablet", "game console", "ai model"), and so are non-electronics verticals that shoppers compare just as hard: "skincare", "beauty", "hair care", "book", "running shoes", "kitchen appliance", "coffee machine", "audio gear", "headphones", "speaker", "e-reader", "fitness equipment".
+- Do not restrict yourself to gadgets: a newly launched serum, novel, running shoe, air fryer, or e-reader is as valuable as a phone.
 - Never output people, companies alone, software updates without a product, adult content, or vague placeholders.
 - Skip an item rather than guessing a model name. Fewer accurate products beat more speculative ones.`;
 
@@ -125,6 +152,43 @@ async function extractNewProducts(
 
 // --- Source 2: Google autocomplete "X vs" (real search demand) ---
 
+// Google suggests query tails, not clean product names ("... vs pixel 10 camera",
+// "... vs s25 reddit"), so the tail has to be stripped back to the product.
+const JUNK_PHRASES = ['which is better', 'which one is better', 'which is best', 'what is better'];
+const TRAILING_JUNK = ['comparison', 'review', 'reviews', 'specs', 'spec', 'price', 'reddit', 'gsmarena', 'camera'];
+const LEADING_JUNK = TRAILING_JUNK.filter((token) => token !== 'camera');
+const GENERIC_WORDS = new Set([
+  'which', 'what', 'is', 'are', 'better', 'best', 'one', 'or', 'and', 'the', 'a', 'an', 'vs', 'versus',
+  'difference', 'differences', 'compare', 'comparison', 'review', 'reviews', 'specs', 'spec', 'price',
+  'reddit', 'gsmarena', 'camera', 'worth', 'it', 'buy', 'good', 'bad', 'new', 'old',
+]);
+
+/** Reduce a raw autocomplete tail to a usable product name, or null if it is only query filler. */
+function cleanCounterpart(raw: string): string | null {
+  let text = raw.replace(/[?!.,;:]+$/g, '').trim();
+  for (const phrase of JUNK_PHRASES) {
+    text = text.replace(new RegExp(phrase.replace(/\s+/g, '\\s+'), 'gi'), ' ');
+  }
+
+  let words = text.split(/\s+/).filter(Boolean);
+  let stripped = true;
+  while (stripped && words.length > 0) {
+    stripped = false;
+    if (TRAILING_JUNK.includes(words[words.length - 1].toLowerCase())) {
+      words = words.slice(0, -1);
+      stripped = true;
+    } else if (LEADING_JUNK.includes(words[0].toLowerCase())) {
+      words = words.slice(1);
+      stripped = true;
+    }
+  }
+
+  const cleaned = words.join(' ');
+  if (cleaned.length < 3) return null;
+  if (words.every((word) => GENERIC_WORDS.has(word.toLowerCase()))) return null;
+  return cleaned.slice(0, 120);
+}
+
 async function autocompleteCounterparts(productName: string, log: (m: string) => void): Promise<string[]> {
   try {
     const query = encodeURIComponent(`${productName} vs`);
@@ -145,13 +209,15 @@ async function autocompleteCounterparts(productName: string, log: (m: string) =>
       const text = String(suggestion);
       const vsIndex = text.toLowerCase().indexOf(' vs ');
       if (vsIndex < 0) continue;
-      const counterpart = text.slice(vsIndex + 4).trim();
-      if (!counterpart || counterpart.length < 3) continue;
+      const raw = text.slice(vsIndex + 4).trim();
+      if (!raw) continue;
+      const counterpart = cleanCounterpart(raw);
+      if (!counterpart) continue;
       // Skip fragments referring back to the same product line ("... vs 5 pro",
       // "... vs ultra"): require a digit or at least two words.
       if (/^\d/.test(counterpart)) continue;
       if (!/\d/.test(counterpart) && counterpart.split(/\s+/).length < 2) continue;
-      counterparts.push(counterpart.slice(0, 120));
+      counterparts.push(counterpart);
     }
     return [...new Set(counterparts)].slice(0, 4);
   } catch (err: any) {
@@ -176,7 +242,15 @@ function getOrCreateEntity(store: EntityPoolStore, name: string, category: strin
 // --- Junk triage before expensive scoring ---
 
 async function triagePendingPairs(options: ScoutOptions, log: (m: string) => void): Promise<number> {
-  const pending = options.candidateStore.listCandidates({ status: 'pending', limit: 60 });
+  // Read the NEWEST pending pairs (listCandidates pages id-ASC): the fast-track
+  // step right after this promotes freshly scouted pairs from the same tail, so
+  // triaging the old backlog instead would let untriaged junk straight through.
+  const pendingTotal = options.candidateStore.listCandidates({ status: 'pending', limit: 1 }).total;
+  const pending = options.candidateStore.listCandidates({
+    status: 'pending',
+    limit: 30,
+    offset: Math.max(0, pendingTotal - 30),
+  });
   if (pending.items.length === 0) return 0;
   const listing = pending.items
     .map((c) => `${c.id}: "${c.itemAName}" vs "${c.itemBName}" (category: ${c.category})`)
@@ -189,7 +263,7 @@ async function triagePendingPairs(options: ScoutOptions, log: (m: string) => voi
       role: 'user',
       content: `For each candidate comparison below, judge if it is PLAUSIBLE: two real, comparable things a consumer might genuinely search "A vs B" for. Mark implausible: mismatched categories (a car vs a fuel additive), nonsense, adult content, private persons or local shops, or placeholder-like names.\n\nReturn JSON: {"implausible_ids": [numbers]}.\n\nCANDIDATES:\n${listing}`,
     }],
-  }, { signal: AbortSignal.timeout(90_000) });
+  }, { signal: AbortSignal.timeout(180_000) });
 
   const raw = completion.choices?.[0]?.message?.content || '{}';
   let parsed: any;
@@ -208,11 +282,32 @@ async function triagePendingPairs(options: ScoutOptions, log: (m: string) => voi
   return rejected;
 }
 
+// --- Fast track for pairs whose demand is already proven ---
+
+function fastTrackResult(): DemandSenseResult {
+  return {
+    score: 6,
+    recommendation: 'good',
+    signals: {
+      existing_articles_count: 0,
+      has_reddit_discussion: false,
+      has_authoritative_source: false,
+      competition_level: 'low',
+      freshness: 'fresh',
+    },
+    reasoning: 'Fast-tracked: pair sourced from Google autocomplete (search demand already proven).',
+    topSources: [],
+    partial: false,
+    metrics: { durationMs: 0, totalTokens: 0 },
+  };
+}
+
 // --- Main ---
 
 export async function runTopicScout(options: ScoutOptions): Promise<{
   scoutedPairs: number;
   scoredPairs: number;
+  fastTrackedPairs: number;
 }> {
   const log = options.log || (() => {});
 
@@ -229,22 +324,36 @@ export async function runTopicScout(options: ScoutOptions): Promise<{
     log(`scout: product extraction failed: ${err?.message || err}`);
   }
 
-  // 3. Expand each new product into real-demand pairs via Google autocomplete.
+  // 3. Expand seeds into real-demand pairs via Google autocomplete. Fresh RSS
+  // launches go first; caller-supplied seeds share the remaining lookup budget.
+  const seeds: Array<{ name: string; category: string; source: CandidatePairSource }> = [
+    ...newProducts.map((product) => ({ ...product, source: 'autocomplete' as const })),
+    ...(options.extraSeedEntities || []).map((seed) => ({
+      ...seed,
+      source: (seed.category === 'user-demand' ? 'user-demand' : 'pool') as CandidatePairSource,
+    })),
+  ];
+  log(`scout: expanding ${seeds.length} seeds (${newProducts.length} from RSS, ${seeds.length - newProducts.length} supplied)`);
+
   let scoutedPairs = 0;
   let lookups = 0;
-  for (const product of newProducts) {
+  const seenSeeds = new Set<string>();
+  for (const seed of seeds) {
     if (lookups >= MAX_AUTOCOMPLETE_LOOKUPS) break;
+    const seedKey = seed.name.toLowerCase();
+    if (seenSeeds.has(seedKey)) continue;
+    seenSeeds.add(seedKey);
     lookups += 1;
-    const productEntity = getOrCreateEntity(options.entityStore, product.name, product.category);
-    if (!productEntity) continue;
-    const counterparts = await autocompleteCounterparts(product.name, log);
+    const seedEntity = getOrCreateEntity(options.entityStore, seed.name, seed.category);
+    if (!seedEntity) continue;
+    const counterparts = await autocompleteCounterparts(seed.name, log);
     for (const counterpartName of counterparts) {
-      const counterpartEntity = getOrCreateEntity(options.entityStore, counterpartName, product.category);
+      const counterpartEntity = getOrCreateEntity(options.entityStore, counterpartName, seed.category);
       if (!counterpartEntity) continue;
-      const { created } = options.candidateStore.addDirectPair(productEntity.id, counterpartEntity.id);
+      const { created } = options.candidateStore.addDirectPair(seedEntity.id, counterpartEntity.id, seed.source);
       if (created) {
         scoutedPairs += 1;
-        log(`scout: demand pair "${product.name}" vs "${counterpartName}"`);
+        log(`scout: demand pair "${seed.name}" vs "${counterpartName}" [${seed.source}]`);
       }
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -257,17 +366,34 @@ export async function runTopicScout(options: ScoutOptions): Promise<{
     log(`scout: triage failed: ${err?.message || err}`);
   }
 
-  // 5. Demand-score surviving pending pairs (newest first so fresh launches lead).
-  let scoredPairs = 0;
-  if (options.demandSensing) {
-    // listCandidates pages id-ASC; jump to the last page so freshly scouted
-    // demand pairs (highest ids) get scored before the old backlog.
-    const pendingTotal = options.candidateStore.listCandidates({ status: 'pending', limit: 1 }).total;
-    const pending = options.candidateStore.listCandidates({
+  // listCandidates pages id-ASC; jump to the last page so freshly scouted
+  // demand pairs (highest ids) are handled before the old backlog.
+  const readPendingTail = () => {
+    const total = options.candidateStore.listCandidates({ status: 'pending', limit: 1 }).total;
+    return options.candidateStore.listCandidates({
       status: 'pending',
       limit: 500,
-      offset: Math.max(0, pendingTotal - 500),
+      offset: Math.max(0, total - 500),
     });
+  };
+
+  // 5. Autocomplete/user-demand pairs are literally queries real people typed,
+  // so their demand needs no verification — score them synthetically and spend
+  // the search budget on pairs we actually know nothing about.
+  let fastTrackedPairs = 0;
+  for (const candidate of readPendingTail().items) {
+    if (!FAST_TRACK_SOURCES.has(candidate.source)) continue;
+    options.candidateStore.updateScore(candidate.id, fastTrackResult());
+    fastTrackedPairs += 1;
+  }
+  if (fastTrackedPairs > 0) {
+    log(`scout: fast-tracked ${fastTrackedPairs} search-proven pairs (score 6, no search spend)`);
+  }
+
+  // 6. Demand-score the remaining pending pairs (newest first so fresh launches lead).
+  let scoredPairs = 0;
+  if (options.demandSensing) {
+    const pending = readPendingTail();
     const newestFirst = [...pending.items].sort((a, b) => b.id - a.id).slice(0, options.maxPairsToScore ?? 20);
     for (const candidate of newestFirst) {
       try {
@@ -288,5 +414,5 @@ export async function runTopicScout(options: ScoutOptions): Promise<{
     log('scout: demand sensing unavailable; pairs stay pending');
   }
 
-  return { scoutedPairs, scoredPairs };
+  return { scoutedPairs, scoredPairs, fastTrackedPairs };
 }

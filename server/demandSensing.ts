@@ -83,22 +83,31 @@ function buildPrompt(
         ? 'Traditional Chinese'
         : 'English';
 
-  return `You are a SEO/GEO demand analyst. Given search results for the pair "${itemA} vs ${itemB}", judge whether this comparison has real demand for a comparison website.
+  return `You are a SEO/GEO opportunity analyst for a small, new comparison website. Given search results for the pair "${itemA} vs ${itemB}", judge the RANKING OPPORTUNITY, not the popularity of the topic.
+
+Score = (evidence that real people search this) × (our chance of ranking for it).
+We win on long-tail, newly launched products with genuine search demand and thin coverage. We CANNOT win pages already owned by big publishers.
 
 Scoring rubric (0-10):
-- 0-3 (skip): No existing articles, no community discussion. Obscure or nonsensical.
-- 4-5 (consider): Some articles exist but quality low or topic niche.
-- 6-7 (good): Clear demand — multiple articles, some community discussion, not over-saturated.
-- 8-10 (excellent): Strong demand — many articles, active Reddit, authoritative sources.
+- 8-10 (excellent): Blue ocean. The pair is specific and plausible, there is real evidence people search or discuss it (autocomplete-style queries, forum/Reddit threads, shopping intent, a recent launch shoppers are cross-shopping), AND coverage is thin, shallow, or low quality — spec-dump pages, aggregator stubs, no real head-to-head.
+- 6-7 (good): Demand is evident and coverage is moderate — a few decent articles, but gaps remain (missing angles, outdated, no authoritative head-to-head).
+- 5 (consider): Demand plausible but weakly evidenced, or coverage is solid enough that ranking is uncertain.
+- 0-4 (skip): The pair is nonsense or mismatched (different categories, incomparable things), there is NO evidence anyone searches it, OR the space is saturated — multiple strong authoritative head-to-heads from major publishers already own the SERP, so we cannot rank.
+
+IMPORTANT INVERSION vs. naive SEO scoring:
+- Many existing comparison articles LOWERS the score (crowded, already answered), it does not raise it.
+- Freshness RAISES the score: a product launched recently has demand arriving faster than coverage — that gap is exactly our opportunity.
+- Zero comparison articles is NOT automatically bad. If the pair is plausible and specific and any demand signal exists (people asking on forums, obvious cross-shopping between rivals or successive generations), thin coverage is the best possible outcome — score it high.
+- Only punish "no articles" when the pair also looks like something nobody would ever search.
 
 Signals to extract:
-- existing_articles_count: distinct comparison articles in Search 1
-- has_reddit_discussion: any Reddit thread with substantive discussion in Search 2
-- has_authoritative_source: G2/Capterra/Wirecutter/Wikipedia/major-press in Search 1
-- competition_level: low/medium/high (quality + diversity of coverage)
-- freshness: stale (>2y), recent (last 2y), fresh (last 6mo)
+- existing_articles_count: distinct comparison articles in Search 1 (higher = more crowded = worse for us)
+- has_reddit_discussion: any Reddit/forum thread with substantive discussion in Search 2 (demand evidence, good)
+- has_authoritative_source: G2/Capterra/Wirecutter/Wikipedia/major-press head-to-head in Search 1 (a strong incumbent we must outrank; usually bad for us)
+- competition_level: low = few or weak comparison pages, we can realistically rank (OPPORTUNITY, good); medium = some credible coverage; high = saturated with strong authoritative comparisons (avoid)
+- freshness: stale (>2y — likely a settled topic), recent (last 2y), fresh (last 6mo — new launch, best opportunity)
 
-Reasoning: 1-2 sentences in ${langName} explaining the score.
+Reasoning: 1-2 sentences in ${langName} explaining the score in terms of demand evidence and how crowded the space is.
 
 Output JSON only matching this schema (fields: score, recommendation, signals{existing_articles_count, has_reddit_discussion, has_authoritative_source, competition_level, freshness}, reasoning). recommendation MUST be exactly one of: "skip", "consider", "good", "excellent". No markdown.
 

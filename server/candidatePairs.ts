@@ -12,6 +12,9 @@ type DatabaseConnection = {
 
 export type CandidatePairStatus = 'pending' | 'scored' | 'promoted' | 'rejected';
 
+/** Where the pair came from. Drives fast-tracking: autocomplete/user-demand pairs have proven search demand. */
+export type CandidatePairSource = 'autocomplete' | 'user-demand' | 'pool' | 'unknown';
+
 export type CandidatePair = {
   id: number;
   entityAId: number;
@@ -19,6 +22,7 @@ export type CandidatePair = {
   itemAName: string;
   itemBName: string;
   category: string;
+  source: CandidatePairSource;
   status: CandidatePairStatus;
   demandScore: number | null;
   recommendation: string | null;
@@ -55,6 +59,7 @@ function initializeSchema(db: DatabaseConnection) {
       item_a_name     TEXT    NOT NULL,
       item_b_name     TEXT    NOT NULL,
       category        TEXT    NOT NULL,
+      source          TEXT    NOT NULL DEFAULT 'unknown',
       status          TEXT    NOT NULL DEFAULT 'pending',
       demand_score    REAL,
       recommendation  TEXT,
@@ -70,12 +75,23 @@ function initializeSchema(db: DatabaseConnection) {
     CREATE INDEX IF NOT EXISTS idx_candidate_status_cat ON candidate_pairs(status, category);
     CREATE INDEX IF NOT EXISTS idx_candidate_score ON candidate_pairs(demand_score);
   `);
+
+  const migrations: [string, string][] = [
+    ['source', "ALTER TABLE candidate_pairs ADD COLUMN source TEXT NOT NULL DEFAULT 'unknown'"],
+  ];
+  for (const [col, sql] of migrations) {
+    try {
+      db.prepare(`SELECT ${col} FROM candidate_pairs LIMIT 1`).get();
+    } catch {
+      db.exec(sql);
+    }
+  }
 }
 
 const SELECT_COLS = `
   id, entity_a_id AS entityAId, entity_b_id AS entityBId,
   item_a_name AS itemAName, item_b_name AS itemBName,
-  category, status,
+  category, source, status,
   demand_score AS demandScore, recommendation,
   signals_json AS signalsJson, reasoning,
   top_sources_json AS topSourcesJson,
@@ -83,7 +99,7 @@ const SELECT_COLS = `
 `;
 
 function rowToCandidate(row: any): CandidatePair {
-  return { ...row, partial: !!row.partial };
+  return { ...row, source: (row.source || 'unknown') as CandidatePairSource, partial: !!row.partial };
 }
 
 export function createCandidatePairStore(db: DatabaseConnection) {
@@ -94,18 +110,21 @@ export function createCandidatePairStore(db: DatabaseConnection) {
       ? `SELECT COALESCE(SUM(cnt * (cnt - 1) / 2), 0) AS total
          FROM (SELECT COUNT(*) AS cnt FROM entity_pool WHERE category = ? GROUP BY category)`
       : `SELECT COALESCE(SUM(cnt * (cnt - 1) / 2), 0) AS total
-         FROM (SELECT COUNT(*) AS cnt FROM entity_pool GROUP BY category)`;
+         FROM (SELECT COUNT(*) AS cnt FROM entity_pool WHERE category != 'user-demand' GROUP BY category)`;
     const total = Number(db.prepare(countSql).get(...(category ? [category] : [])).total || 0);
 
     const categoryClause = category ? 'AND e1.category = ?' : '';
     const insertSql = `
       INSERT OR IGNORE INTO candidate_pairs (
-        entity_a_id, entity_b_id, item_a_name, item_b_name, category, status, created_at
+        entity_a_id, entity_b_id, item_a_name, item_b_name, category, source, status, created_at
       )
-      SELECT e1.id, e2.id, e1.name, e2.name, e1.category, 'pending', ?
+      SELECT e1.id, e2.id, e1.name, e2.name, e1.category, 'pool', 'pending', ?
       FROM entity_pool e1
       JOIN entity_pool e2 ON e1.category = e2.category AND e1.id < e2.id
-      WHERE 1 = 1
+      -- 'user-demand' is a provenance bucket, not a product category: entities in
+      -- it (a washing machine, a book, a serum) share nothing, so cross-producting
+      -- them would only manufacture junk pairs.
+      WHERE e1.category != 'user-demand'
         ${categoryClause}
         AND NOT EXISTS (
           SELECT 1 FROM candidate_pairs c
@@ -131,14 +150,18 @@ export function createCandidatePairStore(db: DatabaseConnection) {
   };
 
   /** Insert one explicit pair (e.g. from search-autocomplete demand), skipping duplicates and already-featured pairs. */
-  const addDirectPair = (entityAId: number, entityBId: number): { created: boolean } => {
+  const addDirectPair = (
+    entityAId: number,
+    entityBId: number,
+    source: CandidatePairSource = 'unknown',
+  ): { created: boolean } => {
     if (entityAId === entityBId) return { created: false };
     const [aId, bId] = entityAId < entityBId ? [entityAId, entityBId] : [entityBId, entityAId];
     const changes = db.prepare(`
       INSERT OR IGNORE INTO candidate_pairs (
-        entity_a_id, entity_b_id, item_a_name, item_b_name, category, status, created_at
+        entity_a_id, entity_b_id, item_a_name, item_b_name, category, source, status, created_at
       )
-      SELECT e1.id, e2.id, e1.name, e2.name, e1.category, 'pending', ?
+      SELECT e1.id, e2.id, e1.name, e2.name, e1.category, ?, 'pending', ?
       FROM entity_pool e1, entity_pool e2
       WHERE e1.id = ? AND e2.id = ?
         AND NOT EXISTS (
@@ -146,7 +169,7 @@ export function createCandidatePairStore(db: DatabaseConnection) {
           WHERE (LOWER(f.item_a) = LOWER(e1.name) AND LOWER(f.item_b) = LOWER(e2.name))
              OR (LOWER(f.item_a) = LOWER(e2.name) AND LOWER(f.item_b) = LOWER(e1.name))
         )
-    `).run(nowIso(), aId, bId).changes;
+    `).run(source, nowIso(), aId, bId).changes;
     return { created: changes > 0 };
   };
 
