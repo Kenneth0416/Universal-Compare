@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, AlertCircle, ArrowLeft, Search } from 'lucide-react';
+import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 import ComparisonResultView from './ComparisonResultView';
 import MinimalGrid from './react-bits/MinimalGrid';
+import InlineCompareBox from './InlineCompareBox';
 import RelatedComparisons from './RelatedComparisons';
 import ReportFeedback from './ReportFeedback';
 import { getReport, getReportBySlug, type ReportData } from '../services/reportService';
@@ -110,15 +111,7 @@ export default function ReportViewer() {
             <div className="mt-8 max-w-sm mx-auto">
               <ReportFeedback reportId={report.reportId} />
             </div>
-            <section className="mt-12 flex justify-center">
-              <a
-                href="/"
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition-colors hover:bg-indigo-500"
-              >
-                <Search size={18} />
-                <span>{t('nav.createComparison')}</span>
-              </a>
-            </section>
+            <InlineCompareBox suggestFrom={[report.itemA, report.itemB]} />
             <RelatedComparisons currentSlug={isCompareUrl ? reportKey : undefined} />
           </motion.div>
         )}

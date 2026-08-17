@@ -14,6 +14,8 @@ import { useTranslation } from 'react-i18next';
 import i18n from './i18n';
 
 const MAX_ITEM_LENGTH = 120;
+const PREFILL_STORAGE_KEY = 'compareai.prefill';
+const PREFILL_MAX_AGE_MS = 30_000;
 
 type PartialComparisonResult = Partial<ComparisonResult> & { dimensions?: ComparisonResult['dimensions'] };
 type ReportSaveStatus = 'ready' | 'saving' | 'error';
@@ -35,6 +37,30 @@ const warnTrackingFailure = (error: unknown) => {
 };
 
 const normalizeItem = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+
+/**
+ * Reads and clears the one-shot handoff written by the report page's inline compare box.
+ * Only sessionStorage can request an autostart — never a URL param — so a crawler
+ * following a link can never trigger a paid generation.
+ */
+const consumePrefillHandoff = (): { itemA: string; itemB: string; autostart: boolean } | null => {
+  try {
+    const raw = window.sessionStorage.getItem(PREFILL_STORAGE_KEY);
+    if (!raw) return null;
+    window.sessionStorage.removeItem(PREFILL_STORAGE_KEY);
+
+    const parsed = JSON.parse(raw) as { itemA?: unknown; itemB?: unknown; autostart?: unknown; ts?: unknown };
+    const nextA = typeof parsed.itemA === 'string' ? parsed.itemA.trim() : '';
+    const nextB = typeof parsed.itemB === 'string' ? parsed.itemB.trim() : '';
+    const ts = typeof parsed.ts === 'number' ? parsed.ts : 0;
+    const age = Date.now() - ts;
+    if (!nextA || !nextB || age < 0 || age > PREFILL_MAX_AGE_MS) return null;
+
+    return { itemA: nextA, itemB: nextB, autostart: parsed.autostart === true };
+  } catch {
+    return null;
+  }
+};
 
 /** Maps known server error messages to localized strings; unknown messages pass through. */
 const localizeServerError = (message: string): string => {
@@ -66,6 +92,7 @@ export default function App() {
   const resultFocusRef = useRef<HTMLDivElement>(null);
   const errorFocusRef = useRef<HTMLDivElement>(null);
   const inFlightRef = useRef(false);
+  const pendingAutostartRef = useRef(false);
   const generationRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const saveAttemptRef = useRef(0);
@@ -82,6 +109,23 @@ export default function App() {
     const target = error ? errorFocusRef.current : result ? resultFocusRef.current : null;
     if (target) window.requestAnimationFrame(() => target.focus());
   }, [error, loading, result]);
+
+  // Prefill (and optionally autostart) from the report page's inline compare box.
+  useEffect(() => {
+    const prefill = consumePrefillHandoff();
+    if (!prefill) return;
+    setItemA(prefill.itemA);
+    setItemB(prefill.itemB);
+    pendingAutostartRef.current = prefill.autostart;
+  }, []);
+
+  // Autostart only once both values are committed to the DOM: requestSubmit runs
+  // native validation, and the required inputs would still be empty on a timer.
+  useEffect(() => {
+    if (!pendingAutostartRef.current || !itemA.trim() || !itemB.trim()) return;
+    pendingAutostartRef.current = false;
+    formRef.current?.requestSubmit();
+  }, [itemA, itemB]);
 
   // Reattach to a comparison that is still generating server-side — e.g. the
   // user closed the tab or locked their phone mid-run and came back.

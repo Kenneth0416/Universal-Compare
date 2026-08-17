@@ -8,6 +8,18 @@ type DatabaseConnection = {
   };
 };
 
+/** Lightweight projection used for relatedness ranking: skips result_json parsing. */
+export type PublishedFeatured = {
+  id: number;
+  itemA: string;
+  itemB: string;
+  language: string;
+  description: string;
+  reportId: string;
+  slug: string;
+  viewCount: number;
+};
+
 export type FeaturedComparison = {
   id: number;
   itemA: string;
@@ -271,6 +283,32 @@ export function createFeaturedStore(db: DatabaseConnection) {
     return withReportMeta(items);
   };
 
+  // Candidate pool for relatedness ranking: only rows that actually resolve to a
+  // readable report page. Ordered by views so ties break sensibly downstream.
+  const listPublishedFeatured = (language?: string, excludeSlug?: string): PublishedFeatured[] => {
+    if (!tableExists(db, 'comparison_reports')) return [];
+    const conditions = ["f.slug IS NOT NULL", "f.slug <> ''"];
+    const params: unknown[] = [];
+    if (language) {
+      conditions.push('f.language = ?');
+      params.push(language);
+    }
+    if (excludeSlug) {
+      conditions.push('f.slug <> ?');
+      params.push(excludeSlug);
+    }
+
+    return db.prepare(`
+      SELECT f.id AS id, f.item_a AS itemA, f.item_b AS itemB, f.language AS language,
+             f.description AS description, f.report_id AS reportId, f.slug AS slug,
+             r.view_count AS viewCount
+      FROM featured_comparisons f
+      JOIN comparison_reports r ON r.report_id = f.report_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY r.view_count DESC, f.created_at DESC
+    `).all(...params) as PublishedFeatured[];
+  };
+
   const addFeatured = (
     itemA: string,
     itemB: string,
@@ -339,6 +377,7 @@ export function createFeaturedStore(db: DatabaseConnection) {
   return {
     listFeatured,
     listHotFeatured,
+    listPublishedFeatured,
     addFeatured,
     getFeaturedBySlug,
     getFeaturedByReportId,

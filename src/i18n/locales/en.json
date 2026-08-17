@@ -288,6 +288,12 @@
     "title": "Related AI comparisons",
     "viewAll": "View all"
   },
+  "inlineCompare": {
+    "title": "Compare something else",
+    "subtitle": "Enter any two things and get a full AI comparison report in about a minute.",
+    "chipsLabel": "Quick starts",
+    "chip": "{{item}} vs …"
+  },
   "myReports": {
     "pageTitle": "My Reports — Compare Anything",
     "label": "Your history",

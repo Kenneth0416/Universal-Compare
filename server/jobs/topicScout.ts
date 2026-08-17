@@ -5,8 +5,10 @@
  * returned irrelevant corpus for launch queries (verified 2026-08-06), so the
  * scout now uses two external sources that were validated to work:
  *
- *  1. Tech-media RSS feeds (GSMArena, Engadget, 9to5Mac, The Verge) — fresh
- *     launch headlines as the extraction corpus for new product names.
+ *  1. RSS feeds — general tech media (GSMArena, Engadget, 9to5Mac, The Verge)
+ *     plus vertical outlets for the high-click categories (running, beauty,
+ *     creator audio, e-readers) — fresh launch headlines as the extraction
+ *     corpus for new product names.
  *  2. Google search autocomplete for "PRODUCT vs" — real user search demand,
  *     turned directly into candidate pairs.
  *
@@ -19,6 +21,8 @@ import type { DemandSenseResult, DemandSensingService } from '../demandSensing';
 import type { EntityPoolStore, Entity } from '../entityPool';
 import type { CandidatePairSource, CandidatePairStore } from '../candidatePairs';
 
+// General tech media. These carry phone/laptop/camera launches but nothing for
+// the verticals that actually earn clicks, hence the vertical feeds below.
 const RSS_FEEDS = [
   'https://www.gsmarena.com/rss-news-reviews.php3',
   'https://www.engadget.com/rss.xml',
@@ -28,10 +32,29 @@ const RSS_FEEDS = [
   'https://www.androidauthority.com/feed/',
   // TYPO3 "type=100" variant; verified to return application/xml RSS.
   'https://www.notebookcheck.net/News.152.100.html',
+  // Vertical feeds for the categories a 14-day traffic study showed earn the
+  // most Google clicks per page (beauty, running shoes, creator audio,
+  // tablets/e-readers). All verified 2026-08-17: HTTP 200 + parseable items.
+  // Running shoes.
+  'https://believeintherun.com/feed/',
+  'https://www.roadtrailrun.com/feeds/posts/default?alt=rss',
+  // Beauty / personal care.
+  'https://www.allure.com/feed/rss',
+  'https://www.refinery29.com/en-us/beauty/rss.xml',
+  // Creator audio gear.
+  'https://www.soundonsound.com/rss.xml',
+  'https://www.musictech.com/feed/',
+  // Tablets and e-readers.
+  'https://goodereader.com/blog/feed',
+  'https://blog.the-ebook-reader.com/feed/',
 ];
 
 const FETCH_UA = 'Mozilla/5.0 (compatible; CompareAI-Scout/2.0; +https://compare-anythings.com)';
 const MAX_NEW_PRODUCTS_PER_RUN = 10;
+// Shared budget: RSS-extracted launches are expanded first, caller-supplied
+// seeds (entity-pool rotation, user demand) get whatever is left. RSS can take
+// at most MAX_NEW_PRODUCTS_PER_RUN of it, so a heavy RSS day still leaves 20
+// lookups for rotation — worth re-checking if either constant changes.
 const MAX_AUTOCOMPLETE_LOOKUPS = 30;
 /** Sources whose demand is already proven by real user queries; they skip the expensive scoring. */
 const FAST_TRACK_SOURCES: ReadonlySet<CandidatePairSource> = new Set<CandidatePairSource>([
@@ -116,6 +139,8 @@ const EXTRACTION_RULES = `Rules:
 - Only real, concrete consumer products that are being launched, announced, or reviewed as new. Use the exact marketed product name (brand + model).
 - category: a short specific product category in lowercase English. Electronics are welcome (e.g. "smartphone", "action camera", "mirrorless camera", "wireless earbuds", "laptop", "smartwatch", "drone", "tablet", "game console", "ai model"), and so are non-electronics verticals that shoppers compare just as hard: "skincare", "beauty", "hair care", "book", "running shoes", "kitchen appliance", "coffee machine", "audio gear", "headphones", "speaker", "e-reader", "fitness equipment".
 - Do not restrict yourself to gadgets: a newly launched serum, novel, running shoe, air fryer, or e-reader is as valuable as a phone.
+- PREFER these over yet another smartphone when a headline launches or reviews one: beauty/personal-care products (serums, actives, hair oils, stylers), running shoes, audio interfaces/microphones, tablets and e-readers.
+- Regional consumer brands are valuable, not noise — keep them (Indian beauty: Brillare, WishCare, Mamaearth, Minimalist, Dot & Key; running: Hoka, Brooks, Saucony, On, Altra; audio: Focusrite, Rode, Shure).
 - Never output people, companies alone, software updates without a product, adult content, or vague placeholders.
 - Skip an item rather than guessing a model name. Fewer accurate products beat more speculative ones.`;
 

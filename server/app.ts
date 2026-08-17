@@ -92,6 +92,27 @@ function getQueryNumber(value: unknown, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+// Tokens that appear across unrelated product lines and would otherwise link
+// every "X Pro" to every other "Y Pro".
+const GENERIC_ENTITY_TOKENS = new Set([
+  'pro', 'max', 'ultra', 'plus', 'mini', 'lite', 'air', 'plan', 'free', 'best',
+  'edition', 'version', 'series', 'model', 'model3', 'generation', 'standard', 'premium',
+  '2023', '2024', '2025', '2026', '2027',
+]);
+
+/** Collapses an entity name to a comparable key ("iPhone 17 Pro" -> "iphone17pro"). */
+function normalizeEntityName(value: string) {
+  return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+/** Distinctive words of an entity name, used for partial relatedness matches. */
+function entityTokens(value: string) {
+  return value
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((token) => token.length >= 4 && !GENERIC_ENTITY_TOKENS.has(token));
+}
+
 function isAdminPasswordValid(input: unknown, adminPassword: string) {
   if (typeof input !== 'string' || !adminPassword) return false;
   const left = Buffer.from(input);
@@ -543,6 +564,74 @@ export function createApp({
       const limit = Math.min(Math.max(getQueryNumber(req.query.limit, 12), 1), 48);
       res.set('Cache-Control', 'public, max-age=300');
       res.json({ items: featuredStore.listHotFeatured(lang, limit) });
+    } catch {
+      res.json({ items: [] });
+    }
+  });
+
+  // Topically related reports for the report page. Falls back to the hot list so
+  // the block is never empty, and never 404s on an unknown slug.
+  app.get('/api/related-comparisons', (req, res) => {
+    try {
+      const slug = typeof req.query.slug === 'string' ? req.query.slug : '';
+      const requestedLang = typeof req.query.lang === 'string' ? req.query.lang : 'en';
+      const limit = Math.min(Math.max(getQueryNumber(req.query.limit, 6), 1), 24);
+      res.set('Cache-Control', 'public, max-age=300');
+
+      const current = slug ? featuredStore.getFeaturedBySlug(slug) : null;
+      const language = current?.language || requestedLang;
+      const taken = new Set<string>(slug ? [slug] : []);
+      const items: Array<{
+        id: number;
+        itemA: string;
+        itemB: string;
+        slug: string;
+        description: string;
+        viewCount: number;
+      }> = [];
+
+      const push = (item: { id: number; itemA: string; itemB: string; slug: string; description: string; viewCount: number }) => {
+        if (items.length >= limit || !item.slug || taken.has(item.slug)) return;
+        taken.add(item.slug);
+        items.push({
+          id: item.id,
+          itemA: item.itemA,
+          itemB: item.itemB,
+          slug: item.slug,
+          description: item.description || '',
+          viewCount: Number(item.viewCount || 0),
+        });
+      };
+
+      if (current) {
+        const sides = [current.itemA, current.itemB];
+        const names = new Set(sides.map(normalizeEntityName).filter(Boolean));
+        const tokens = new Set(sides.flatMap(entityTokens));
+
+        // 2 = the candidate shares a whole entity, 1 = it only shares a distinctive word.
+        const scoreCandidate = (candidate: { itemA: string; itemB: string }) => {
+          const candidateSides = [candidate.itemA, candidate.itemB];
+          if (candidateSides.some((side) => names.has(normalizeEntityName(side)))) return 2;
+          if (candidateSides.some((side) => entityTokens(side).some((token) => tokens.has(token)))) return 1;
+          return 0;
+        };
+
+        featuredStore
+          .listPublishedFeatured(language, slug)
+          .map((candidate) => ({ candidate, score: scoreCandidate(candidate) }))
+          .filter((entry) => entry.score > 0)
+          .sort((left, right) => right.score - left.score || right.candidate.viewCount - left.candidate.viewCount)
+          .forEach((entry) => push(entry.candidate));
+      }
+
+      if (items.length < limit) {
+        for (const hot of featuredStore.listHotFeatured(language, limit * 3)) {
+          if (items.length >= limit) break;
+          push(hot);
+        }
+      }
+
+      res.json({ items });
     } catch {
       res.json({ items: [] });
     }

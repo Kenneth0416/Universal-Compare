@@ -3,6 +3,8 @@ import { ArrowRight } from 'lucide-react';
 import type { PopularComparison } from '../services/popularComparisonService';
 import { useTranslation } from 'react-i18next';
 
+const MAX_ITEMS = 6;
+
 interface RelatedComparisonsProps {
   currentSlug?: string;
 }
@@ -16,17 +18,19 @@ export default function RelatedComparisons({ currentSlug }: RelatedComparisonsPr
     const controller = new AbortController();
     let active = true;
 
-    fetch(`/api/popular-comparisons?lang=${encodeURIComponent(language)}`, {
-      signal: controller.signal,
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Failed to load popular comparisons: ${response.status}`);
-        return response.json() as Promise<{ items?: PopularComparison[] }>;
-      })
-      .then((data) => {
-        if (active) {
-          setItems((data.items || []).filter((item) => item.slug !== currentSlug).slice(0, 6));
-        }
+    const load = async (url: string) => {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw new Error(`Failed to load related comparisons: ${response.status}`);
+      const data = (await response.json()) as { items?: PopularComparison[] };
+      return data.items || [];
+    };
+
+    const slugQuery = currentSlug ? `&slug=${encodeURIComponent(currentSlug)}` : '';
+    void load(`/api/related-comparisons?lang=${encodeURIComponent(language)}${slugQuery}&limit=${MAX_ITEMS}`)
+      // Keep the generic popular list as a safety net if the related endpoint is unavailable.
+      .catch(() => load(`/api/popular-comparisons?lang=${encodeURIComponent(language)}`))
+      .then((loaded) => {
+        if (active) setItems(loaded.filter((item) => item.slug !== currentSlug).slice(0, MAX_ITEMS));
       })
       .catch((error) => {
         if (active && error instanceof Error && error.name !== 'AbortError') setItems([]);

@@ -288,6 +288,12 @@
     "title": "相关 AI 对比",
     "viewAll": "查看全部"
   },
+  "inlineCompare": {
+    "title": "对比其他内容",
+    "subtitle": "输入任意两个对象，约一分钟即可获得完整的 AI 对比报告。",
+    "chipsLabel": "快速开始",
+    "chip": "{{item}} 对比…"
+  },
   "myReports": {
     "pageTitle": "我的报告 — Compare Anything",
     "label": "历史记录",

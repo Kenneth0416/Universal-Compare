@@ -336,6 +336,70 @@ test('serves related comparison links on report pages', async () => {
   });
 });
 
+test('ranks topically related comparisons ahead of generic popular ones', async () => {
+  const { app, reportStore, featuredStore } = createTestApp();
+  const pairs: Array<[string, string]> = [
+    ['Claude', 'ChatGPT'],
+    ['Perplexity', 'ChatGPT'],
+    ['Claude Code', 'Cursor'],
+    ['Toyota Corolla', 'Honda Civic'],
+  ];
+  for (const [itemA, itemB] of pairs) {
+    const saved = reportStore.saveReport({
+      itemA,
+      itemB,
+      language: 'en',
+      result: createComparisonResult(itemA, itemB),
+    });
+    assert.ok(saved);
+    featuredStore.addFeatured(itemA, itemB, {
+      language: 'en',
+      description: `${itemA} versus ${itemB}.`,
+      reportId: saved.reportId,
+    });
+  }
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/related-comparisons?slug=claude-vs-chatgpt&lang=en&limit=6`);
+    assert.equal(response.status, 200);
+    const { items } = (await response.json()) as { items: Array<{ slug: string }> };
+    const slugs = items.map((item) => item.slug);
+
+    assert.ok(!slugs.includes('claude-vs-chatgpt'), 'excludes the current report');
+    // "ChatGPT" is a full-entity match; "Claude Code" only shares the "claude" token.
+    assert.equal(slugs[0], 'perplexity-vs-chatgpt');
+    assert.ok(slugs.indexOf('claude-code-vs-cursor') > 0);
+    // The unrelated pair can only appear via the hot backfill, never as a match.
+    assert.ok(slugs.indexOf('toyota-corolla-vs-honda-civic') > slugs.indexOf('claude-code-vs-cursor'));
+  });
+});
+
+test('falls back to popular comparisons for an unknown related-comparisons slug', async () => {
+  const { app, reportStore, featuredStore } = createTestApp();
+  const saved = reportStore.saveReport({
+    itemA: 'Claude',
+    itemB: 'ChatGPT',
+    language: 'en',
+    result: createComparisonResult('Claude', 'ChatGPT'),
+  });
+  assert.ok(saved);
+  featuredStore.addFeatured('Claude', 'ChatGPT', {
+    language: 'en',
+    description: 'Featured AI assistant comparison.',
+    reportId: saved.reportId,
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/related-comparisons?slug=does-not-exist&lang=en`);
+    assert.equal(response.status, 200);
+    const { items } = (await response.json()) as { items: Array<{ slug: string; viewCount: number }> };
+
+    assert.equal(items.length, 1);
+    assert.equal(items[0].slug, 'claude-vs-chatgpt');
+    assert.equal(typeof items[0].viewCount, 'number');
+  });
+});
+
 test('redirects legacy report ids to their featured comparison slug', async () => {
   const { app, reportStore, featuredStore } = createTestApp();
   const saved = reportStore.saveReport({
