@@ -294,6 +294,16 @@ export async function runOrphanCuration(options: OrphanCurationOptions): Promise
   const pairAlreadyFeatured = (report: OrphanReport) =>
     featuredKeys.has(`${report.language || 'en'}::${normalizePair(report.itemA, report.itemB)}`);
 
+  // Mechanical junk detection the LLM proved unreliable at (2026-08-17 run
+  // approved pasted store URLs and 200-char listing titles): such names make
+  // unrankable truncated slugs regardless of content quality.
+  const junkNameReason = (name: string): string | null => {
+    if (/https?:\/\/|www\./i.test(name)) return 'item name contains a URL';
+    if (name.length > 80) return 'item name over 80 chars (pasted listing title)';
+    if (/\((?=[^)]*(?:compare|in terms of))[^)]{20,}\)/i.test(name)) return 'item name embeds comparison instructions';
+    return null;
+  };
+
   const needsTriage: OrphanReport[] = [];
   const approvedReports: OrphanReport[] = [];
   for (const report of reports) {
@@ -301,6 +311,13 @@ export async function runOrphanCuration(options: OrphanCurationOptions): Promise
       summary.rejected += 1;
       saveVerdict(report.reportId, 'rejected', 'empty item name');
       logger(`REJECT ${report.reportId}: "${report.itemA}" vs "${report.itemB}" — empty item name`);
+      continue;
+    }
+    const junkReason = junkNameReason(report.itemA) || junkNameReason(report.itemB);
+    if (junkReason) {
+      summary.rejected += 1;
+      saveVerdict(report.reportId, 'rejected', junkReason);
+      logger(`REJECT ${report.reportId}: ${report.itemA.slice(0, 60)} vs ${report.itemB.slice(0, 60)} — ${junkReason}`);
       continue;
     }
     if (pairAlreadyFeatured(report)) {
