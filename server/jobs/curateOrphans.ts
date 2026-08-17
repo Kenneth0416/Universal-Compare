@@ -277,13 +277,22 @@ export async function runOrphanCuration(options: OrphanCurationOptions): Promise
     }
   };
 
-  // Cheap local pre-filter: an identical pair already featured would only create
-  // a duplicate slug competing with itself in search.
-  const pairAlreadyFeatured = db.prepare(`
-    SELECT 1 FROM featured_comparisons
-    WHERE lower(item_a) = lower(?) AND lower(item_b) = lower(?)
-    LIMIT 1
-  `);
+  // Cheap local pre-filter: a pair already featured would only create a
+  // duplicate slug competing with itself in search. Match on the normalized
+  // pair key (same rule as autoPublish.normalizePairKey — not imported because
+  // importing autoPublish executes its main()): spacing/casing/punctuation and
+  // side order are ignored, so "Z Fold 8" collides with "Z Fold8". Keys are
+  // language-scoped: the same pair in another language is a separate page.
+  const normalizePair = (itemA: string, itemB: string) => {
+    const normalize = (value: string) => (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return [normalize(itemA), normalize(itemB)].sort().join('|');
+  };
+  const featuredKeys = new Set<string>(
+    (db.prepare('SELECT item_a AS itemA, item_b AS itemB, language FROM featured_comparisons').all() as Array<{ itemA: string; itemB: string; language: string }>)
+      .map((row) => `${row.language || 'en'}::${normalizePair(row.itemA, row.itemB)}`),
+  );
+  const pairAlreadyFeatured = (report: OrphanReport) =>
+    featuredKeys.has(`${report.language || 'en'}::${normalizePair(report.itemA, report.itemB)}`);
 
   const needsTriage: OrphanReport[] = [];
   const approvedReports: OrphanReport[] = [];
@@ -294,7 +303,7 @@ export async function runOrphanCuration(options: OrphanCurationOptions): Promise
       logger(`REJECT ${report.reportId}: "${report.itemA}" vs "${report.itemB}" — empty item name`);
       continue;
     }
-    if (pairAlreadyFeatured.get(report.itemA, report.itemB)) {
+    if (pairAlreadyFeatured(report)) {
       summary.rejected += 1;
       saveVerdict(report.reportId, 'rejected', 'duplicate-of-featured-pair');
       logger(`REJECT ${report.reportId}: ${report.itemA} vs ${report.itemB} — duplicate-of-featured-pair`);
