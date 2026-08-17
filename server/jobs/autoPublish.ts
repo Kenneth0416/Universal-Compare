@@ -257,15 +257,24 @@ function recentUserDemandSeeds(db: SqliteDb): SeedEntity[] {
   return seeds;
 }
 
+// Verticals with proven near-zero Google yield (2026-08-17 traffic analysis:
+// 38 AI-model pages -> 4 clicks, 27 software/dev-tool pages -> 4 clicks).
+// Their entities stay in the pool but get no autocomplete-expansion budget.
+const ROTATION_EXCLUDED_CATEGORIES = [
+  'ai model', 'software', 'technology', 'browser', 'programming language',
+  'operating system', 'framework', 'database', 'dev tool', 'user-demand',
+];
+
 /** Round-robin slice of the entity pool so every entity gets revisited over time. */
 function rotatingPoolSeeds(db: SqliteDb): SeedEntity[] {
-  const total = Number((db.prepare('SELECT COUNT(*) AS c FROM entity_pool').get() as { c: number }).c || 0);
+  const exclusion = `LOWER(category) NOT IN (${ROTATION_EXCLUDED_CATEGORIES.map(() => '?').join(', ')})`;
+  const total = Number((db.prepare(`SELECT COUNT(*) AS c FROM entity_pool WHERE ${exclusion}`).get(...ROTATION_EXCLUDED_CATEGORIES) as { c: number }).c || 0);
   if (total === 0) return [];
   const daysSinceEpoch = Math.floor(Date.now() / 86_400_000);
   const offset = (daysSinceEpoch * ENTITY_ROTATION_SIZE) % Math.max(total - ENTITY_ROTATION_SIZE, 1);
   return db.prepare(
-    'SELECT name, category FROM entity_pool ORDER BY id ASC LIMIT ? OFFSET ?',
-  ).all(ENTITY_ROTATION_SIZE, offset) as SeedEntity[];
+    `SELECT name, category FROM entity_pool WHERE ${exclusion} ORDER BY id ASC LIMIT ? OFFSET ?`,
+  ).all(...ROTATION_EXCLUDED_CATEGORIES, ENTITY_ROTATION_SIZE, offset) as SeedEntity[];
 }
 
 function buildSeedEntities(db: SqliteDb): SeedEntity[] {
