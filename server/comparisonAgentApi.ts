@@ -110,12 +110,12 @@ const analysisSchema = {
     better_for: { type: 'string', enum: [...BETTER_FOR] },
     optional_score_a: { type: 'number', minimum: 0, maximum: 10 },
     optional_score_b: { type: 'number', minimum: 0, maximum: 10 },
+    // Source NUMBERS from the AVAILABLE SOURCES list, mapped back to URLs
+    // server-side. Models cannot reliably reproduce long URLs verbatim — the
+    // previous {url,title} shape produced zero surviving citations ever.
     citations: {
       type: 'array', maxItems: 2,
-      items: {
-        type: 'object', additionalProperties: false,
-        properties: { url: { type: 'string' }, title: { type: 'string' } }, required: ['url', 'title'],
-      },
+      items: { type: 'integer', minimum: 1, maximum: 20 },
     },
   },
   required: ['item_a_summary', 'item_b_summary', 'key_difference', 'better_for', 'optional_score_a', 'optional_score_b', 'citations'],
@@ -453,6 +453,15 @@ function analysis(value: unknown, allowedSources: Source[], provider = false): A
   const citations: Source[] = [];
   if (!Array.isArray(input.citations) || input.citations.length > 2) throw new ApiError('Invalid citations', provider ? 502 : 400);
   for (const citation of input.citations) {
+    // Preferred shape: 1-based index into the AVAILABLE SOURCES list.
+    if (typeof citation === 'number') {
+      if (!Number.isInteger(citation) || citation < 1 || citation > allowedSources.length) continue;
+      const matched = allowedSources[citation - 1];
+      if (!citations.some((item) => item.url === matched.url)) citations.push({ url: matched.url, title: matched.title });
+      continue;
+    }
+    // Legacy {url,title} shape, kept for compatibility: silently dropped unless
+    // the URL reproduces a listed source exactly.
     if (!citation || typeof citation !== 'object' || Array.isArray(citation)) throw new ApiError('Invalid citation', provider ? 502 : 400);
     const citationObject = citation as Record<string, unknown>;
     exactKeys(citationObject, ['url', 'title'], provider ? 502 : 400);
@@ -719,7 +728,7 @@ export function createComparisonAgentRouter({
         const lang = language(body.language);
         const sourceList = cleanSources.map((source, index) => `[${index + 1}] ${source.title} — ${source.url}`).join('\n');
         const result = await provider.chatCompletion({
-          messages: [{ role: 'user', content: `Compare ${profileA.name} and ${profileB.name} only on "${targetDimension.label}". Context: ${targetDimension.why_it_matters}. Angle: ${targetDimension.comparison_angle}. Score desirability from 0 to 10; for negative traits, lower risk/cost earns the higher score. better_for must be A, B, Both, or Neither. Cite at most two directly relevant URLs only from AVAILABLE SOURCES; otherwise return no citations. Refer to actual names in prose. Ground every claim in concrete figures from the sources whenever available (exact specs, prices, percentages, dates, benchmark numbers) — each summary should contain at least one specific number when the sources provide one. Write key_difference as a single self-contained sentence that names both products and states the decisive fact with its number, so it can be quoted verbatim out of context. Return all text in ${languageName(lang)}.\n\n${profileA.name}: ${profileA.short_definition}\n${profileB.name}: ${profileB.short_definition}\n\nAVAILABLE SOURCES:\n${sourceList || '(none)'}` }],
+          messages: [{ role: 'user', content: `Compare ${profileA.name} and ${profileB.name} only on "${targetDimension.label}". Context: ${targetDimension.why_it_matters}. Angle: ${targetDimension.comparison_angle}. Score desirability from 0 to 10; for negative traits, lower risk/cost earns the higher score. better_for must be A, B, Both, or Neither. citations: the bracket NUMBERS of the one or two AVAILABLE SOURCES that directly support your claims (e.g. [1, 4]) — cite whenever any listed source is relevant; use [] only when none is. Refer to actual names in prose. Ground every claim in concrete figures from the sources whenever available (exact specs, prices, percentages, dates, benchmark numbers) — each summary should contain at least one specific number when the sources provide one. Write key_difference as a single self-contained sentence that names both products and states the decisive fact with its number, so it can be quoted verbatim out of context. Return all text in ${languageName(lang)}.\n\n${profileA.name}: ${profileA.short_definition}\n${profileB.name}: ${profileB.short_definition}\n\nAVAILABLE SOURCES:\n${sourceList || '(none)'}` }],
           schema: analysisSchema, schemaName: 'dimension_analysis', temperature: 0.2,
           enableThinking: false, signal: abortController.signal,
         });
