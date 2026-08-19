@@ -2,7 +2,7 @@ import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { generateComparison, runFinalizeAgent, ComparisonResult } from './services/geminiService';
 import { generateViaServer, getMyActivity, ServerGenerationUnavailableError } from './services/serverGenerationService';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Loader2, AlertCircle } from 'lucide-react';
+import { Search, Loader2, AlertCircle, History } from 'lucide-react';
 import { AILoadingState } from './components/AILoadingState';
 
 import FeaturedShowcase from './components/FeaturedShowcase';
@@ -433,6 +433,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen font-sans selection:bg-indigo-500/30 selection:text-indigo-200 relative">
+      <div className="fixed top-4 left-4 z-50">
+        <a
+          href="/my-reports"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 backdrop-blur-md border border-white/10 text-sm text-neutral-400 hover:text-white transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+        >
+          <History size={16} />
+          {t('nav.myReports')}
+        </a>
+      </div>
       <MinimalGrid />
       <header className="pt-20 pb-16 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto text-center relative z-10">
         <motion.div
@@ -645,6 +654,17 @@ export default function App() {
                   language={submittedLanguage}
                 />
               </Suspense>
+              {reportUrl && (
+                <p className="mt-6 text-center text-sm text-neutral-500">
+                  {t('result.savedHint')}{' '}
+                  <a
+                    href="/my-reports"
+                    className="text-indigo-300 underline underline-offset-4 transition-colors hover:text-indigo-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                  >
+                    {t('nav.myReports')}
+                  </a>
+                </p>
+              )}
             </motion.div>
           )}
 

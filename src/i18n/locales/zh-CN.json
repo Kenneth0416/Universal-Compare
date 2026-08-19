@@ -58,7 +58,8 @@
     "betterFor": {
       "both": "兩者皆適合",
       "neither": "兩者皆不適合"
-    }
+    },
+    "savedHint": "已保存到此设备 —"
   },
   "methodology": {
     "label": "方法论",

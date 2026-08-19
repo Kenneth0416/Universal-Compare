@@ -117,7 +117,8 @@
     "betterFor": {
       "both": "Both",
       "neither": "Neither"
-    }
+    },
+    "savedHint": "Saved to your device —"
   },
   "methodology": {
     "label": "Methodology",

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
+import { Loader2, AlertCircle, ArrowLeft, History } from 'lucide-react';
 import ComparisonResultView from './ComparisonResultView';
 import MinimalGrid from './react-bits/MinimalGrid';
 import InlineCompareBox from './InlineCompareBox';
@@ -52,14 +52,21 @@ export default function ReportViewer() {
 
   return (
     <div className="min-h-screen font-sans selection:bg-indigo-500/30 selection:text-indigo-200 relative">
-      {/* Back to Home */}
-      <div className="fixed top-4 left-4 z-50">
+      {/* Back to Home + My Reports */}
+      <div className="fixed top-4 left-4 z-50 flex items-center gap-2">
         <a
           href="/"
           className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 backdrop-blur-md border border-white/10 text-sm text-neutral-400 hover:text-white transition-all"
         >
           <ArrowLeft size={16} />
           {t('nav.home')}
+        </a>
+        <a
+          href="/my-reports"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 backdrop-blur-md border border-white/10 text-sm text-neutral-400 hover:text-white transition-all"
+        >
+          <History size={16} />
+          {t('nav.myReports')}
         </a>
       </div>
 
