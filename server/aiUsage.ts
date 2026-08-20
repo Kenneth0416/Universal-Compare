@@ -33,12 +33,26 @@ const MINIMAX_M27_PRICING: ModelPricing = {
   outputUsdPerMillion: 1.2,
 };
 
-// Official DeepSeek API rates as of 2026-08 (deepseek.ai/pricing).
-const DEEPSEEK_V4_FLASH_PRICING: ModelPricing = {
-  inputUsdPerMillion: 0.14,
-  cachedInputUsdPerMillion: 0.0028,
-  outputUsdPerMillion: 0.28,
+// Official DeepSeek rates since 2026-08-16 16:00 UTC: peak windows
+// (01:00-04:00 and 06:00-10:00 UTC) bill double the off-peak rate.
+// The batch pipeline is scheduled off-peak (22:00 UTC); estimation picks
+// the rate from the call's wall-clock hour.
+const DEEPSEEK_V4_FLASH_OFFPEAK: ModelPricing = {
+  inputUsdPerMillion: 0.22,
+  cachedInputUsdPerMillion: 0.007,
+  outputUsdPerMillion: 0.66,
 };
+
+const DEEPSEEK_V4_FLASH_PEAK: ModelPricing = {
+  inputUsdPerMillion: 0.44,
+  cachedInputUsdPerMillion: 0.014,
+  outputUsdPerMillion: 1.32,
+};
+
+function isDeepseekPeakHour(): boolean {
+  const hour = new Date().getUTCHours();
+  return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10);
+}
 
 function emptyMetrics(): AiUsageMetrics {
   return {
@@ -74,7 +88,7 @@ function getKnownPricing(model: string): ModelPricing | null {
     return MINIMAX_M27_PRICING;
   }
   if (normalized.startsWith('deepseek-v4-flash')) {
-    return DEEPSEEK_V4_FLASH_PRICING;
+    return isDeepseekPeakHour() ? DEEPSEEK_V4_FLASH_PEAK : DEEPSEEK_V4_FLASH_OFFPEAK;
   }
   return null;
 }
