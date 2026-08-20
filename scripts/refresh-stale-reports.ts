@@ -130,11 +130,11 @@ async function main() {
 
   const staleFeatured = () => db.prepare(`
     SELECT f.id, f.item_a AS itemA, f.item_b AS itemB, f.slug, f.language, f.report_id AS reportId,
-           f.view_count AS viewCount, r.created_at AS reportCreatedAt
+           r.view_count AS viewCount, r.created_at AS reportCreatedAt
     FROM featured_comparisons f
     JOIN comparison_reports r ON r.report_id = f.report_id
     WHERE r.created_at < ?
-    ORDER BY f.view_count DESC
+    ORDER BY r.view_count DESC
   `).all(STALE_BEFORE) as Array<{ id: number; itemA: string; itemB: string; slug: string; language: string; reportId: string; viewCount: number; reportCreatedAt: string }>;
 
   if (args[0] === '--list') {
