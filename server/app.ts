@@ -19,7 +19,9 @@ import { generateOgImage } from './og';
 import {
   renderAboutHtml,
   renderHomepageHtml,
+  renderLlmsFullTxt,
   renderLlmsTxt,
+  type LlmsFullEntry,
   renderMethodologyHtml,
   renderPopularComparisonsHtml,
   renderPrivacyPolicyHtml,
@@ -204,6 +206,45 @@ export function createApp({
     const featured = featuredStore.listFeatured().filter((item) => item.reportId && item.slug);
     res.set('Cache-Control', 'public, max-age=3600');
     res.type('text/plain; charset=utf-8').send(renderLlmsTxt({ featured, siteUrl }));
+  });
+
+  // Rebuilding the digest walks every report's JSON, so memoize for an hour.
+  let llmsFullCache: { body: string; expiresAt: number } | null = null;
+  app.get('/llms-full.txt', (_req, res) => {
+    if (!llmsFullCache || llmsFullCache.expiresAt < Date.now()) {
+      const featured = featuredStore
+        .listFeatured()
+        .filter((item) => item.reportId && item.slug)
+        .sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0))
+        .slice(0, 400);
+      const entries: LlmsFullEntry[] = [];
+      const seenPairs = new Set<string>();
+      for (const item of featured) {
+        const pairKey = [item.itemA, item.itemB].map((s) => s.toLowerCase().trim()).sort().join('|');
+        if (seenPairs.has(pairKey)) continue;
+        const report = reportStore.getReport(item.reportId as string);
+        if (!report) continue;
+        seenPairs.add(pairKey);
+        const result = report.result as {
+          recommendation?: { short_verdict?: string };
+          dimensions?: Array<{ analysis?: { key_difference?: string } }>;
+        };
+        entries.push({
+          itemA: item.itemA,
+          itemB: item.itemB,
+          slug: item.slug,
+          language: report.language || 'en',
+          shortVerdict: (result.recommendation?.short_verdict || '').trim(),
+          keyFacts: (result.dimensions || [])
+            .map((dimension) => (dimension.analysis?.key_difference || '').trim())
+            .filter(Boolean)
+            .slice(0, 6),
+        });
+      }
+      llmsFullCache = { body: renderLlmsFullTxt({ entries, siteUrl }), expiresAt: Date.now() + 60 * 60 * 1_000 };
+    }
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('text/plain; charset=utf-8').send(llmsFullCache.body);
   });
 
   app.get('/indexnow-key.txt', (_req, res) => {

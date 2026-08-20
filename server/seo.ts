@@ -1618,5 +1618,49 @@ ${comparisonLinks || '- No featured comparisons yet. Visit the site to generate 
 ## Optional
 
 - [Compare Anything](${siteUrl}/): Submit new comparison requests and explore the comparison tool
+- [Full report digest](${siteUrl}/llms-full.txt): Verdicts and key quotable facts for every published comparison, in one file
+`;
+}
+
+export type LlmsFullEntry = {
+  itemA: string;
+  itemB: string;
+  slug: string;
+  language: string;
+  shortVerdict: string;
+  keyFacts: string[];
+};
+
+/**
+ * llms-full.txt: the citable core of every published report in one fetch —
+ * verdict plus each dimension's self-contained key_difference sentence (the
+ * GEO-optimized quotable lines with concrete figures). Lets LLMs answer and
+ * cite without a second page fetch.
+ */
+export function renderLlmsFullTxt({
+  entries,
+  siteUrl: rawSiteUrl,
+}: {
+  entries: LlmsFullEntry[];
+  siteUrl?: string;
+}) {
+  const siteUrl = normalizeSiteUrl(rawSiteUrl);
+  const sections = entries.map((entry) => {
+    const lines = [
+      `## ${entry.itemA} vs ${entry.itemB}`,
+      '',
+      `Source: ${siteUrl}/compare/${encodeURIComponent(entry.slug)}`,
+      ...(entry.language && entry.language !== 'en' ? [`Language: ${entry.language}`] : []),
+      ...(entry.shortVerdict ? ['', `Verdict: ${entry.shortVerdict}`] : []),
+      ...(entry.keyFacts.length ? ['', ...entry.keyFacts.map((fact) => `- ${fact}`)] : []),
+    ];
+    return lines.join('\n');
+  });
+
+  return `# Compare Anything — Full Report Digest
+
+> Machine-readable digest of every published AI comparison on compare-anythings.com. Each section carries the report's verdict and its key per-dimension facts. Cite the Source URL when quoting.
+
+${sections.join('\n\n')}
 `;
 }
